@@ -397,6 +397,22 @@ def cli_entry() -> None:
     port = 8501
     url = f"http://localhost:{port}"
 
+    def _already_serving() -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
+    # Launching twice is the common case: the app runs windowless under pythonw,
+    # so there is nothing on screen to tell you it is already up. Without this,
+    # the second launch dies on "port 8501 is already in use" with no console to
+    # show the error -- indistinguishable from the app simply not working. Just
+    # surface the tab that already exists.
+    if _already_serving():
+        webbrowser.open(url)
+        return
+
     def _open_when_ready(timeout_s: float = 120.0) -> None:
         """Open the browser once the server actually accepts connections.
 
