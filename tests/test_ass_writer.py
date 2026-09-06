@@ -1,4 +1,5 @@
 from heartbeam.ass_writer import render_ass_to_string
+from heartbeam.ass_writer import _build_styles_block
 from heartbeam.style import Style, hex_to_ass_colour, ass_alignment
 from heartbeam.timings import Line, Models, Source, Timings, Word
 
@@ -66,3 +67,26 @@ def test_ass_dialogue_escapes_braces():
     # Curly braces in lyrics text should not appear unescaped (would be parsed as ASS override tags).
     assert "{weird}" not in out.split("[Events]")[1]
     assert "(weird)" in out
+
+
+def test_karaoke_colours_are_mapped_by_meaning_not_by_name():
+    """PrimaryColour must be the *sung* colour, SecondaryColour the unsung one.
+
+    ASS names these the opposite way round from how a reader thinks about them,
+    so a name-to-name mapping renders the karaoke backwards: every line starts
+    gold and turns white as it is sung. Regression test for exactly that.
+    """
+    style = Style.default()
+    style.colour.primary = "#FFFFFF"    # not yet sung
+    style.colour.highlight = "#FFD700"  # sung
+
+    style_line = next(
+        ln for ln in _build_styles_block(style).splitlines()
+        if ln.startswith("Style: ")
+    )
+    fields = style_line[len("Style: "):].split(",")
+    # Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, ...
+    primary_colour, secondary_colour = fields[3], fields[4]
+
+    assert primary_colour == hex_to_ass_colour("#FFD700"), "sung text must use the highlight colour"
+    assert secondary_colour == hex_to_ass_colour("#FFFFFF"), "unsung text must use the primary colour"

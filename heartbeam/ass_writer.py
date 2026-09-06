@@ -38,8 +38,15 @@ def _build_script_info(style: Style) -> str:
 def _build_styles_block(style: Style) -> str:
     bold = -1 if style.font.bold else 0
     italic = -1 if style.font.italic else 0
-    primary = hex_to_ass_colour(style.colour.primary)
-    secondary = hex_to_ass_colour(style.colour.highlight)
+    # ASS inverts the intuitive naming, so map these by MEANING, not by name:
+    # PrimaryColour is the fill a syllable takes AFTER the \k sweep reaches it
+    # (i.e. already sung), and SecondaryColour is its colour before that. Our
+    # style.toml names them from the reader's point of view instead —
+    # 'primary' = not yet sung, 'highlight' = being sung — so the two cross over
+    # here. Assigning them name-to-name renders the karaoke backwards: the line
+    # starts gold and turns white as it is sung.
+    primary = hex_to_ass_colour(style.colour.highlight)
+    secondary = hex_to_ass_colour(style.colour.primary)
     outline = hex_to_ass_colour(style.colour.outline)
     shadow = hex_to_ass_colour(style.colour.shadow)
     alignment = ass_alignment(style.box.position, style.box.alignment)
