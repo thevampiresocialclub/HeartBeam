@@ -263,9 +263,16 @@ def cli_entry() -> None:
     threading.Timer(2.5, lambda: webbrowser.open(url)).start()
     sys.argv = [
         "streamlit", "run", os.path.abspath(__file__),
+        # headless also suppresses the first-run "enter your email" prompt.
         "--server.headless=true",
         f"--server.port={port}",
         "--browser.gatherUsageStats=false",
+        # This is a local single-user tool, not a deployment target. 'minimal'
+        # drops Streamlit's toolbar nags — the "Deploy to Streamlit Community
+        # Cloud" button and the developer rerun/clear-cache menu — and hides the
+        # hamburger entirely once nothing is left in it. Use 'viewer' instead if
+        # you want the Settings/theme menu back without the deploy button.
+        "--client.toolbarMode=minimal",
     ]
     sys.exit(st_main())
 
