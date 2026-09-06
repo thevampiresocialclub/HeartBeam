@@ -149,10 +149,24 @@ This sidesteps two real traps:
 
 ## Usage
 
+> **First: the commands live in the venv, not on your PATH.** A fresh terminal
+> will answer `heartbeam-gui : The term ... is not recognized`. Either activate
+> the venv once per shell:
+>
+> ```powershell
+> cd C:\path\to\HeartBeam
+> .\.venv\Scripts\Activate.ps1     # prompt gains (.venv)
+> ```
+>
+> ...or call the executables by full path (`.\.venv\Scripts\heartbeam-gui.exe`).
+> For a permanent double-click launcher, run `.\scripts\create_shortcut.ps1`
+> once — it puts HeartBeam on your desktop and Start Menu, and those work
+> without any activation.
+
 ### The GUI (easiest)
 
 ```powershell
-heartbeam-gui
+.\.venv\Scripts\heartbeam-gui.exe     # or just `heartbeam-gui` once activated
 ```
 
 Opens a local Streamlit app at <http://localhost:8501>. It covers **both
