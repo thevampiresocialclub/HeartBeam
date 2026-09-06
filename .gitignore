@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+# Personal Claude Code settings (settings.json is shared, .local.json is not)
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+
+# Project
+out/
+out_*/
+models/
+installer/Output/
+*.wav
+*.mp3
+*.mp4
+*.ass
+# keep small fixtures
+!tests/fixtures/*.wav
+!tests/fixtures/*.mp3
+!tests/fixtures/*.txt
+
+# pytest
+.pytest_cache/

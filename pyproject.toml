@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "heartbeam"
+version = "0.1.0"
+description = "Lyrics-aware karaoke generator: strip lead vocals, keep backing vocals, render synced lyric video."
+requires-python = ">=3.10"
+readme = "README.md"
+authors = [{ name = "thevampiresocialclub" }]
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "soundfile>=0.12",
+    "tqdm>=4.66",
+    "rich>=13.7",
+    "tomli>=2.0 ; python_version < '3.11'",
+    "pyloudnorm>=0.1.1",
+]
+
+[project.optional-dependencies]
+# GPU build — the supported configuration. `pip install heartbeam[gpu]`, ~3 GB.
+#
+# IMPORTANT: torch must come from the pytorch.org cu128 index, which the install
+# scripts pass via --index-url. A plain `pip install heartbeam[gpu]` pulls the
+# default PyPI wheels, which are CPU-only — that is why install.ps1/install.sh
+# exist and why you should use them.
+#
+# cu128 is required, not merely preferred: its kernels span sm_61 (GTX 1050)
+# through sm_120 (RTX 50-series / Blackwell). The older cu121 wheels stop at
+# sm_90, so on any RTX 50-series card they fail at runtime with
+# "no kernel image is available for execution on the device".
+gpu = [
+    "torch>=2.7",
+    "torchaudio>=2.7",
+    "torchvision>=0.22",
+    "audio-separator[gpu]>=0.24",
+    "whisperx>=3.1",
+]
+# CPU build — for running the unit tests and importing the engine on a machine
+# without an NVIDIA GPU. NOT supported for real jobs: separation is 20-75 min
+# per song, and `heartbeam` refuses to run without CUDA unless you pass
+# --allow-cpu. See the Hardware section of the README.
+cpu = [
+    "torch>=2.7",
+    "torchaudio>=2.7",
+    "audio-separator>=0.24",
+    "whisperx>=3.1",
+]
+# Back-compat alias for our older docs — same as `cpu`.
+ml = [
+    "torch>=2.7",
+    "torchaudio>=2.7",
+    "audio-separator>=0.24",
+    "whisperx>=3.1",
+]
+gui = [
+    "streamlit>=1.30",
+]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+heartbeam = "heartbeam.cli:main"
+heartbeam-video = "heartbeam.cli_video:main"
+
+[project.gui-scripts]
+# Console-less launcher (uses pythonw.exe on Windows) — double-clickable.
+heartbeam-gui = "heartbeam.gui:cli_entry"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["heartbeam*"]
+
+[tool.setuptools.package-data]
+heartbeam = ["styles/*.toml"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: end-to-end tests that load real ML models (deselect with -m 'not slow')",
+]

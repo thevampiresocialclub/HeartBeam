@@ -1,0 +1,30 @@
+[font]
+family  = "Arial"
+size_px = 72
+bold    = true
+italic  = false
+
+[colour]
+primary   = "#FFFFFF"   # text not yet sung
+highlight = "#FFD700"   # word currently being sung
+outline   = "#000000"
+shadow    = "#000000"
+
+[box]
+position    = "bottom"  # top | center | bottom
+alignment   = "center"  # left | center | right
+margin_v_px = 80
+margin_h_px = 60
+outline_px  = 3
+shadow_px   = 2
+
+[background]
+kind  = "solid"         # solid | image | video
+value = "#101820"
+
+[video]
+resolution    = "1920x1080"
+fps           = 30
+codec         = "libx264"
+crf           = 20
+audio_bitrate = "192k"
