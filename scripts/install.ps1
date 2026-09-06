@@ -3,8 +3,8 @@
 # What this does:
 #   1. Verifies Python 3.10+ and ffmpeg are present (or installs ffmpeg via winget).
 #   2. Creates a venv at <install-dir>\.venv (default: %LOCALAPPDATA%\HeartBeam\.venv).
-#   3. pip-installs heartbeam[cpu] (or [gpu] if -Gpu is passed). cu121 GPU build
-#      pulls torch from pytorch.org's index; CPU build uses PyPI defaults.
+#   3. pip-installs heartbeam[cpu,gui] (or [gpu,gui]). The GPU build pulls torch
+#      from pytorch.org's cu128 index; CPU build uses PyPI defaults.
 #   4. Optionally runs scripts\install_metal_model.py for the metal preset (~2 GB).
 #   5. Verifies `heartbeam --help` works.
 #

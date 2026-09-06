@@ -21,13 +21,21 @@ cd C:\Users\young\tools\SOFA
 py -3.10 -m venv .venv-sofa
 .\.venv-sofa\Scripts\Activate.ps1
 pip install --upgrade pip
-# Install torch + torchaudio matched to your CUDA. cu121 wheels:
+# Install torch + torchaudio matched to your CUDA.
 pip install --index-url https://download.pytorch.org/whl/cu121 torch==2.4.1+cu121 torchaudio==2.4.1+cu121
 pip install -r requirements.txt
 deactivate
 ```
 
 If Python 3.10 isn't installed: `winget install Python.Python.3.10`.
+
+> **RTX 50-series (Blackwell) warning.** The `torch==2.4.1+cu121` pin above has
+> no kernels for `sm_120` and will fail with *"no kernel image is available for
+> execution on the device"*. You need cu128 wheels (`torch>=2.7`) instead —
+> but SOFA pins old numpy / pandas / librosa, so that combination is untested
+> and may not resolve. Run SOFA on the CPU, or treat this path as unverified on
+> 50-series hardware. This is the sidecar venv only; it does not affect
+> HeartBeam's main environment.
 
 ## 3. Download a checkpoint + dictionary
 

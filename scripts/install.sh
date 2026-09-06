@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./install.sh                  # CPU build (default), ~700 MB
-#   ./install.sh --gpu            # GPU build with CUDA cu121 wheels, ~3 GB
+#   ./install.sh --gpu            # GPU build with CUDA cu128 wheels, ~3 GB
 #   ./install.sh --install-metal  # also download Mesk Rifforge (~2 GB)
 #   ./install.sh --install-dir ~/heartbeam  # custom location (default: ~/.heartbeam)
 

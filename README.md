@@ -13,10 +13,13 @@ Re-running Phase 2 with a different style does not re-run the slow ML pipeline.
 
 ## Install
 
-Two install variants, **selected automatically** by probing for an NVIDIA GPU:
+**HeartBeam targets NVIDIA GPUs — GTX 1050 / RTX xx50 and up.** The install
+scripts probe for one automatically:
 
-- **CPU** (~700 MB on disk): works on any machine. See [Hardware](#hardware--what-to-expect) for timings.
-- **GPU** (~3 GB on disk): NVIDIA CUDA 12.1+. Separation in seconds.
+- **GPU** (~3 GB on disk): the supported build. A song takes 1–4 minutes.
+- **CPU** (~700 MB): for running the tests, or a run you're willing to wait
+  20–75 minutes for. `heartbeam` refuses to start without CUDA unless you pass
+  `--allow-cpu`. See [Hardware](#hardware--what-to-expect).
 
 ### Recommended: one-line install script
 
@@ -26,7 +29,7 @@ git clone <this repo>
 cd HeartBeam
 .\scripts\install.ps1                  # auto-detects NVIDIA -> GPU, else CPU
 # or force one:
-.\scripts\install.ps1 -Variant GPU     # GPU build (cu121 wheels from pytorch.org)
+.\scripts\install.ps1 -Variant GPU     # GPU build (cu128 wheels from pytorch.org)
 .\scripts\install.ps1 -Variant CPU
 .\scripts\install.ps1 -InstallMetal    # also download Mesk Rifforge (~2 GB)
 ```
@@ -59,21 +62,36 @@ pip install -e ".[cpu]"        # or .[gpu] for CUDA build
 
 For GPU, also do:
 ```powershell
-pip install --index-url https://download.pytorch.org/whl/cu121 torch torchaudio torchvision
+pip install --index-url https://download.pytorch.org/whl/cu128 torch torchaudio torchvision
 ```
 (else you'll get CPU torch wheels.)
 
 ### Requirements
 
 1. **Python 3.10+**
-2. **ffmpeg with libass.** Auto-installed by `install.ps1` / `install.sh`. Manual: on Windows install [Gyan.FFmpeg](https://www.gyan.dev/ffmpeg/builds/) full build via winget; on macOS `brew install ffmpeg`; on Ubuntu `sudo apt install ffmpeg`. Verify with `ffmpeg -filters | grep ass`.
-3. **GPU optional** but strongly recommended. CUDA on NVIDIA, MPS on Apple Silicon. 4 GB VRAM is enough; use `--align-device cpu` to keep WhisperX off the GPU on tight VRAM cards.
+2. **ffmpeg with libass.** Auto-installed by `install.ps1` / `install.sh`. Manual: on Windows install [Gyan.FFmpeg](https://www.gyan.dev/ffmpeg/builds/) full build via winget; on macOS `brew install ffmpeg`; on Ubuntu `sudo apt install ffmpeg`. Verify with `ffmpeg -filters | grep ass`. **Not optional** — it decodes the input file, not just the video render.
+3. **NVIDIA GPU**, GTX 1050 / RTX xx50 and up, with a driver new enough for CUDA 12.8. 4 GB VRAM works; alignment moves to the CPU automatically below 6 GB.
 
 Model checkpoints (~500 MB for `pop`, ~3 GB for `rock`, +2 GB for `metal`) are downloaded by audio-separator on first use of each preset.
 
 ---
 
 ## Hardware — what to expect
+
+**Supported: NVIDIA, GTX 1050 / RTX xx50 and up.** The GPU build installs torch
+from the **cu128** index, whose kernels span `sm_61` (GTX 1050) through `sm_120`
+(RTX 50-series / Blackwell).
+
+> Do not "fix" this back to cu121. Those wheels stop at `sm_90`, so on any
+> RTX 50-series card every CUDA call dies with *"no kernel image is available
+> for execution on the device"*. `heartbeam` preflights the installed torch
+> against your card's compute capability and refuses to start on a mismatch,
+> rather than failing 40 minutes into a run.
+
+Cards in the 4–6 GB range (RTX 3050 laptop, 4050) are supported, but the
+separator's model is still resident when WhisperX loads its own. HeartBeam
+detects this and moves alignment to the CPU automatically — it costs well under
+a minute. Override with `--align-device cuda`.
 
 Only **CUDA** accelerates this pipeline. That is not a design choice; it is the
 state of the two libraries doing the heavy lifting:
@@ -85,27 +103,21 @@ state of the two libraries doing the heavy lifting:
   (`ComplexFloat` is unsupported), and Demucs fails outright. It has no
   `torch.xpu` support at all.
 
-So an AMD or Intel GPU (including Arc / Core Ultra iGPUs) gets you the CPU path,
-and the install scripts correctly choose the CPU build for those machines.
+So an AMD or Intel GPU — including Arc and Core Ultra iGPUs — gets you the CPU
+path, not acceleration. There is currently no route around this short of
+replacing both libraries.
 
 Rough wall-clock for a 4-minute song:
 
 | Machine | `pop` | `rock` |
 |---|---|---|
-| NVIDIA GPU (any recent) | ~1–2 min | ~2–4 min |
-| Modern 8-core laptop CPU | ~20–30 min | ~45–75 min |
+| RTX 5070 (measured) | ~80 s | ~2–4 min |
+| Modern 8-core CPU | ~20–30 min | ~45–75 min |
 
-Levers that help on CPU, in order of payoff:
-
-```powershell
-heartbeam song.mp3 lyrics.txt --separator pop --whisper-model small --align-device cpu
-$env:OMP_NUM_THREADS = "8"    # match your physical core count
-```
-
-Dropping `--whisper-model` from `medium` to `small` is close to free: the
-transcript is only used to anchor your *known* lyrics to the timeline, so its
-word-error rate barely matters (`small.en` and `medium.en` are both 3.1% WER on
-LibriSpeech test-clean).
+If you do run on CPU, `--whisper-model small` is close to free: the transcript
+only anchors your *known* lyrics to the timeline, so its word-error rate barely
+matters (`small.en` and `medium.en` are both 3.1% WER on LibriSpeech
+test-clean). Setting `OMP_NUM_THREADS` to your physical core count helps too.
 
 ### Moving models between machines
 
