@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,73 @@ _MILESTONES: list[tuple[re.Pattern, float, str]] = [
 ]
 
 
+def _find_exe(name: str) -> str:
+    """Locate a heartbeam console script.
+
+    Falls back to the venv hosting THIS process, since the GUI runs inside it
+    and its Scripts/ dir is not necessarily on PATH (Start Menu shortcuts do not
+    activate the venv).
+    """
+    exe = shutil.which(name) or shutil.which(f"{name}.exe")
+    if exe is None:
+        exe = str(Path(sys.executable).with_name(f"{name}.exe"))
+    return exe
+
+
+def _write_style_toml(path: Path, *, font_size: int, text_colour: str,
+                      highlight_colour: str, position: str, resolution: str,
+                      background_kind: str, background_value: str) -> None:
+    """Serialise the video controls into a style.toml heartbeam-video can read.
+
+    Only the fields the GUI exposes are written; Style.from_toml fills the rest
+    from its dataclass defaults, so a partial file is valid.
+    """
+    path.write_text(
+        f'''[font]
+size_px = {font_size}
+bold    = true
+
+[colour]
+primary   = "{text_colour}"
+highlight = "{highlight_colour}"
+
+[box]
+position = "{position}"
+
+[background]
+kind  = "{background_kind}"
+value = "{background_value}"
+
+[video]
+resolution = "{resolution}"
+''',
+        encoding="utf-8",
+    )
+
+
+def _render_video(out_dir: Path, style_path: Path, log_lines: list[str]) -> tuple[int, Path]:
+    """Run Phase 2. Synchronous: rendering is seconds, not minutes.
+
+    Phase 1 needs the background-thread-and-poll dance because it runs for tens
+    of minutes; ffmpeg burning subtitles onto a solid background does not.
+    """
+    video_path = out_dir / "karaoke.mp4"
+    cmd = [
+        _find_exe("heartbeam-video"),
+        str(out_dir / "karaoke.mp3"),
+        str(out_dir / "timings.json"),
+        "-o", str(video_path),
+        "--style", str(style_path),
+    ]
+    log_lines.append(f"$ {' '.join(cmd)}\n")
+    proc = subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+    )
+    log_lines.append(proc.stdout or "")
+    return proc.returncode, video_path
+
+
 def _run_heartbeam(
     song: Path, lyrics: Path, out_dir: Path,
     separator: str,
@@ -50,10 +118,7 @@ def _run_heartbeam(
     log_lines: list[str], status_state: dict,
 ) -> int:
     """Subprocess heartbeam.exe, stream output into log_lines, update status_state."""
-    exe = shutil.which("heartbeam") or shutil.which("heartbeam.exe")
-    if exe is None:
-        # Fall back to the venv hosting THIS process (since gui runs inside it).
-        exe = str(Path(sys.executable).with_name("heartbeam.exe"))
+    exe = _find_exe("heartbeam")
     cmd = [
         exe,
         str(song), str(lyrics),
@@ -249,6 +314,77 @@ def main() -> None:
                         )
 
 
+        # --- Step 2: karaoke video ---
+        st.divider()
+        st.subheader("Karaoke video")
+        st.caption(
+            "Renders in seconds — the slow ML work is already done, so you can "
+            "restyle as often as you like without re-running the separation."
+        )
+
+        vcols = st.columns(2)
+        with vcols[0]:
+            bg_kind = st.selectbox("Background", ["solid", "image", "video"], index=0)
+            bg_value = ""
+            if bg_kind == "solid":
+                bg_value = st.color_picker("Background colour", "#101820")
+            else:
+                bg_up = st.file_uploader(
+                    f"Background {bg_kind}",
+                    type=["png", "jpg", "jpeg"] if bg_kind == "image"
+                    else ["mp4", "mov", "mkv", "webm"],
+                    key="bg_upload",
+                )
+                if bg_up is not None:
+                    bg_path = out_dir / f"background_{bg_up.name}"
+                    bg_path.write_bytes(bg_up.getbuffer())
+                    bg_value = str(bg_path)
+            resolution = st.selectbox(
+                "Resolution", ["1920x1080", "1280x720", "3840x2160"], index=0
+            )
+        with vcols[1]:
+            text_colour = st.color_picker("Text (not yet sung)", "#FFFFFF")
+            highlight_colour = st.color_picker("Highlight (being sung)", "#FFD700")
+            font_size = st.slider("Font size (px)", 32, 140, 72, step=4)
+            position = st.selectbox("Position", ["bottom", "center", "top"], index=0)
+
+        video_path = out_dir / "karaoke.mp4"
+        can_render = bg_kind == "solid" or bool(bg_value)
+        if not can_render:
+            st.info(f"Upload a background {bg_kind}, or switch back to a solid colour.")
+
+        if st.button("Render video", type="primary", disabled=not can_render):
+            style_path = out_dir / "style.toml"
+            _write_style_toml(
+                style_path,
+                font_size=font_size,
+                text_colour=text_colour,
+                highlight_colour=highlight_colour,
+                position=position,
+                resolution=resolution,
+                background_kind=bg_kind,
+                background_value=bg_value or "#101820",
+            )
+            with st.spinner("Rendering with ffmpeg + libass…"):
+                rc, video_path = _render_video(
+                    out_dir, style_path, st.session_state.log_lines
+                )
+            if rc != 0:
+                st.error(f"heartbeam-video exited with code {rc}.")
+                st.code("".join(st.session_state.log_lines[-40:]), language="text")
+
+        if video_path.exists():
+            st.video(str(video_path))
+            with open(video_path, "rb") as f:
+                st.download_button(
+                    "Download karaoke.mp4",
+                    data=f.read(),
+                    file_name="karaoke.mp4",
+                    mime="video/mp4",
+                    key="dl_video",
+                )
+
+
 def cli_entry() -> None:
     """Entry point: `heartbeam-gui` from pyproject.toml's [project.scripts].
 
@@ -257,10 +393,28 @@ def cli_entry() -> None:
     """
     import webbrowser
     from streamlit.web.cli import main as st_main
-    # Open browser shortly after server starts.
-    port = "8501"
+
+    port = 8501
     url = f"http://localhost:{port}"
-    threading.Timer(2.5, lambda: webbrowser.open(url)).start()
+
+    def _open_when_ready(timeout_s: float = 120.0) -> None:
+        """Open the browser once the server actually accepts connections.
+
+        A fixed delay races the server: on a cold start this process still has
+        to import torch (via heartbeam.models), which can take far longer than
+        any constant worth hardcoding, and the user lands on a connection error
+        and assumes the app is broken.
+        """
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+                    break
+            except OSError:
+                time.sleep(0.25)
+        webbrowser.open(url)
+
+    threading.Thread(target=_open_when_ready, daemon=True).start()
     sys.argv = [
         "streamlit", "run", os.path.abspath(__file__),
         # headless also suppresses the first-run "enter your email" prompt.

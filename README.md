@@ -155,12 +155,22 @@ This sidesteps two real traps:
 heartbeam-gui
 ```
 
-Opens a local Streamlit app at <http://localhost:8501>: drop in a song and a
-lyrics file, pick a genre profile, watch a progress bar, play and download the
-result. Advanced tuning knobs are behind an expander. The Windows installer
-creates Start Menu and desktop shortcuts pointing at this.
+Opens a local Streamlit app at <http://localhost:8501>. It covers **both
+phases**:
 
-It shells out to the same `heartbeam` CLI, so anything below applies equally.
+1. Drop in a song and a lyrics file, pick a genre profile, watch a progress bar,
+   then play and download `karaoke.mp3`. Advanced mask/mix knobs sit behind an
+   expander.
+2. Then, in **Karaoke video**, choose a background (solid colour, image, or
+   video), resolution, font size, position, and the two karaoke colours — hit
+   **Render video** and the MP4 plays inline, ready to download.
+
+Because Phase 2 is only ffmpeg, restyling takes seconds and never re-runs the
+slow ML. The Windows installer creates Start Menu and desktop shortcuts pointing
+at this.
+
+It shells out to the same `heartbeam` and `heartbeam-video` CLIs, so anything
+below applies equally.
 
 ### Phase 1: strip lead vocals + emit timings
 
