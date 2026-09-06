@@ -7,14 +7,21 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | Project | Status |
 |---|---|
 | P01.1 Baseline repair | **Verified** |
-| P01.2 Project store | Not started |
+| P01.2 Project store | **Verified** |
 | P01.3 Lossless artifacts | Not started |
-| P01.4 Visible project workflow | Not started |
+| P01.4 Visible project workflow | **Verified** |
 | P02-P07 | Not started |
 
-**P01 as a whole is NOT complete.** Only its first phase is done. The saved-project
-format, the lossless audio cache and the Open/Save workflow are still absent, so
-the GUI still cannot reopen yesterday's song.
+**P01 is NOT complete: P01.3 remains.** The project format and the visible
+Open/Save workflow are done, so the GUI can now reopen yesterday's song and
+restyle it without rerunning separation. The lossless audio cache is still
+missing, which is what P04's section vocal mixer will need.
+
+**Phases were completed in the order P01.1, P01.2, P01.4, P01.3.** P01.4 was
+brought forward because its acceptance criterion -- reopen a song without
+repeating separation -- depends only on the P01.2 store plus the already-persisted
+karaoke MP3, not on the lossless cache. Doing it earlier put a working
+save/reopen loop in front of the user sooner. P01.3 is unaffected by the swap.
 
 ---
 
@@ -107,18 +114,85 @@ No schema change, no migration, no new dependency.
 
 ---
 
-## Next: P01.2 - define and implement the project store
+## P01.2 - Saved-project store: VERIFIED
 
-Prerequisites met. Read `08-SHARED-CONTRACT.md` section 1 before starting.
+`heartbeam/project.py`, stdlib-only (28 ms import, no streamlit/torch), so the
+CLI, GUI and tests share one store and opening a project never pays an ML import.
 
-Outstanding for P01 completion:
+Three decisions carry the design:
 
-- P01.2 versioned project schema, atomic save, Save As, reopen, missing-asset
-  relinking, autosave recovery, legacy `timings.json` importer.
-- P01.3 persist original PCM, stems and an unnormalized clean reference with
-  hashes and provenance; invalidate dependent caches on mismatch.
-- P01.4 New/Open/Save/Save As in the GUI; enter with an existing
-  instrumental/timing pair without rerunning separation.
+- **Stable generated IDs** for sections, lines and words. Text, ordinal position
+  and text hashes are not identities -- repeated choruses and duplicate words are
+  normal -- so timing and vocal regions reference IDs that survive insertion,
+  deletion and re-wrapping.
+- **One place resolves timing.** `effective_timing()` is the only code that
+  decides whether a user edit or the aligner's immutable proposal wins, so no
+  third copy of "current" timing can drift.
+- **Integer milliseconds** throughout, converted once at the importer boundary
+  (round half away from zero).
+
+Implemented: create, atomic save, load, Save As, autosave snapshots with
+recovery, asset add/relink, missing-asset detection, legacy import. Saves write a
+sibling temp file then `os.replace`, so an interrupted save leaves the previous
+manifest intact.
+
+Unresolved words keep absent times plus a review reason rather than invented
+values; non-sung tokens are excluded from review.
+
+Validation: 28 tests in `tests/test_project_store.py` covering every P01.2
+acceptance criterion, including an interrupted save leaving the last good
+manifest with no temp files behind, autosave recovery skipping a truncated newest
+snapshot, a moved project with relative assets still opening, relink preserving
+the asset ID, and legacy import leaving the user's files byte-identical.
+
+---
+
+## P01.4 - Visible project workflow: VERIFIED
+
+Sidebar with project name, revision, saved/unsaved state, missing-asset warnings
+with per-asset relink fields, Save, Close, Save As, Open, and an "Import existing
+timings + audio" panel for entering a song without rerunning separation.
+
+A completed generation run is now adopted into a saved project automatically.
+Until this existed, closing the browser lost the only reference to a 45-minute
+separation.
+
+The results and video sections now resolve their media from either this session's
+run or an opened project. `_render_video` takes explicit audio and timings paths
+because the two sources no longer share a directory: a run keeps both in its
+output folder, a project stores audio under `audio/` and the imported timings
+under `assets/`. Project renders land in `exports/`.
+
+Two UI fixes found while testing: sidebar buttons no longer appear mid-keystroke
+(they render always and validate on click), and opening or importing now triggers
+a rerun so the sidebar reflects the loaded project immediately instead of lagging
+one interaction behind.
+
+Validation: 8 tests in `tests/test_gui_project_workflow.py` driving the real
+Streamlit script through `AppTest`. The acceptance test opens a project in a
+session with no run history and asserts the video controls are reachable, the
+timing came from the saved project, and `out_dir` is still None. A media-marked
+test renders an MP4 from that opened project and probes its duration.
+
+### Not verified
+
+- No human has clicked through the sidebar in a browser; coverage is AppTest.
+- Save As, relink and Close were exercised through tests, not manual use.
+- Concurrent editing of one project by two sessions is not handled at all
+  (contract section 4 requires detection; deferred with P02).
+
+---
+
+## Next: P01.3 - retain lossless processing artifacts
+
+
+Prerequisites met. Read `08-SHARED-CONTRACT.md` sections 6 and 8 before starting.
+
+The only phase left in P01: persist original PCM, separated stems and an
+unnormalized/unclipped processed reference on a common sample basis, with audio
+hashes, sample rate, channels, sample count, model identities and settings
+recorded. A mismatch must invalidate dependent caches rather than silently
+reusing them, and interrupted jobs must not masquerade as valid caches.
 
 Note for P01.3: `separate.py` currently discards stems into a `TemporaryDirectory`
 unless `--keep-stems` is passed, and the mix path normalizes and encodes to MP3

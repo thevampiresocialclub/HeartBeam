@@ -11,6 +11,7 @@ That opens http://localhost:8501 in your browser.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -24,6 +25,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from heartbeam import project as prj
 from heartbeam.models import PRESETS, PRIMARY_PRESETS, resolve_default
 from heartbeam.style import toml_string
 
@@ -98,17 +100,23 @@ resolution = {resolution_t}
     )
 
 
-def _render_video(out_dir: Path, style_path: Path, log_lines: list[str]) -> tuple[int, Path]:
+def _render_video(audio_path: Path, timings_path: Path, out_dir: Path,
+                  style_path: Path, log_lines: list[str]) -> tuple[int, Path]:
     """Run Phase 2. Synchronous: rendering is seconds, not minutes.
 
     Phase 1 needs the background-thread-and-poll dance because it runs for tens
     of minutes; ffmpeg burning subtitles onto a solid background does not.
+
+    The media paths are explicit because they no longer share a directory: a
+    generation run keeps both in its output folder, while an opened project
+    stores audio under audio/ and the imported timings under assets/.
     """
+    out_dir.mkdir(parents=True, exist_ok=True)
     video_path = out_dir / "karaoke.mp4"
     cmd = [
         _find_exe("heartbeam-video"),
-        str(out_dir / "karaoke.mp3"),
-        str(out_dir / "timings.json"),
+        str(audio_path),
+        str(timings_path),
         "-o", str(video_path),
         "--style", str(style_path),
     ]
@@ -203,6 +211,217 @@ def _format_preset_summary(name: str) -> str:
     return "\n".join(bits)
 
 
+def _project_snapshot(project) -> str:
+    """Comparable form of a project, ignoring fields that move on every save.
+
+    Used only to decide whether to show "unsaved changes"; revision and
+    modified_at advance on save and would make everything look permanently dirty.
+    """
+    d = project.to_dict()
+    d.pop("modified_at", None)
+    d.pop("revision", None)
+    return json.dumps(d, sort_keys=True)
+
+
+def _mark_saved(project) -> None:
+    st.session_state.project_saved_snapshot = _project_snapshot(project)
+
+
+def _is_dirty() -> bool:
+    project = st.session_state.get("project")
+    if project is None:
+        return False
+    return _project_snapshot(project) != st.session_state.get("project_saved_snapshot")
+
+
+def _open_project(path: Path) -> tuple[bool, str]:
+    """Load a project folder into session state. Returns (ok, message).
+
+    A corrupt manifest falls back to the newest parseable autosave rather than
+    failing outright: losing the last save is annoying, losing the song is not
+    acceptable.
+    """
+    try:
+        project = prj.load_project(path)
+    except prj.ProjectError as exc:
+        recovered = prj.recover_latest_autosave(path)
+        if recovered is None:
+            return False, f"Could not open: {exc}"
+        st.session_state.project = recovered
+        st.session_state.project_dir = path
+        _mark_saved(recovered)
+        return True, (
+            f"{exc}. Recovered revision {recovered.revision} from autosave - "
+            "save to make that recovery permanent."
+        )
+    st.session_state.project = project
+    st.session_state.project_dir = path
+    _mark_saved(project)
+    return True, f"Opened '{project.name}' (revision {project.revision})"
+
+
+def _project_media(project, project_dir: Path):
+    """Resolve the karaoke audio and timings a project can render from.
+
+    This is what lets an opened project reach the video controls without
+    rerunning separation: both files are already on disk from the original run.
+    """
+    audio = None
+    asset = project.asset_by_role("karaoke_audio")
+    if asset is not None:
+        candidate = asset.resolve(project_dir)
+        if candidate.exists():
+            audio = candidate
+    timings = None
+    if project.imported_timings_path:
+        candidate = project_dir / project.imported_timings_path
+        if candidate.exists():
+            timings = candidate
+    return audio, timings
+
+
+def _adopt_run_into_project(out_dir: Path, song_name: str) -> None:
+    """Turn a finished generation run into a saved project.
+
+    Imports the run's own timings.json rather than re-deriving it, so the
+    aligner's proposal is preserved verbatim as the immutable original.
+    """
+    timings_json = out_dir / "timings.json"
+    karaoke = out_dir / "karaoke.mp3"
+    if not timings_json.exists() or not karaoke.exists():
+        return
+    project_dir = out_dir / "project"
+    try:
+        project = prj.import_legacy_timings(
+            project_dir, timings_json, karaoke,
+            name=song_name or "Untitled song", audio_role="karaoke_audio",
+        )
+    except prj.ProjectError as exc:
+        st.session_state.project_message = f"Could not create project: {exc}"
+        return
+    st.session_state.project = project
+    st.session_state.project_dir = project_dir
+    _mark_saved(project)
+
+
+def _render_missing_assets(project, project_dir: Path) -> None:
+    missing = prj.missing_assets(project, project_dir)
+    if not missing:
+        return
+    st.warning("Missing files: " + ", ".join(
+        f"{a.role} ({Path(a.path).name})" for a in missing))
+    for a in missing:
+        new_path = st.text_input(
+            f"Relink {a.role}", key=f"relink_{a.id}",
+            placeholder="full path to the file",
+        )
+        if st.button("Relink", key=f"relink_btn_{a.id}"):
+            try:
+                if not new_path:
+                    raise prj.ProjectError("Enter the full path to the file first.")
+                prj.relink_asset(project, project_dir, a.id, new_path)
+                st.success("Relinked.")
+            except prj.ProjectError as exc:
+                st.error(str(exc))
+
+
+def _project_controls() -> None:
+    """Sidebar: New / Open / Save / Save As, plus state and missing assets."""
+    with st.sidebar:
+        st.subheader("Project")
+        project = st.session_state.get("project")
+        project_dir = st.session_state.get("project_dir")
+
+        if project is None:
+            st.caption(
+                "No project open. Generate a song below, or open an existing "
+                "project folder."
+            )
+        else:
+            state = "unsaved changes" if _is_dirty() else "saved"
+            st.markdown(f"**{project.name}**")
+            st.caption(f"revision {project.revision} - {state}")
+            st.caption(str(project_dir))
+            _render_missing_assets(project, project_dir)
+
+            cols = st.columns(2)
+            with cols[0]:
+                if st.button("Save", key="save_project"):
+                    prj.save_project(project, project_dir)
+                    _mark_saved(project)
+                    st.success(f"Saved revision {project.revision}")
+            with cols[1]:
+                if st.button("Close", key="close_project"):
+                    st.session_state.project = None
+                    st.session_state.project_dir = None
+
+            save_as = st.text_input(
+                "Save As (new folder)", key="save_as_path",
+                placeholder="full path to a new folder",
+            )
+            if st.button("Save a copy", key="save_as_btn"):
+                if not save_as:
+                    st.error("Enter a destination folder first.")
+                try:
+                    if not save_as:
+                        raise OSError("no destination folder given")
+                    copy = prj.save_project_as(project, Path(save_as), src_dir=project_dir)
+                    st.session_state.project = copy
+                    st.session_state.project_dir = Path(save_as)
+                    _mark_saved(copy)
+                    st.success(f"Saved a copy to {save_as}")
+                except OSError as exc:
+                    st.error(f"Could not save a copy: {exc}")
+
+        st.divider()
+        open_path = st.text_input(
+            "Open project folder", key="open_project_path",
+            placeholder="full path to a project folder",
+        )
+        # The button always renders and validates on click. Gating it on the
+        # text field makes it appear mid-keystroke and is impossible to drive
+        # from a test.
+        if st.button("Open", key="open_project_btn"):
+            if not open_path:
+                st.error("Enter the path to a project folder first.")
+            else:
+                ok, message = _open_project(Path(open_path))
+                if ok:
+                    # Rerun so the sidebar redraws with the project's name,
+                    # revision and any missing assets. Without this the panel
+                    # lags one interaction behind what is actually loaded.
+                    st.session_state.project_message = message
+                    st.rerun()
+                else:
+                    st.error(message)
+
+        with st.expander("Import existing timings + audio"):
+            st.caption("Enter an existing song without rerunning separation.")
+            t_path = st.text_input("timings.json", key="import_timings")
+            a_path = st.text_input("karaoke audio (optional)", key="import_audio")
+            d_path = st.text_input("new project folder", key="import_dest")
+            if st.button("Import", key="import_btn"):
+                if not t_path or not d_path:
+                    st.error("A timings.json and a destination folder are required.")
+                else:
+                    try:
+                        imported = prj.import_legacy_timings(
+                            Path(d_path), Path(t_path),
+                            Path(a_path) if a_path else None,
+                        )
+                        st.session_state.project = imported
+                        st.session_state.project_dir = Path(d_path)
+                        _mark_saved(imported)
+                        st.session_state.project_message = f"Imported '{imported.name}'"
+                        st.rerun()
+                    except prj.ProjectError as exc:
+                        st.error(str(exc))
+
+        message = st.session_state.pop("project_message", None)
+        if message:
+            st.info(message)
+
+
 def main() -> None:
     st.set_page_config(page_title="HeartBeam", page_icon=":microphone:", layout="centered")
     st.title("HeartBeam")
@@ -213,6 +432,11 @@ def main() -> None:
         st.session_state.status = {"progress": 0.0, "label": "Idle", "done": False, "returncode": None}
         st.session_state.out_dir = None
         st.session_state.running = False
+        st.session_state.project = None
+        st.session_state.project_dir = None
+        st.session_state.project_saved_snapshot = None
+
+    _project_controls()
 
     # --- Inputs ---
     song_up = st.file_uploader("Song (mp3 / wav / flac / ogg)", type=["mp3", "wav", "flac", "ogg", "m4a"])
@@ -310,7 +534,13 @@ def main() -> None:
         if status["done"]:
             st.session_state.running = False
             if status["returncode"] == 0:
-                st.success("Karaoke ready.")
+                # Persist the run immediately. Until this exists, closing the
+                # browser loses the reference to a 45-minute separation.
+                _adopt_run_into_project(
+                    st.session_state.out_dir,
+                    st.session_state.get("song_name", "") or "Untitled song",
+                )
+                st.success("Karaoke ready - saved as a project.")
             else:
                 st.error(f"heartbeam exited with code {status['returncode']}. See log above.")
             st.rerun()
@@ -318,14 +548,30 @@ def main() -> None:
             time.sleep(1.0)
             st.rerun()
 
-    # --- Results (after a completed run) ---
-    if (not st.session_state.running
-            and st.session_state.out_dir is not None
-            and (st.session_state.out_dir / "karaoke.mp3").exists()):
-        out_dir: Path = st.session_state.out_dir  # type: ignore[assignment]
+    # --- Results (from this session's run, or from an opened project) ---
+    # Resolving the media from either source is what fulfils P01.4: an existing
+    # song reaches the video controls without rerunning separation.
+    karaoke_path: Path | None = None
+    timings_path: Path | None = None
+    work_dir: Path | None = None
+    if not st.session_state.running:
+        run_dir = st.session_state.out_dir
+        if run_dir is not None and (run_dir / "karaoke.mp3").exists():
+            karaoke_path = run_dir / "karaoke.mp3"
+            timings_path = run_dir / "timings.json"
+            work_dir = run_dir
+        elif st.session_state.get("project") is not None:
+            audio, timings = _project_media(
+                st.session_state.project, st.session_state.project_dir)
+            if audio is not None and timings is not None:
+                karaoke_path = audio
+                timings_path = timings
+                work_dir = st.session_state.project_dir / prj.EXPORTS_DIR
+
+    if karaoke_path is not None and work_dir is not None:
+        out_dir: Path = work_dir
         st.divider()
         st.subheader("Result")
-        karaoke_path = out_dir / "karaoke.mp3"
         st.audio(str(karaoke_path))
         with open(karaoke_path, "rb") as f:
             st.download_button(
@@ -337,7 +583,7 @@ def main() -> None:
         with st.expander("Other outputs (timings, stems)"):
             for name in ["timings.json", "lyrics.lrc", "stems/lead.wav",
                          "stems/backing.wav", "stems/instrumental.wav"]:
-                p = out_dir / name
+                p = karaoke_path.parent / name
                 if p.exists():
                     with open(p, "rb") as f:
                         st.download_button(
@@ -389,6 +635,7 @@ def main() -> None:
             st.info(f"Upload a background {bg_kind}, or switch back to a solid colour.")
 
         if st.button("Render video", type="primary", disabled=not can_render):
+            out_dir.mkdir(parents=True, exist_ok=True)
             style_path = out_dir / "style.toml"
             _write_style_toml(
                 style_path,
@@ -402,7 +649,8 @@ def main() -> None:
             )
             with st.spinner("Rendering with ffmpeg + libass…"):
                 rc, video_path = _render_video(
-                    out_dir, style_path, st.session_state.log_lines
+                    karaoke_path, timings_path, out_dir, style_path,
+                    st.session_state.log_lines,
                 )
             if rc != 0:
                 st.error(f"heartbeam-video exited with code {rc}.")
