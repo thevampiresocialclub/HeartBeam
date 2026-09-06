@@ -81,4 +81,5 @@ heartbeam = ["styles/*.toml"]
 [tool.pytest.ini_options]
 markers = [
     "slow: end-to-end tests that load real ML models (deselect with -m 'not slow')",
+    "media: renders real audio/video with ffmpeg; needs ffmpeg+ffprobe on PATH",
 ]

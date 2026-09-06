@@ -85,6 +85,46 @@ class Style:
         return cls()
 
 
+def toml_escape(value: str) -> str:
+    """Escape a Python string into a TOML basic string BODY (no surrounding quotes).
+
+    Windows paths are the reason this exists. Interpolating one straight into a
+    double-quoted TOML string makes the parser read its backslashes as escape
+    sequences: "C:\\Users\\..." fails outright, because \\U starts a
+    unicode escape and "Users" is not valid hex. Worse are the ones that parse:
+    "C:\\temp" silently becomes "C:<TAB>emp" via \\t.
+
+    Handles the TOML 1.0 basic-string escapes plus \\uXXXX for other control
+    characters. Anything not requiring an escape passes through unchanged.
+    """
+    out = []
+    for ch in value:
+        if ch == chr(92):
+            out.append(chr(92) * 2)
+        elif ch == '"':
+            out.append(chr(92) + '"')
+        elif ch == chr(8):
+            out.append(chr(92) + "b")
+        elif ch == chr(9):
+            out.append(chr(92) + "t")
+        elif ch == chr(10):
+            out.append(chr(92) + "n")
+        elif ch == chr(12):
+            out.append(chr(92) + "f")
+        elif ch == chr(13):
+            out.append(chr(92) + "r")
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            out.append(chr(92) + "u%04X" % ord(ch))
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def toml_string(value: str) -> str:
+    """Quote and escape a value as a complete TOML basic string."""
+    return '"' + toml_escape(value) + '"'
+
+
 def hex_to_ass_colour(hex_str: str) -> str:
     """
     ASS uses &HAABBGGRR& byte order with optional alpha. We assume opaque (AA=00).

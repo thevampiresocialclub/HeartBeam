@@ -110,11 +110,21 @@ def render(
 
     cmd += [
         "-vf", vf,
+        # Choose streams explicitly. Without -map, ffmpeg picks automatically:
+        # it takes the "best" audio across ALL inputs, so a background video
+        # carrying its own soundtrack silently replaces the karaoke audio in the
+        # export. Input 0 is always the background, input 1 always the karaoke
+        # audio. https://ffmpeg.org/ffmpeg.html#Stream-selection
+        "-map", "0:v:0",
+        "-map", "1:a:0",
         "-c:v", style.video.codec,
         "-crf", str(style.video.crf),
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", style.video.audio_bitrate,
+        # Bound the render to the song. The image and video backgrounds are
+        # looped indefinitely (-loop 1 / -stream_loop -1), so without this the
+        # output would never terminate.
         "-shortest",
         str(out_path),
     ]

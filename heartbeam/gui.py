@@ -25,6 +25,7 @@ from pathlib import Path
 import streamlit as st
 
 from heartbeam.models import PRESETS, PRIMARY_PRESETS, resolve_default
+from heartbeam.style import toml_string
 
 # Milestone log-line patterns -> (progress 0-1, friendly label)
 _MILESTONES: list[tuple[re.Pattern, float, str]] = [
@@ -63,25 +64,35 @@ def _write_style_toml(path: Path, *, font_size: int, text_colour: str,
 
     Only the fields the GUI exposes are written; Style.from_toml fills the rest
     from its dataclass defaults, so a partial file is valid.
+
+    Every string goes through toml_string(). Uploaded background paths are
+    native Windows paths, and interpolating one raw into a quoted TOML string
+    either fails to parse or silently corrupts the path (see toml_escape).
     """
+    text_colour_t = toml_string(text_colour)
+    highlight_colour_t = toml_string(highlight_colour)
+    position_t = toml_string(position)
+    background_kind_t = toml_string(background_kind)
+    background_value_t = toml_string(background_value)
+    resolution_t = toml_string(resolution)
     path.write_text(
         f'''[font]
 size_px = {font_size}
 bold    = true
 
 [colour]
-primary   = "{text_colour}"
-highlight = "{highlight_colour}"
+primary   = {text_colour_t}
+highlight = {highlight_colour_t}
 
 [box]
-position = "{position}"
+position = {position_t}
 
 [background]
-kind  = "{background_kind}"
-value = "{background_value}"
+kind  = {background_kind_t}
+value = {background_value_t}
 
 [video]
-resolution = "{resolution}"
+resolution = {resolution_t}
 ''',
         encoding="utf-8",
     )
@@ -129,21 +140,45 @@ def _run_heartbeam(
         "-v",
     ] + extra_flags
     log_lines.append(f"$ {' '.join(cmd)}\n")
-    proc = subprocess.Popen(
-        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding="utf-8", errors="replace", bufsize=1,
-    )
-    for line in proc.stdout:  # type: ignore[union-attr]
-        log_lines.append(line)
-        for pat, pct, label in _MILESTONES:
-            if pat.search(line):
-                status_state["progress"] = pct
-                status_state["label"] = label
-                break
-    proc.wait()
-    status_state["returncode"] = proc.returncode
-    status_state["done"] = True
-    return proc.returncode
+    # Everything below runs on a worker thread. Any escaping exception would
+    # kill the thread silently, leaving status_state["done"] False forever and
+    # the UI pinned on a progress bar that never finishes. Report the failure
+    # through the same channel a non-zero exit uses, so the app stays usable.
+    try:
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+        )
+    except OSError as exc:
+        log_lines.append(
+            f"failed to launch {cmd[0]}: {type(exc).__name__}: {exc}\n"
+            "The heartbeam executable could not be started. Check that the venv "
+            "is intact and that scripts/install.ps1 completed.\n"
+        )
+        status_state["label"] = "Failed to start"
+        status_state["returncode"] = -1
+        status_state["done"] = True
+        return -1
+
+    try:
+        for line in proc.stdout:  # type: ignore[union-attr]
+            log_lines.append(line)
+            for pat, pct, label in _MILESTONES:
+                if pat.search(line):
+                    status_state["progress"] = pct
+                    status_state["label"] = label
+                    break
+        proc.wait()
+        status_state["returncode"] = proc.returncode
+        return proc.returncode
+    except Exception as exc:  # noqa: BLE001 - must not strand the UI
+        log_lines.append(f"worker error: {type(exc).__name__}: {exc}\n")
+        status_state["label"] = "Failed"
+        status_state["returncode"] = -1
+        return -1
+    finally:
+        # Whatever happened, the UI must stop waiting.
+        status_state["done"] = True
 
 
 def _format_preset_summary(name: str) -> str:

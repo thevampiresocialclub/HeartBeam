@@ -6,6 +6,8 @@ libass (via ffmpeg's `ass` filter) burns the result onto the video.
 """
 from __future__ import annotations
 
+import math
+
 from pathlib import Path
 
 from .style import Style, ass_alignment, hex_to_ass_colour
@@ -13,13 +15,20 @@ from .timings import Timings
 
 
 def _fmt_ass_time(t: float) -> str:
-    """ASS H:MM:SS.cc with centiseconds."""
-    if t < 0:
+    """ASS H:MM:SS.cc with centiseconds.
+
+    Round to whole centiseconds BEFORE splitting into fields. Formatting the
+    seconds component directly with %05.2f rounds during formatting, so 59.999
+    renders as the invalid "0:00:60.00" instead of carrying into the next
+    minute; likewise 3599.999 -> "0:59:60.00".
+    """
+    if not math.isfinite(t) or t < 0:
         t = 0.0
-    h = int(t // 3600)
-    m = int((t % 3600) // 60)
-    s = t - (h * 3600 + m * 60)
-    return f"{h}:{m:02d}:{s:05.2f}"
+    total_cs = int(round(t * 100))
+    h, rem = divmod(total_cs, 360000)
+    m, rem = divmod(rem, 6000)
+    s, cs = divmod(rem, 100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
 def _build_script_info(style: Style) -> str:

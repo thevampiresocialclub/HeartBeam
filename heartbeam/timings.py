@@ -6,6 +6,7 @@ This module is pure Python — no audio, no ML deps. Dataclasses + JSON + LRC.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,44 @@ class Models:
     aligner: str
 
 
+class TimingsValidationError(ValueError):
+    """Raised when loaded timing data is not usable.
+
+    Always names the offending line/word and field, because the caller's next
+    question is invariably "which word?" -- a bare "invalid timings" sends you
+    reading a 40 KB JSON file by hand.
+    """
+
+
+def _check_time(value: float, where: str, field_name: str) -> float:
+    v = float(value)
+    if not math.isfinite(v):
+        raise TimingsValidationError(f"{where}: {field_name} is not finite ({value!r})")
+    if v < 0:
+        raise TimingsValidationError(f"{where}: {field_name} is negative ({v})")
+    return v
+
+
+def _validate_line(ln: "Line") -> None:
+    where_line = f"line {ln.index} ({ln.text[:40]!r})"
+    _check_time(ln.start_s, where_line, "start_s")
+    _check_time(ln.end_s, where_line, "end_s")
+    if ln.end_s < ln.start_s:
+        raise TimingsValidationError(
+            f"{where_line}: end_s ({ln.end_s}) precedes start_s ({ln.start_s})"
+        )
+    for i, w in enumerate(ln.words):
+        where = f"line {ln.index} word {i} ({w.text!r})"
+        _check_time(w.start_s, where, "start_s")
+        _check_time(w.end_s, where, "end_s")
+        if w.end_s < w.start_s:
+            raise TimingsValidationError(
+                f"{where}: end_s ({w.end_s}) precedes start_s ({w.start_s})"
+            )
+        if not math.isfinite(float(w.score)):
+            raise TimingsValidationError(f"{where}: score is not finite ({w.score!r})")
+
+
 @dataclass
 class Timings:
     source: Source
@@ -106,6 +145,11 @@ class Timings:
         sv = int(d.get("schema_version", SCHEMA_VERSION))
         if sv != SCHEMA_VERSION:
             raise ValueError(f"unsupported timings schema_version: {sv}")
+        # Validate on the way in. Reversed, negative, NaN or infinite times used
+        # to flow straight through to the mask builder and the ASS writer, where
+        # they produce silently wrong output rather than an error.
+        for ln in lines:
+            _validate_line(ln)
         return cls(source=src, models=mdl, lines=lines, schema_version=sv)
 
 

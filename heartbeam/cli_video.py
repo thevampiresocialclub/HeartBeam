@@ -62,14 +62,18 @@ def main(argv: list[str] | None = None) -> int:
     # Decide where to write the intermediate .ass file.
     if args.ass_out:
         ass_path = args.ass_out
-        ass_path.parent.mkdir(parents=True, exist_ok=True)
     else:
         ass_path = args.out.with_suffix(".ass")
 
+    # Create both parents BEFORE writing anything. The default .ass path sits
+    # next to the output, so rendering into a directory that does not exist yet
+    # (e.g. -o new_dir/karaoke.mp4) failed while writing the subtitle file,
+    # before the output directory was created further down.
+    ass_path.parent.mkdir(parents=True, exist_ok=True)
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+
     ass_writer.write_ass(timings, style, ass_path)
     log.info("wrote ASS subtitle: %s", ass_path)
-
-    args.out.parent.mkdir(parents=True, exist_ok=True)
     log.info("rendering MP4 with ffmpeg + libass (res=%s fps=%d codec=%s crf=%d)…",
              style.video.resolution, style.video.fps, style.video.codec, style.video.crf)
     render_mod.render(

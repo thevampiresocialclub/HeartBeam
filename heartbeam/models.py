@@ -156,6 +156,43 @@ PRESETS: dict[str, SeparatorPreset] = {
             target_lufs=-14.0,
         ),
     ),
+    # --- Pass-2 karaoke-model bake-off ---------------------------------------
+    # Same ensemble Pass 1 as `rock`; only the lead-vs-backing splitter differs.
+    # The Pass-2 model is where karaoke quality actually lives, so these exist to
+    # A/B it against rock's Aufr33/Viperx default. Both are newer community
+    # MelBand Roformer karaoke models.
+    "rock-becruily": SeparatorPreset(
+        name="rock-becruily",
+        instrumental_model=(
+            "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+            "MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
+            "UVR-MDX-NET-Inst_HQ_3.onnx",
+        ),
+        karaoke_model="mel_band_roformer_karaoke_becruily.ckpt",
+        description="Ensemble + MelBand Roformer Karaoke (becruily). A/B against 'rock'.",
+        ensemble_algorithm="uvr_max_spec",
+        defaults=PipelineDefaults(
+            mix_strategy="subtract", vocal_gain=1.5, backing_boost=0.0,
+            pad_ms=180.0, crossfade_ms=100.0, merge_gap_ms=350.0,
+            energy_threshold=0.03, energy_window_ms=30.0, target_lufs=-14.0,
+        ),
+    ),
+    "rock-gabox2": SeparatorPreset(
+        name="rock-gabox2",
+        instrumental_model=(
+            "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+            "MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
+            "UVR-MDX-NET-Inst_HQ_3.onnx",
+        ),
+        karaoke_model="mel_band_roformer_karaoke_gabox_v2.ckpt",
+        description="Ensemble + MelBand Roformer Karaoke V2 (Gabox). A/B against 'rock'.",
+        ensemble_algorithm="uvr_max_spec",
+        defaults=PipelineDefaults(
+            mix_strategy="subtract", vocal_gain=1.5, backing_boost=0.0,
+            pad_ms=180.0, crossfade_ms=100.0, merge_gap_ms=350.0,
+            energy_threshold=0.03, energy_window_ms=30.0, target_lufs=-14.0,
+        ),
+    ),
     # Single BS-RoFormer (lighter than ensemble) + UVR-BVE-4B. Reference single-model.
     "bs-roformer": SeparatorPreset(
         name="bs-roformer",
