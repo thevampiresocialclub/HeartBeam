@@ -33,8 +33,7 @@
 .hb-rate { font: inherit; }
 .hb-zoom { width: 120px; }
 
-/* Horizontal scroll is the zoom mechanism: the canvas grows wider than the
-   viewport rather than the drawing being scaled, so peaks stay crisp. */
+/* The track grows with zoom; the sticky canvas only draws the visible span. */
 .hb-scroll {
   overflow-x: auto;
   overflow-y: hidden;
@@ -43,7 +42,22 @@
   background: rgba(20, 26, 38, 0.35);
 }
 
-.hb-canvas { display: block; }
+.hb-track { position: relative; height: 150px; }
+.hb-canvas { display: block; position: sticky; left: 0; }
+.hb-toolbar label { display: flex; align-items: center; gap: 6px; }
+.hb-toolbar select, .hb-toolbar input { font: inherit; }
+.hb-seek { width: 85px; }
+.hb-position { display: block; width: 100%; margin-bottom: 8px; }
+.hb-btn:disabled { opacity: 0.5; cursor: default; }
+.hb-lyrics { margin-top: 12px; }
+.hb-lines { max-height: 240px; overflow: auto; padding: 8px; }
+.hb-line { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }
+.hb-word { font: inherit; color: inherit; background: transparent; border: 1px solid transparent; border-radius: 3px; padding: 3px 4px; cursor: pointer; }
+.hb-word:hover { background: rgba(130, 160, 210, 0.26); }
+.hb-word[aria-pressed="true"] { border-color: rgb(215, 175, 40); }
+.hb-word.singing { background: rgba(120, 170, 255, 0.3); }
+.hb-word.needs-timing { text-decoration: underline dotted; }
+.hb-editor :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 
 .hb-hint { margin-top: 6px; font-size: 12px; opacity: 0.6; }
 

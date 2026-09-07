@@ -26,9 +26,9 @@ from pathlib import Path
 import streamlit as st
 
 from heartbeam import editor as ed
+from heartbeam import editor_media as em
 from heartbeam import lyrics as lyr
 from heartbeam import project as prj
-from heartbeam import waveform as wfm
 from heartbeam.models import PRESETS, PRIMARY_PRESETS, resolve_default
 from heartbeam.style import toml_string
 
@@ -302,6 +302,12 @@ def _adopt_run_into_project(out_dir: Path, song_name: str) -> None:
     except prj.ProjectError as exc:
         st.session_state.project_message = f"Could not create project: {exc}"
         return
+    if (out_dir / "cache" / "audio_cache.json").is_file():
+        try:
+            em.attach_cached_audio(project, project_dir, out_dir / "cache")
+            prj.save_project(project, project_dir)
+        except (OSError, prj.ProjectError) as exc:
+            st.session_state.project_message = f"Project created; audition tracks were not linked: {exc}"
     st.session_state.project = project
     st.session_state.project_dir = project_dir
     _mark_saved(project)
@@ -547,23 +553,6 @@ def _timeline_component():
     return ed.timeline_component()
 
 
-@st.cache_data(show_spinner="Reading waveform...")
-def _timeline_data(audio_path_str: str, mtime: float, buckets: int):
-    """Peaks + inlined audio, cached on (path, mtime).
-
-    Cached because both are expensive and neither changes while the user drags:
-    peaks require decoding the audio, and base64-encoding a 5 MB MP3 on every
-    rerun would dominate the interaction budget.
-    """
-    import soundfile as sf
-
-    path = Path(audio_path_str)
-    samples, sr = sf.read(str(path), dtype="float32", always_2d=False)
-    peaks = wfm.compute_peaks(samples, sr, buckets=buckets)
-    duration_ms = int(round(len(samples) / sr * 1000)) if sr else 0
-    return peaks.to_dict(), duration_ms, ed.audio_data_url(path)
-
-
 def _timing_editor(project, project_dir: Path, karaoke_path: Path) -> None:
     """The P03 timing editor: waveform, transport and draggable word bounds."""
     st.divider()
@@ -574,26 +563,53 @@ def _timing_editor(project, project_dir: Path, karaoke_path: Path) -> None:
         return
 
     try:
-        peaks_dict, duration_ms, audio_src = _timeline_data(
-            str(karaoke_path), karaoke_path.stat().st_mtime, 2000)
+        sources = em.build_sources(project, project_dir, karaoke_path)
     except Exception as exc:  # noqa: BLE001 - the editor must not kill the page
         st.error(f"Could not prepare the waveform: {type(exc).__name__}: {exc}")
         return
+
+    available = [source for source in sources if source["available"]]
+    if not available:
+        st.error("No playable tracks: " + "; ".join(source["reason"] for source in sources))
+        return
+    duration_ms = available[0]["duration_ms"]
+    missing = [source for source in sources if not source["available"]]
+    if missing:
+        with st.expander("Missing audition tracks"):
+            for source in missing:
+                st.caption(f"{source['label']}: {source['reason']}")
+            with st.form(f"audition_cache_{project.id}"):
+                cache_folder = st.text_input(
+                    "Audio cache folder", help="Choose the cache folder from this song's generation run.")
+                if st.form_submit_button("Link cached tracks"):
+                    try:
+                        count = em.attach_cached_audio(project, project_dir, Path(cache_folder))
+                        prj.save_project(project, project_dir)
+                        _mark_saved(project)
+                        st.session_state.timing_message = ("ok", f"Saved {count} audition tracks with this project.")
+                        st.rerun()
+                    except (OSError, prj.ProjectError) as exc:
+                        st.error(str(exc))
 
     if "undo_stack" not in st.session_state:
         st.session_state.undo_stack = lyr.UndoStack()
     stack = st.session_state.undo_stack
 
-    payload = {
-        "words": ed.words_payload(project),
-        "peaks": {"mins": peaks_dict["mins"], "maxs": peaks_dict["maxs"]},
-        "duration_ms": duration_ms,
-        "selected_id": st.session_state.get("selected_word_id"),
-        "audio_src": audio_src,
-    }
+    payload = ed.build_payload(project, sources, duration_ms,
+                               st.session_state.get("selected_word_id"))
 
     timeline = _timeline_component()
-    result = timeline(data=payload, key="hb_timeline")
+    result = timeline(data=payload, key=f"hb_timeline_{project.id}")
+
+    # Consume a new persistent selection BEFORE timing controls/edits. Its nonce
+    # prevents an old component value from overriding Python review navigation.
+    selection = result.get("selection") if result else None
+    selection_key = f"last_selection_nonce_{project.id}"
+    if selection and selection.get("nonce") != st.session_state.get(selection_key):
+        selected = selection.get("word_id")
+        if selected and project.find_word(selected):
+            st.session_state.selected_word_id = selected
+            st.session_state[selection_key] = selection["nonce"]
 
     # --- committed edits come back here, one per finished gesture ---
     edit = result.get("timing_edit") if result else None
@@ -604,16 +620,12 @@ def _timing_editor(project, project_dir: Path, karaoke_path: Path) -> None:
             stack.commit(project)
             ok, message = ed.apply_timing_edit(project, edit, duration_ms)
             if ok:
+                st.session_state.selected_word_id = edit["word_id"]
                 st.session_state.timing_message = ("ok", message)
             else:
                 stack.undo(project)   # reject cleanly; do not leave a half state
                 st.session_state.timing_message = ("err", message)
             st.rerun()
-
-    selected = result.get("selected") if result else None
-    if selected and selected != st.session_state.get("selected_word_id"):
-        # Selection is transient UI state: it must not mark the song dirty.
-        st.session_state.selected_word_id = selected
 
     kind_message = st.session_state.pop("timing_message", None)
     if kind_message:
@@ -639,10 +651,9 @@ def _timing_controls(project, duration_ms: int, stack) -> None:
             else:
                 st.caption(f"**{word.text}** - needs timing")
 
-    nudge_ms = st.session_state.setdefault("nudge_ms", 10)
     with cols[1]:
         nudge_ms = st.number_input("Nudge (ms)", min_value=1, max_value=1000,
-                                   value=nudge_ms, step=5, key="nudge_ms")
+                                   value=10, step=5, key="nudge_ms")
     for col, (label, delta, key) in zip(cols[2:4], [
         ("<- earlier", -1, "nudge_back"), ("later ->", 1, "nudge_fwd"),
     ]):
@@ -856,11 +867,11 @@ def main() -> None:
         out_dir: Path = work_dir
         st.divider()
         st.subheader("Result")
-        st.audio(str(karaoke_path))
-
         if st.session_state.get("project") is not None:
             _timing_editor(st.session_state.project,
                            st.session_state.project_dir, karaoke_path)
+        else:
+            st.audio(str(karaoke_path))
 
         with open(karaoke_path, "rb") as f:
             st.download_button(

@@ -121,6 +121,61 @@ def test_opening_a_nonexistent_project_reports_an_error(tmp_path):
     assert any("Could not open" in e.value for e in at.error)
 
 
+@pytest.mark.skipif(_ffmpeg_missing(), reason="needs a playable imported song")
+def test_selection_arriving_with_a_nudge_targets_the_new_word(tmp_path, monkeypatch):
+    from heartbeam import editor as ED
+    project_dir = _existing_song_project(tmp_path)
+    result = {}
+    monkeypatch.setattr(ED, "timeline_component", lambda: lambda **kwargs: result)
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+    first, second = at.session_state["project"].word_ids()
+    result["selection"] = {"word_id": first, "nonce": "first"}
+    at.run()
+    before = at.session_state["project"].to_dict()
+    at.run()  # an unchanged selection must neither dirty nor edit the song
+    assert at.session_state["project"].to_dict() == before
+    result["selection"] = {"word_id": second, "nonce": "second"}
+    at.button(key="nudge_fwd").click().run()
+    assert not at.exception
+    project = at.session_state["project"]
+    assert project.effective_timing(first).start_ms == 500
+    assert project.effective_timing(second).start_ms == 1510
+    # Review navigation must win over the now-old persistent component value.
+    project.original_alignment.pop(first)
+    project.timing_edits[first] = P.WordTiming(reason="needs timing")
+    at.button(key="next_untimed").click().run()
+    assert at.session_state["selected_word_id"] == first
+    at.run()
+    assert at.session_state["selected_word_id"] == first
+
+
+@pytest.mark.skipif(_ffmpeg_missing(), reason="needs a real playable imported song")
+def test_link_cached_audition_tracks_through_the_gui(tmp_path):
+    import numpy as np
+    from heartbeam import audio_cache as AC
+
+    project_dir = _existing_song_project(tmp_path)
+    folder = tmp_path / "cached_run"
+    AC.write_cache(folder, {role: np.zeros((32000, 2), dtype=np.float32)
+                            for role in AC.ROLES}, sample_rate=8000,
+                   source_sha256="fixture-source", settings={})
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+    ids = at.session_state["project"].word_ids()
+    next(t for t in at.text_input if t.label == "Audio cache folder").set_value(str(folder))
+    next(b for b in at.button if b.label == "Link cached tracks").click().run()
+    assert not at.exception, at.exception
+    reopened = P.load_project(project_dir)
+    assert reopened.word_ids() == ids
+    assert all(reopened.asset_by_role(role) is not None
+               for role in ("original_audio", "lead_stem", "clean_audio"))
+    assert len(at.get("audio")) == 0, "the timing editor owns the only song transport"
+    assert at.session_state["out_dir"] is None
+
+
 def test_opening_a_corrupt_project_recovers_from_autosave(tmp_path):
     project_dir = _existing_song_project(tmp_path)
     proj = P.load_project(project_dir)

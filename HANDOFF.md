@@ -1,8 +1,9 @@
 # Handoff — HeartBeam build program
 
 **For:** Astra (or whoever picks this up next)
-**From:** Claude, 6 September 2026
-**Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam` @ `0b95b59`
+**From:** Claude; continued by Codex, 6 September 2026
+**Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
+**Continuation base:** `02e78cd`; P03.2 changes follow that handoff.
 
 Read `BUILD-STATUS.md` first — it is the authoritative record of what is done,
 what is verified, and what is merely assumed. This document is the part that
@@ -22,10 +23,12 @@ contract; it is what stops the seven projects producing incompatible editors.
 | P01 Foundation | Complete (all four phases verified) |
 | P02 Lyrics editor | Verified |
 | P03.1 Architecture proof | Verified |
-| **P03.2 — next** | Not started |
+| P03.2 Transport and waveform | Implemented; evidence and limits in BUILD-STATUS |
+| **P03.3 — next** | Timing edit scopes |
 | P04–P07 | Not started |
 
-168 tests pass. Working tree clean.
+182 tests pass in the current installed environment. Run `git status --short`
+for the current tree state rather than relying on a historical clean-tree claim.
 
 The product works end to end today: generate or import a song, paste and edit
 lyrics without losing timing, correct word timing on a waveform, and render a
@@ -54,7 +57,9 @@ The commands are **not on PATH** — they live in the venv. Activate it
 RTX 5070 (sm_120, 11.9 GB), ffmpeg 8.1.1 with libass, streamlit 1.57.0.
 ~11 GB of models cached at `~/.heartbeam/models`.
 
-A Streamlit server may still be listening on port 8501 from my session.
+A Streamlit server may still be listening on port 8501 from Claude's session.
+The continuation used a separate server on 127.0.0.1:8502. The original server
+was not stopped. If 8502 is unavailable, use the app command above.
 
 ### A test project with real audio
 
@@ -66,6 +71,12 @@ Several checks need a real project rather than a synthetic one:
 
 That builds a 245-word, 3:24 project from artifacts already in `out/`.
 
+The continuation's separate browser fixture is at
+`C:\Users\young\Documents\Codex\2026-09-06\run\work\p032-browser-project`.
+It has 260 words (Helena plus 15 clearly labeled untimed verification words),
+and saved original/lead/karaoke assets. The extra words are for verification,
+not part of the song. Do not mistake their lack of timing for an alignment bug.
+
 ---
 
 ## Traps I hit, so you do not have to
@@ -75,9 +86,25 @@ That builds a 245-word, 3:24 project from artifacts already in `out/`.
 registered"* — registration populates a per-run registry, so it must happen every
 script run. Cache the assets, never the registration.
 
-**A component re-mounts against the same parent element.** Appending your root
-blindly stacks a new copy (and a new `<audio>`) on every rerun. Remove your own
-previous root and abort the old mount's window listeners.
+**A component updates against the same parent element.** Appending blindly
+stacks another root/audio. P03.2 preserves the existing instance on that parent
+and updates its data/bridge callbacks; destroying it on every update loses
+position, source and zoom. Destroy only on project change or disconnection.
+After changing frontend code during development, reload the page: an existing
+instance still owns its previous JS closure even if registration reads new code.
+
+**Selection must survive nearby reruns.** A one-shot `selected` trigger could
+be lost when the user selected a lyric and immediately pressed a Python nudge.
+P03.2 uses persistent `selection` component state with a nonce. Consume a new
+selection before controls; ignore the same nonce on later runs so it cannot
+override Python review navigation. Timing drags remain committed triggers.
+
+**Media registration cannot be skipped on a rerun.** Streamlit clears session
+media references each run. Register audio AND peak files each time even when
+their URLs have not changed; cached URL-only registration can lead to 404s.
+`editor_media.register_media()` isolates the private API. The real range/HEAD
+handler is tested and Streamlit is pinned to 1.57.0. Files still consume server
+RAM; do not describe this as a disk-streaming implementation.
 
 **`st.session_state[key]` cannot be written after that widget exists.** Undo/redo
 that needs to push new text into a `text_area` must version the widget key
@@ -122,6 +149,7 @@ Added by P01–P03:
 - `audio_cache.py` — lossless original/stems/clean reference with provenance
 - `lyrics.py` — reconciliation, undo, alignment application
 - `waveform.py` — peak extraction and caching
+- `editor_media.py` — cached audio adoption, source validation, served audio/peaks
 - `editor.py` + `editor_assets/` — the timing editor bridge and frontend
 - `gui.py` — the Streamlit shell that wires it together
 
@@ -137,28 +165,24 @@ subtle corruption rather than a crash:
 
 ---
 
-## Next: P03.2 — one transport and waveform
+## Next: P03.3 — timing edit scopes
 
 Read `03-PLAYBACK-TIMING.md` and section 5 of the shared contract.
 
-The work, in the order I would do it:
+The four P03.2 priorities above are now implemented: served audio, source
+switching, multi-resolution peaks and lyric-list selection. See BUILD-STATUS
+for measured seek accuracy and source-loading delays. Switching pauses briefly
+to load; it does not promise gapless audio.
 
-1. **Source switching** — audition original / lead / karaoke at the same song
-   position. The P01.3 cache already holds all three stems with matched sample
-   counts; `audio_cache.read_role()` returns them. If an asset is missing,
-   disable that choice with a reason rather than pretending to switch. The
-   acceptance target is 30 ms relative to song position; **measure and report
-   it** rather than claiming it.
-2. **Fix the audio delivery.** Right now the component inlines the MP3 as a
-   6.5 MB base64 data URL because Streamlit exposes no static route. Three
-   sources makes that untenable. This is the most valuable thing you could
-   improve, and it blocks item 1 doing well.
-3. **Multi-resolution peaks.** `waveform.load_or_compute()` already caches by
-   `(source_key, buckets)`; zoom currently stretches a fixed 2000 buckets rather
-   than requesting more.
-4. **Selection round-trip from the lyric list**, not just the timeline.
+Continue with distinct word/phrase/global timing commands and undo/redo, then
+P03.4 review flow. Preserve the working transport and its frontend state across
+Python updates. Validate finite/integer inputs and bounds before changing the
+project. Measure the full-song committed-interaction target instead of treating
+passing Python tests as browser performance evidence.
 
-Then P03.3 (drag/shift/offset with distinct scopes) and P03.4 (review flow).
+The original P03.1 ASS-preview requirement is still unproved. Resolve that
+integration decision explicitly before calling all of P03 complete. The lyric
+list's current-word highlight is not an ASS video preview.
 
 ### Deliberately left undone
 

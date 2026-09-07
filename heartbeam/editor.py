@@ -1,4 +1,4 @@
-"""Python side of the timing editor component (P03.1).
+"""Python side of the timing editor component (P03).
 
 Owns the bridge between the saved project and the browser timeline: what goes
 out (words, waveform peaks, audio), and what comes back (committed timing
@@ -19,12 +19,9 @@ assets ship as package data.
 """
 from __future__ import annotations
 
-import base64
-import mimetypes
 from pathlib import Path
 from typing import Any
 
-from . import waveform as wf
 from .project import Project, WordTiming
 
 ASSET_DIR = Path(__file__).parent / "editor_assets"
@@ -32,14 +29,6 @@ ASSET_DIR = Path(__file__).parent / "editor_assets"
 #: Below this score a word is drawn as low-confidence. Matches the aligner's
 #: own threshold so the two views agree about which words look uncertain.
 LOW_CONFIDENCE = 0.3
-
-#: Ceiling on inlining audio as a data URL. Streamlit has no general static
-#: file route we can point an <audio> element at, so the proof inlines the
-#: audio. A 4-minute MP3 is roughly 5 MB, about 6.7 MB base64-encoded, which is
-#: acceptable once per project load but is the main limitation of this approach
-#: and is recorded as such in BUILD-STATUS.
-MAX_INLINE_AUDIO_BYTES = 40 * 1024 * 1024
-
 
 class EditorAssetError(RuntimeError):
     pass
@@ -53,19 +42,6 @@ def _read_asset(name: str) -> str:
             "installed; reinstall with scripts/install.ps1."
         )
     return path.read_text(encoding="utf-8")
-
-
-def audio_data_url(path: str | Path) -> str:
-    """Inline an audio file as a data URL for the component's <audio> element."""
-    p = Path(path)
-    size = p.stat().st_size
-    if size > MAX_INLINE_AUDIO_BYTES:
-        raise EditorAssetError(
-            f"{p.name} is {size / 1024 / 1024:.0f} MB, above the "
-            f"{MAX_INLINE_AUDIO_BYTES / 1024 / 1024:.0f} MB inline limit"
-        )
-    mime = mimetypes.guess_type(p.name)[0] or "audio/mpeg"
-    return f"data:{mime};base64,{base64.b64encode(p.read_bytes()).decode('ascii')}"
 
 
 def words_payload(project: Project) -> list[dict[str, Any]]:
@@ -95,15 +71,14 @@ def words_payload(project: Project) -> list[dict[str, Any]]:
     return out
 
 
-def build_payload(project: Project, audio_path: str | Path,
-                  peaks: wf.Peaks, duration_ms: int,
+def build_payload(project: Project, sources: list[dict], duration_ms: int,
                   selected_id: str | None = None) -> dict[str, Any]:
     return {
+        "project_id": project.id,
         "words": words_payload(project),
-        "peaks": {"mins": peaks.mins, "maxs": peaks.maxs},
+        "sources": sources,
         "duration_ms": duration_ms,
         "selected_id": selected_id,
-        "audio_src": audio_data_url(audio_path),
     }
 
 

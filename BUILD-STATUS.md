@@ -13,7 +13,8 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | **P01 overall** | **Complete** |
 | **P02 Lyrics editor** | **Verified** |
 | **P03.1 Architecture proof** | **Verified** |
-| P03.2-P03.4 | Not started |
+| **P03.2 Transport and waveform** | **Implemented; Python and browser checks below** |
+| P03.3-P03.4 | Next / not started |
 | P04-P07 | Not started |
 
 **P01 and P02 are complete.** A song can be generated, saved, closed, reopened
@@ -406,6 +407,9 @@ is the difference between "playback is broken" and knowing why.
 
 ### Limitations recorded
 
+Historical P03.1 limitations follow. P03.2 supersedes the inline-audio,
+source-switching and fixed-peak limitations; ASS preview remains outstanding.
+
 - **Audio is inlined as a base64 data URL** (6.5 MB for a 5 MB MP3). Streamlit
   offers no static route an `<audio>` element can point at, so this is the
   proof's main cost. Capped at 40 MB with a clear error. A served URL or chunked
@@ -430,6 +434,108 @@ nudges in both directions, refusal of invalid timings without clamping, manual
 timing for untimed words, review navigation that distinguishes model confidence
 from user review, and the payload. Two of them are regression guards asserting
 the frontend keeps its interval fallback and its no-op-drag check.
+
+---
+
+## P03.2 - One transport and waveform
+
+Continued from `02e78cd` on 6 September 2026. The existing 168-test suite passed
+before changes. The complete suite now passes **182 tests**, including 14 new
+checks for media delivery, source/cache adoption and selection ordering.
+
+### Delivered
+
+- Original / lead vocal / karaoke audition uses one audio element and preserves
+  song position, playback state and speed across source switches. Missing or
+  incompatible tracks remain disabled with a reason.
+- Audio and waveform JSON use Streamlit's existing same-origin `/media` route.
+  Its real handler is tested for byte-range responses, HEAD and JSON delivery.
+  Registration runs on every script run so Streamlit retains session references.
+  The private adapter is isolated in `editor_media.py`; `streamlit==1.57.0` is
+  now explicitly pinned in the GUI extra as well as tested on this machine.
+- Existing projects can use **Missing audition tracks > Link cached tracks**.
+  New generation results adopt the matching run's cache automatically. All five
+  cached roles are copied into project audio assets, retaining metadata and
+  provenance; Save As carries these assets. Linking validates file presence,
+  common sample basis and duration, and refuses filename collisions/duplicate
+  roles before copying. It does not run separation or alignment.
+- Cached 2k / 8k / 32k / 64k min/max levels are fetched according to zoom. Cache
+  misses decode each source once. File size/mtime changes invalidate the cache.
+  Peak extraction now includes the tail that the previous reshape discarded.
+- The canvas is viewport-sized at every zoom; a wider scroll track supplies the
+  timeline coordinates. A 20x zoom no longer allocates a 20x-wide canvas.
+- A lyric list selects/seeks by stable word ID, shows untimed words and current
+  singing position, and preserves keyboard focus across reruns. Source, speed,
+  zoom, selection and playback survive normal component data updates.
+- Persistent, nonce-tagged component selection replaces the one-shot selection
+  trigger. A fast lyric selection followed by a Python nudge could otherwise
+  consume the nudge against the previous word. Selection is consumed before
+  edits/controls; old messages cannot override Next untimed/uncertain navigation.
+  Drag edits still emit one committed event and one undo step.
+- The separate `st.audio` player is removed for open projects. Playhead, lyric
+  highlight, position slider and loop read the same audio clock. Space is scoped
+  to the editor and does not intercept typing or native button/selector keys.
+
+### Evidence and limits
+
+Real browser: local server on 127.0.0.1:8502, existing Helena MP3 plus original
+fixture and float32 lead WAV. The source MP3 is 8 ms longer than the karaoke;
+both are within the 30 ms admission tolerance. Began with 245 words, then used
+the lyric text box to append 15 untimed verification words: **260 total**. The
+fixture is isolated under the Codex workspace, not the user's original project.
+
+| Check | Observed result |
+|---|---|
+| Audio delivery | `/media/...` URLs, including a 72 MB float32 lead WAV; no base64 cap |
+| Serialized 245-word bridge payload | 39,227 bytes using representative media URLs, vs the prior ~6.5 MB audio data URL alone |
+| Source switches, paused and playing at 0.75x | Measured seek error **0.000 ms** at the captured song position |
+| Source loading time | Samples **16.7-79.8 ms** initially; **49.8 ms lead / 19.9 ms original** in the later 260-word check |
+| Display clock vs audio clock | Samples ~0.5-24 ms apart, both reading the audio clock |
+| Zoom 1x -> 20x | 2,000 -> 32,000 peaks at a 547 px viewport; canvas stays 547 px, scroll track 10,940 px |
+| Lyric selection and reruns | Selection reaches Python; source, speed, zoom and play position retained; one editor/audio instance |
+| Loop + untimed navigation | Word loop runs at 0.75x; selecting an untimed word cancels the loop without inventing timing |
+| Keyboard focus | Lyric button focus retained after a selection rerun |
+| Fast selection followed immediately by nudge | Correctly changed Long from 2122/4384 to **2132/4394 ms**, including the reproduced previous-word race |
+| Direct canvas drag and undo | Long end **4394 -> 4207 ms**; one Undo restored **4394 ms**, retaining lead source, 0.75x speed, 20x zoom and position |
+| Project save | Browser Save persisted revision 3 with 260 words, confirmed from disk; reopened as revision 3 |
+
+The 30 ms result is **seek accuracy**, not gapless switching: playback pauses
+while the new source loads, then resumes at the captured song position. Loading
+latency is separately reported above. Audio-device/output latency and a listening
+quality review were not measured. The transport does not modify saved timings.
+
+Streamlit still holds registered files in RAM and reads/hashes media during
+registration. This removes base64/websocket duplication; it is not disk streaming
+or a bounded-memory media server. No full-song committed-drag <100 ms benchmark
+is claimed here; that P03 acceptance check remains to measure with P03.3.
+Background timers can be throttled by a browser; rAF plus a 60 ms fallback avoids
+the known rAF-only freeze but is not a hard real-time loop guarantee.
+
+Legacy projects do not prove which cache belongs to which song. Explicit cache
+selection plus duration/basis checks catch common mistakes, not same-length wrong
+songs. Source provenance is recorded when linking. Cached FLAC is still the P01
+24-bit representation; it does not gain float32 bit-exactness by being linked.
+
+Validation command (installed repo environment):
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests -m "not slow" -q -p no:cacheprovider
+# 182 passed; includes the real ffmpeg media tests
+```
+
+The desktop shell sandbox could not launch Store Python directly; the same
+installed venv succeeded through the approved native execution path. No package
+installation or model/GPU sweep was needed. AppTest still cannot validate JS;
+browser observations above are a separate check. Fresh-page reload is required
+after editing the JS because a mounted component retains its existing closure.
+
+### Still open
+
+ASS preview remains the uncompleted part of the original P03.1 brief. P03.3 owns
+word/phrase/global edit scopes, robust command handling, undo/redo and the measured
+interaction performance gate. P03.4 owns review/alignment UI. Section identity and
+concurrent-write handling remain gaps listed in HANDOFF.md; do not start P04
+section attachments on unstable section IDs.
 
 ---
 
@@ -463,11 +569,11 @@ first separation pass when comparing second-pass models.
 
 ---
 
-## Next: P03.2 - one transport and waveform
+## Next: P03.3 - timing edit scopes
 
 
 
-Prerequisites met. Read `08-SHARED-CONTRACT.md` section 5 before starting.
+Read `03-PLAYBACK-TIMING.md` and `08-SHARED-CONTRACT.md` section 5 before starting.
 
 P03 is the largest project in the programme and owns the shared transport: one
 playback clock that the waveform, lyric preview and (later) vocal mixer all
@@ -480,7 +586,5 @@ What P02 hands it: stable word IDs, `unresolved_words()` with reasons,
 `apply_alignment(only_unresolved=True)` for filling gaps without touching manual
 work, and the P01.3 cache so auditioning original/lead/karaoke needs no rerun.
 
-Note for P01.3: `separate.py` currently discards stems into a `TemporaryDirectory`
-unless `--keep-stems` is passed, and the mix path normalizes and encodes to MP3
-before anything is persisted. Retaining an unnormalized lossless reference will
-require changing where that pipeline writes, which is the substance of P01.3.
+The old note saying P01.3 still needed to persist pre-mastering audio was stale.
+P01.3 already writes that cache; P03.2 now links its roles into saved projects.

@@ -18,7 +18,8 @@ from pathlib import Path
 
 import numpy as np
 
-PEAKS_SCHEMA_VERSION = 1
+PEAKS_SCHEMA_VERSION = 2
+PEAK_LEVELS = (2000, 8000, 32000, 64000)
 
 #: Peaks are quantised to signed bytes for transport. 8 bits is plenty for a
 #: waveform a few hundred pixels tall, and it keeps the JSON payload small.
@@ -73,14 +74,11 @@ def compute_peaks(samples: np.ndarray, sample_rate: int, buckets: int = 2000) ->
                      mins=[], maxs=[])
 
     buckets = min(buckets, n)
-    # Trim to a whole number of buckets so the reshape is exact; the discarded
-    # tail is at most one bucket, i.e. sub-pixel on screen.
-    per = n // buckets
-    usable = per * buckets
-    block = mono[:usable].reshape(buckets, per)
-
-    mins = np.clip(block.min(axis=1) * _SCALE, -_SCALE, _SCALE)
-    maxs = np.clip(block.max(axis=1) * _SCALE, -_SCALE, _SCALE)
+    # Equal time spans cover ALL samples, including the tail. Trimming for a
+    # reshape drops up to buckets-1 samples, which becomes audible at high zoom.
+    starts = np.linspace(0, n, buckets + 1, dtype=np.int64)[:-1]
+    mins = np.clip(np.minimum.reduceat(mono, starts) * _SCALE, -_SCALE, _SCALE)
+    maxs = np.clip(np.maximum.reduceat(mono, starts) * _SCALE, -_SCALE, _SCALE)
     return Peaks(
         buckets=buckets,
         duration_ms=duration_ms,
@@ -91,7 +89,9 @@ def compute_peaks(samples: np.ndarray, sample_rate: int, buckets: int = 2000) ->
 
 
 def _cache_name(source_key: str, buckets: int) -> str:
-    digest = hashlib.sha256(f"{source_key}:{buckets}".encode("utf-8")).hexdigest()[:16]
+    digest = hashlib.sha256(
+        f"{PEAKS_SCHEMA_VERSION}:{source_key}:{buckets}".encode("utf-8")
+    ).hexdigest()[:16]
     return f"peaks_{buckets}_{digest}.json"
 
 
