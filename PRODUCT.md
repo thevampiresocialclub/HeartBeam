@@ -14,10 +14,11 @@ and the owner's request to continue HANDOFF.md.
 
 ## Current task
 
-P03 timing/playback/review, P04 section vocals and P05 visual lyric placement
-and styling are implemented. Preserve the existing Streamlit shell, the single
-audio clock and shared command history. P06/P07 cover export jobs and later
-quality work. Read BUILD-STATUS.md for the current verification record.
+P03 timing/playback/review, P04 section vocals, P05 visual lyric placement and
+styling, and P06 dependable preview/export are implemented. Preserve the existing
+Streamlit shell, single audio clock, shared command history, presentation compiler
+and immutable export-job path. P07 covers controlled audio-quality/model work.
+Read BUILD-STATUS.md for the current verification record.
 
 ## Product character and principles
 

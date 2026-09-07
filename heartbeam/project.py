@@ -210,6 +210,9 @@ class Presentation:
     fonts: list[dict[str, Any]] = field(default_factory=list)
     #: Named, portable defaults only. No timing, lyric IDs or media paths.
     presets: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Singer-facing line visibility. Automatic scheduling is opt-in for old
+    #: projects so their previously authored display windows remain identical.
+    display: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

@@ -282,6 +282,9 @@ def _latest_project_video(project, root):
                    key=lambda p: p.stat().st_mtime_ns, reverse=True)
     for path in files:
         try:
+            export_manifest = path.parent / "export-manifest.json"
+            if export_manifest.exists() and json.loads(export_manifest.read_text(encoding="utf-8")).get("kind") != "full":
+                continue
             snapshot = json.loads((path.parent / "project-snapshot.json").read_text(encoding="utf-8"))
             if snapshot.get("id") == project.id:
                 return snapshot["revision"], str(path)

@@ -260,7 +260,14 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
     assert not at.exception, at.exception
     assert [e.value for e in at.error] == []
 
-    outputs = list((project_dir / P.EXPORTS_DIR).glob("rev-*/karaoke.mp4"))
+    # P06 renders outside Streamlit's request so the editor remains usable and
+    # cancellation can be processed. Poll exactly as the Refresh button does.
+    import time
+    until = time.time() + 20
+    outputs = []
+    while time.time() < until and not outputs:
+        time.sleep(.05); at.run()
+        outputs = list((project_dir / P.EXPORTS_DIR).glob("rev-*/karaoke.mp4"))
     assert len(outputs) == 1
     out = outputs[0]
     assert (out.parent / "project-snapshot.json").exists()

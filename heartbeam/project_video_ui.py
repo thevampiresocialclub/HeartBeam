@@ -1,41 +1,92 @@
-"""Synchronous project export, using P05's compiler. P06 owns job management."""
-import copy
+"""P06 export controls backed by immutable background jobs."""
 from pathlib import Path
 import streamlit as st
-from . import project as P, presentation as S, vocal_mix as V
+
+from . import export_jobs as J, project as P
+
+
+def _show_video(record, project, *, selection=False):
+    if not record:
+        return
+    revision, raw = record
+    path = Path(raw)
+    if not path.is_file():
+        return
+    if revision != project.revision:
+        st.caption(f"This video is from revision {revision}. Render again to include newer edits.")
+    st.video(str(path))
+    name = "karaoke-passage.mp4" if selection else "karaoke.mp4"
+    st.download_button(f"Download {name}", path.read_bytes(), name, mime="video/mp4",
+                       key=f"dl_{'selection' if selection else 'video'}_{path.parent.name}")
+
+
+def _active_status(project, root):
+    key = f"export_job_{project.id}"
+    job_id = st.session_state.get(key)
+    if not job_id:
+        return False
+    job = J.get(job_id)
+    if job is None:
+        st.warning("This export belonged to an earlier app session. Its last saved status is available below.")
+        st.session_state.pop(key, None)
+        return False
+    st.progress(job.progress, text=f"{job.message} Source revision {job.revision}.")
+    if job.status in ("queued", "running"):
+        c = st.columns(2)
+        if c[0].button("Refresh export status", key=f"refresh_{job.id}"):
+            st.rerun()
+        if c[1].button("Cancel export", key=f"cancel_{job.id}"):
+            J.cancel(job.id); st.rerun()
+        return True
+    st.session_state.pop(key, None)
+    if job.status == "complete":
+        record = (job.revision, job.output_path)
+        if job.kind == "full":
+            st.session_state[f"last_video_{project.id}"] = record
+        else:
+            st.session_state[f"last_selection_video_{project.id}"] = record
+        st.success(f"{'Passage' if job.kind == 'selection' else 'Full video'} rendered from revision {job.revision}.")
+        for warning in job.warnings:
+            st.warning(warning)
+    elif job.status == "cancelled":
+        st.info("Export cancelled. Your previous completed video was kept.")
+    else:
+        st.error(f"Video could not finish: {job.error or job.message}")
+    return False
 
 
 def render_controls(project, root, karaoke):
     st.divider()
     st.subheader("Karaoke video")
-    st.caption("Uses the saved project appearance, current lyric timing and vocal levels. Update the lyric preview controls above to change the video.")
-    previous = st.session_state.get(f"last_video_{project.id}")
-    path = Path(previous[1]) if previous else None
-    if st.button("Render video", type="primary", disabled=st.session_state.get("project_readonly", False)):
-        snapshot = copy.deepcopy(project)
-        destination = Path(root) / P.EXPORTS_DIR / f"rev-{snapshot.revision}-{P.new_id('video')}"
+    st.caption("Exports freeze the current revision, lyric appearance, timing, fonts, background and vocal levels. Editing can continue while the video renders.")
+    busy = _active_status(project, root)
+    readonly = st.session_state.get("project_readonly", False)
+    if not busy:
         try:
-            with st.spinner("Rendering the current project…"):
-                audio = karaoke
-                if snapshot.vocal_mix.references:
-                    audio = V.render_mix(snapshot, root)
-                elif snapshot.vocal_mix.regions or snapshot.vocal_mix.default_value:
-                    raise P.ProjectError("Restore calibrated audio references before exporting the vocal mix.")
-                # Keep a timing artifact alongside the exact ASS, presentation,
-                # font files and frozen manifest for a reviewable export.
-                from .project_preview import current_timings
-                from .render import _audio_duration
-                from .timings import to_json
-                compiled = current_timings(snapshot, P.seconds_to_ms(_audio_duration(Path(audio))))
-                path = S.render_project(snapshot, root, audio, destination)
-                to_json(compiled, destination / "timings.json")
-            st.session_state[f"last_video_{project.id}"] = (snapshot.revision, str(path))
-            previous = (snapshot.revision, str(path))
-            st.success("Video rendered from the current project.")
+            if st.button("Render video", type="primary", disabled=readonly):
+                job = J.start(project, root, karaoke)
+                st.session_state[f"export_job_{project.id}"] = job.id
+                st.rerun()
         except (P.ProjectError, OSError, ValueError, RuntimeError) as exc:
-            st.error(f"Video could not finish: {exc}")
-    if path and path.is_file():
-        if previous[0] != project.revision:
-            st.caption(f"This video is from revision {previous[0]}. Render again to include newer edits.")
-        st.video(str(path))
-        st.download_button("Download karaoke.mp4", path.read_bytes(), "karaoke.mp4", mime="video/mp4", key="dl_video")
+            st.error(f"Video could not start: {exc}")
+        with st.expander("Render a short passage first"):
+            st.caption("Use the final font, background, vocal mix and encoder on a difficult passage before committing to the full song. Passage renders are limited to 60 seconds.")
+            with st.form(f"selection_export_{project.id}_{project.revision}"):
+                c = st.columns(2)
+                start_s = c[0].number_input("Passage start (seconds)", min_value=0.0, value=0.0, step=.5)
+                end_s = c[1].number_input("Passage end (seconds)", min_value=.1, value=15.0, step=.5)
+                submitted = st.form_submit_button("Render passage", disabled=readonly)
+                if submitted:
+                    try:
+                        selection = (P.seconds_to_ms(start_s), P.seconds_to_ms(end_s))
+                        job = J.start(project, root, karaoke, selection)
+                        st.session_state[f"export_job_{project.id}"] = job.id
+                        st.rerun()
+                    except (P.ProjectError, OSError, ValueError, RuntimeError) as exc:
+                        st.error(f"Passage could not start: {exc}")
+    recovered = J.recover(root)
+    interrupted = next((item for item in recovered if item["project_id"] == project.id and item["status"] == "interrupted"), None)
+    if interrupted:
+        st.caption("An earlier export was interrupted when the app closed. Completed videos were unaffected; start it again when ready.")
+    _show_video(st.session_state.get(f"last_selection_video_{project.id}"), project, selection=True)
+    _show_video(st.session_state.get(f"last_video_{project.id}"), project)

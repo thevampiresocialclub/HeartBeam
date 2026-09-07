@@ -147,6 +147,48 @@ def display_text(word):
     return word.text if word.display_text is None else word.display_text
 
 
+DISPLAY_DEFAULTS = {
+    "automatic": False,
+    "advance_ms": 1500,
+    "hold_ms": 600,
+    "show_upcoming": False,
+    "upcoming_offset_y": -180,
+}
+
+
+def display_settings(project):
+    saved = getattr(project.presentation, "display", {})
+    if set(saved) - set(DISPLAY_DEFAULTS):
+        raise P.ProjectError("Unknown lyric display setting.")
+    value = {**DISPLAY_DEFAULTS, **saved}
+    if not isinstance(value["automatic"], bool) or not isinstance(value["show_upcoming"], bool):
+        raise P.ProjectError("Automatic and upcoming lyric display settings must be on or off.")
+    for key, low, high in (("advance_ms", 0, 10000), ("hold_ms", 0, 10000),
+                           ("upcoming_offset_y", -1080, 1080)):
+        item = value[key]
+        if isinstance(item, bool) or not isinstance(item, (int, float)) or not low <= item <= high:
+            raise P.ProjectError(f"Invalid lyric display setting: {key}.")
+        value[key] = round(item)
+    return value
+
+
+def set_display_settings(project, values):
+    if set(values) - set(DISPLAY_DEFAULTS):
+        raise P.ProjectError("Unknown lyric display setting.")
+    candidate = {**display_settings(project), **values}
+    old = getattr(project.presentation, "display", None)
+    project.presentation.display = candidate
+    try:
+        project.presentation.display = display_settings(project)
+    except Exception:
+        if old is None:
+            delattr(project.presentation, "display")
+        else:
+            project.presentation.display = old
+        raise
+    return True, "Lyric reading timing updated. Save to keep it."
+
+
 def wrapped_text(project, line):
     breaks = project.presentation.line_overrides.get(line.id, {}).get("break_before", [])
     return "".join(("\n" if w.id in breaks else " " if i else "") + display_text(w)
@@ -278,7 +320,36 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
     script_style = as_legacy_style(base)
     script_style.video.resolution = f"{width}x{height}"
     header = A._build_script_info(script_style)
-    styles, events, layouts, warnings, fonts = [], [], [], [], set()
+    styles, events, layouts, warnings, fonts, compiled_lines = [], [], [], [], set(), []
+    schedule = display_settings(project)
+    scheduled = {}
+    if schedule["automatic"]:
+        for line in project.lines:
+            spans = [project.effective_timing(word.id) for word in line.words if not word.non_sung]
+            spans = [timing for timing in spans if timing and timing.resolved and
+                     0 <= timing.start_ms < timing.end_ms <= duration_ms]
+            if spans:
+                first, last = min(t.start_ms for t in spans), max(t.end_ms for t in spans)
+                scheduled[line.id] = {"start": max(0, first - schedule["advance_ms"]),
+                                      "end": min(duration_ms, last + schedule["hold_ms"]),
+                                      "first": first, "last": last}
+        windows = [scheduled[line.id] for line in project.lines if line.id in scheduled]
+        shortened = False
+        for left, right in zip(windows, windows[1:]):
+            if left["end"] <= right["start"]:
+                continue
+            if left["last"] <= right["first"]:
+                # One shared boundary avoids two current lines in the same slot.
+                # Prefer the requested lead where the real inter-phrase gap fits;
+                # otherwise the earlier phrase remains through its final word.
+                boundary = max(left["last"], right["start"])
+                left["end"] = boundary
+                right["start"] = boundary
+                shortened = True
+            else:
+                warnings.append("Adjacent sung phrases overlap in time. Both highlights remain visible; place those lines in separate screen positions if they collide.")
+        if shortened:
+            warnings.append("A lead/hold was shortened between adjacent phrases so two current lyrics do not occupy the same slot.")
     for index, line in enumerate(project.lines):
         spec = resolved_style(project, line.id)
         validate_style(spec, width, height)
@@ -303,8 +374,12 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
                 words.append((word, timing))
         if not words:
             continue
-        start = line.display_start_ms if line.display_start_ms is not None else min(t.start_ms for _, t in words)
-        end = line.display_end_ms if line.display_end_ms is not None else max(t.end_ms for _, t in words)
+        first_sung, last_sung = min(t.start_ms for _, t in words), max(t.end_ms for _, t in words)
+        if schedule["automatic"]:
+            start, end = scheduled[line.id]["start"], scheduled[line.id]["end"]
+        else:
+            start = line.display_start_ms if line.display_start_ms is not None else first_sung
+            end = line.display_end_ms if line.display_end_ms is not None else last_sung
         if not 0 <= start <= min(t.start_ms for _, t in words) < max(t.end_ms for _, t in words) <= end <= duration_ms:
             if not draft:
                 raise P.ProjectError(f"Line {index + 1} has an invalid display window.")
@@ -338,6 +413,21 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
             parts.append(f"{{\\{tag}{span}}}" + A.escape_text(display_text(word)))
             previous = max(previous, begin) + span
         events.append(f"Dialogue: 0,{A._fmt_ass_time(start / 1000)},{A._fmt_ass_time(end / 1000)},{name},,0,0,0,,{tags}{''.join(parts)}")
+        compiled_lines.append({"line": line, "name": name, "start": start, "end": end,
+                               "first_sung": first_sung, "spec": spec, "layout": layout})
+    if schedule["show_upcoming"]:
+        # A line is upcoming only until its own current-line event begins. This
+        # gives a deterministic two-slot policy without double-displaying it.
+        for current, upcoming in zip(compiled_lines, compiled_lines[1:]):
+            begin, finish = current["start"], min(current["end"], upcoming["start"])
+            if finish <= begin:
+                continue
+            box = upcoming["spec"]["box"]
+            y = max(0, min(height, box["y"] + schedule["upcoming_offset_y"]))
+            text_x = upcoming["layout"]["left"] + {"left": 0, "center": .5, "right": 1}[box["alignment"]] * box["width_px"]
+            text = A.escape_text(wrapped_text(project, upcoming["line"])).replace("\n", r"\N")
+            tags = f"{{\\pos({text_x:g},{y:g})\\q{1 if box['wrap'] == 'auto' else 2}}}"
+            events.append(f"Dialogue: 0,{A._fmt_ass_time(begin / 1000)},{A._fmt_ass_time(finish / 1000)},{upcoming['name']},,0,0,0,,{tags}{text}")
     # Always register a known fallback, including empty/untimed projects.
     fallback, _, messages = F.resolve_face(project, root, {"family": "Noto Sans", "bold": False, "italic": False})
     fonts.add(fallback); warnings.extend(messages)
@@ -349,7 +439,7 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
             "width": width, "height": height}
 
 
-def render_project(project, root, audio, destination):
+def render_project(project, root, audio, destination, *, progress=None, cancel=None):
     """Render an immutable project snapshot with its exact ASS and font files."""
     from .render import render, _audio_duration
     destination = Path(destination)
@@ -373,5 +463,5 @@ def render_project(project, root, audio, destination):
     (destination / "presentation-warnings.json").write_text(json.dumps(compiled["warnings"], indent=2), encoding="utf-8")
     (destination / "project-snapshot.json").write_text(json.dumps(project.to_dict(), indent=2), encoding="utf-8")
     output = destination / "karaoke.mp4"
-    render(audio, ass_path, output, style, font_dir=font_dir)
+    render(audio, ass_path, output, style, font_dir=font_dir, progress=progress, cancel=cancel)
     return output

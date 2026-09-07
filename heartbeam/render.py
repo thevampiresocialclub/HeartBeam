@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import json
 import os
+import threading
 from pathlib import Path
 
 from .style import Style
@@ -67,6 +68,8 @@ def render(
     style: Style,
     background_override: str | Path | None = None,
     font_dir: str | Path | None = None,
+    progress=None,
+    cancel: threading.Event | None = None,
 ) -> None:
     """
     audio_path: karaoke.mp3 (or any ffmpeg-readable audio)
@@ -117,6 +120,7 @@ def render(
         from .project_preview import VENDOR
         vf += f":fontsdir='{_escape_path_for_ass_filter(VENDOR.resolve())}'"
 
+    duration = _audio_duration(audio_path)
     cmd = [_ffmpeg_path(), "-nostdin", "-y", "-loglevel", "error"]
 
     if bg_kind == "solid":
@@ -156,14 +160,46 @@ def render(
         "-b:a", style.video.audio_bitrate,
         # Explicit duration bounds the looping background without letting the
         # last rounded video frame truncate the audio via -shortest.
-        "-t", f"{_audio_duration(audio_path):.9f}",
+        "-t", f"{duration:.9f}",
         str(out_path),
     ]
     log.debug("ffmpeg cmd: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, cwd=work_dir, capture_output=True, check=False)
+    if progress is None and cancel is None:
+        proc = subprocess.run(cmd, cwd=work_dir, capture_output=True, check=False)
+        stderr = proc.stderr
+    else:
+        # FFmpeg's machine-readable progress stream is stable across platforms
+        # and reflects encoded media time rather than guessed wall-clock time.
+        cmd[-1:-1] = ["-progress", "pipe:1", "-nostats"]
+        proc = subprocess.Popen(cmd, cwd=work_dir, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, bufsize=1)
+        stderr_text = ""
+        try:
+            for row in proc.stdout:
+                if cancel is not None and cancel.is_set():
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill(); proc.wait()
+                    raise RuntimeError("Video export cancelled.")
+                key, _, value = row.strip().partition("=")
+                if key in ("out_time_us", "out_time_ms") and progress:
+                    # Current FFmpeg reports both values in microseconds.
+                    try:
+                        encoded = int(value)
+                    except ValueError:  # FFmpeg can report N/A before frame 1.
+                        continue
+                    progress(min(1.0, max(0.0, encoded / 1_000_000 / duration)))
+            stderr_text = proc.stderr.read()
+            proc.wait()
+        finally:
+            if proc.poll() is None:
+                proc.kill(); proc.wait()
+        stderr = stderr_text.encode()
     if proc.returncode != 0:
         raise RuntimeError(
             f"ffmpeg render failed:\n"
             f"cmd: {' '.join(cmd)}\n"
-            f"stderr: {proc.stderr.decode('utf-8', errors='replace')}"
+            f"stderr: {stderr.decode('utf-8', errors='replace')}"
         )

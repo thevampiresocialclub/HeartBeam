@@ -1,15 +1,15 @@
 # HeartBeam handoff
 
-**Updated:** 7 September 2026 by Codex, completing P05.
+**Updated:** 7 September 2026 by Codex, completing P06.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
-**Continuation base:** `2876706` (P03/P04); use `git log -1` for the P05 commit.
+**Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
 Read **BUILD-STATUS.md first**. It is the authoritative record of completion,
 tests, measured performance and remaining validation limits. This handoff
 explains how to continue without breaking the working editor.
 
-P03, P04 and **P05, the visual lyric editor**, are implemented. Next is P06
-preview/export jobs, followed by P07 quality/release work. The original program is in
+P03, P04, P05 and **P06, dependable preview/export**, are implemented. Next is
+P07 controlled audio-quality/model work. The original program is in
 `C:\Users\young\Documents\Codex\2026-09-06\run\outputs\heartbeam-claude-handoff`.
 Read `06-PREVIEW-EXPORT.md`, `docs/PRESENTATION.md`,
 `08-SHARED-CONTRACT.md` and `09-RELEASE-CHECKLIST.md` before continuing.
@@ -24,6 +24,8 @@ node --test tests/audio_transport.test.mjs tests/presentation.test.mjs
 .venv\Scripts\python.exe -m streamlit run heartbeam/gui.py --server.address=127.0.0.1 --server.port=8504 --server.headless=true
 # Original eight-second fixture, no ML or downloaded song:
 .venv\Scripts\python.exe scripts/p05_proof.py C:/temp/heartbeam-p05-proof --render --background
+# Full saved-project/export proof from existing local artifacts (new folder only):
+.venv\Scripts\python.exe scripts/p06_full_song_proof.py C:/temp/heartbeam-p06-proof out/timings.json out/karaoke.mp3
 ```
 
 The Node command is optional development verification, not an application build
@@ -105,9 +107,14 @@ server on 8504. Do not kill a server without establishing which task owns it.
 - `project_align.py`: explicit CUDA alignment of the saved lead track. It is
   imported only by that action, writes a new result artifact and preserves
   manual corrections when applying proposals. Transport edits load no models.
-- `project_video_ui.py`: synchronous export adapter, with no separate GUI style
-  state. Revision folders retain exact project/presentation/ASS/timing, font files,
-  background and warnings. P06 can replace the job UX while retaining these inputs.
+- `project_video_ui.py`: passage/full export controls, revision labels, progress,
+  cancellation, stale-result display and recovery notices. It has no separate
+  style or timing state.
+- `export_jobs.py`: immutable deep-copied export inputs, preflight, passage trimming,
+  atomically saved job state and private temporary output promotion. A failed,
+  cancelled or interrupted job never replaces the last completed video.
+  Revision folders retain exact project/presentation/ASS/timing, font files,
+  background, warnings and `export-manifest.json` asset/audio identities.
   `render.py` explicitly bounds video by audio duration; `-shortest` alone produced
   an encoder tail. P05 exports resolve safe filter basenames from the export
   directory so quoted/punctuated Windows project folder names work.

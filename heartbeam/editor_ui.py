@@ -265,6 +265,7 @@ def render(project, root, karaoke_path):
     duration = available[0]["duration_ms"]
     from . import presentation_ui, presentation
     appearance_selection = presentation_ui.scope_controls(project)
+    presentation_ui.display_controls(project)
     selection = st.session_state.get(f"vocal_template_{project.id}")
     payload = E.build_payload(project, sources, duration, st.session_state.get("selected_word_id"))
     try:

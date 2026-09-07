@@ -856,3 +856,88 @@ SHA-256: `0d680e1c8b806d237d29f2f451a76486bfd68e607b56fe6b78e996992a64571f`.
 - P06 preview/export jobs and P07 quality/model work remain. Use the compiler
   described in `docs/PRESENTATION.md`; do not introduce a second saved style or
   subtitle implementation.
+
+
+---
+
+## P06 - Preview, export and release integration: COMPLETE
+
+Completed 7 September 2026 on top of `d770ca2` (P05).
+
+### Delivered
+
+- Saved singer-facing line scheduling can show a phrase before its first word,
+  hold it after the final word and optionally show the next phrase in a second
+  vertical slot. Song-start lead-in clamps to zero. Display scheduling changes
+  neither effective word timing nor vocal regions. Upcoming events end exactly
+  when that line becomes current. Adjacent phrases share a clean display boundary
+  when lead and hold do not both fit; actual overlapping vocals remain intact and
+  are reported rather than truncating a sung highlight.
+- Full and up-to-60-second passage renders run as background jobs from a deep
+  copy of the current project. Preflight checks FFmpeg, audio/reference integrity,
+  final lyric timing, fonts/glyphs and backgrounds before starting the encode.
+- FFmpeg reports encoded-media progress. The UI supports refresh and cancellation,
+  labels the frozen source revision and keeps the editor usable while rendering.
+- Each job writes to its own hidden temporary directory and atomically promotes
+  the directory only after success. Failure/cancellation cleans that directory
+  and preserves every completed output. Saved unfinished jobs are labeled
+  interrupted after an app restart.
+- `export-manifest.json` records the source revision, full/passage kind, passage
+  range, exact audio hash, project asset IDs/hashes and compiler warnings. Existing
+  ASS, timings, presentation, project snapshot, concrete fonts and copied
+  background artifacts remain alongside the MP4.
+- The legacy `heartbeam-video` CLI and Windows GUI launcher import path remain
+  operational. End users still need no Node.js or frontend development server.
+
+### Verification
+
+`257` Python tests pass with `-m "not slow"`, including real FFmpeg renders and
+Streamlit AppTest. `9` JavaScript transport/placement tests pass. New tests cover
+display lead/hold/upcoming boundaries, persisted settings, invalid preflight,
+clip-relative timing without source mutation, frozen revision/style inputs,
+successful promotion, encoder failure, cancellation and last-good retention.
+
+Real browser, eight-second project with looping H.264 background:
+
+- Enabled a 1200 ms lead, 500 ms hold and upcoming line slot. The preview updated
+  at revision 4 without changing the audio clock or surfacing an application error.
+- A final-quality 0–3.5 second passage job visibly entered the 8% encoding state,
+  then completed with its revision-4 download while the revision-3 full video
+  remained available. This found and fixed FFmpeg's initial `out_time=N/A` case.
+- A full revision-4 video then completed through the same browser controls. The
+  small eight-second job finished before the attempted cancellation; cancellation
+  and last-good retention are verified by the controlled job test.
+
+Full-song project proof used the existing local 204.745-second, 245-word artifacts
+without rerunning separation or alignment. The corrected proof rendered in about
+5.0 seconds on the
+reference machine to H.264 960×540 plus AAC stereo 44.1 kHz. The MP4 duration is
+204.745011 seconds; the frozen manifest records revision 2 and audio SHA-256
+`a9e44366ca87485cf44153139b4113df30e705051ed8ed0e835570faba76f542`.
+Frames at 2.2, 86.0 and 190.0 seconds confirmed readable start, middle and end
+layouts after the adjacent-window correction; these are visual checks, not a
+pixel-identity claim against the browser canvas.
+The same full song also rendered through `heartbeam-video` at 320×180, confirming
+the compatibility route.
+
+Local evidence:
+
+- `C:\Users\young\Documents\Codex\2026-09-06\run\work\p06-full-song-2` (final corrected frames)
+- `C:\Users\young\Documents\Codex\2026-09-06\run\work\p06-cli`
+- `C:\Users\young\Documents\Codex\2026-09-06\run\work\p06-wheel-2`
+
+The offline wheel contains the new export manager plus the bundled JS, CSS,
+fonts, WASM renderer and licenses. SHA-256:
+`af911beb773edee6eacd52a385ddf0af388c45fe4d2e7231c76b5eb378463ee5`.
+
+### Limits and next work
+
+- The UI uses an explicit refresh button for export progress; it does not force
+  periodic whole-app reruns while the user is editing.
+- Cancellation is cooperative at the FFmpeg encode stage. If a new vocal mix must
+  first be materialized, cancellation takes effect after that bounded preparation.
+- Browser/native rasterization and colour management remain allowed to differ;
+  both use the same ASS, design dimensions and concrete fonts.
+- P07 owns controlled vocal-removal model comparisons and subjective listening.
+  Keep existing project defaults stable until reproducible A/B evidence supports
+  a preset change.

@@ -1,0 +1,42 @@
+# Video export and recovery
+
+HeartBeam exports the exact project revision shown when a job starts. Later edits
+do not alter that job. The snapshot includes lyric timing and wording, appearance,
+font files, background, vocal levels, selected audio hash and source asset hashes.
+
+## Recommended workflow
+
+1. Save the project after editing lyrics, timing, placement and vocal levels.
+2. Under **Lyric reading timing**, enable automatic scheduling and choose how
+   early a phrase appears and how long it remains after its last word. The optional
+   next-line slot uses the configured vertical offset. Adjacent non-overlapping
+   phrases share a clean boundary when the requested lead and hold do not both
+   fit in the gap. Actual overlapping vocals keep both highlights and are reported.
+3. Use **Render a short passage first** to encode up to 60 seconds with the final
+   font, background, audio mix and encoder.
+4. Choose **Render video**. Use **Refresh export status** to read encoded-media
+   progress. **Cancel export** stops the current encode.
+5. Download the completed MP4. If its revision is older than the editor, HeartBeam
+   labels it as stale rather than implying it contains later edits.
+
+## Files and recovery
+
+Completed outputs live under `exports/rev-<revision>-<kind>-<job-id>/`. The MP4
+appears there only after FFmpeg succeeds. A private `.job-<id>.tmp` directory is
+removed after success, failure or cancellation. Cleanup targets that job only;
+older output folders remain intact.
+
+Each completed folder contains `karaoke.mp4`, `lyrics.ass`, `timings.json`,
+`presentation.json`, `presentation-warnings.json`, `project-snapshot.json`,
+`export-manifest.json`, and the exact font files used. Image/video backgrounds
+are copied into the folder. Passage exports also retain their lossless clipped
+audio so the result can be audited.
+
+Job status is atomically saved under `exports/jobs/`. If the app process closes
+during an export, the next session labels that job interrupted. Start it again;
+the previous completed video remains available. Invalid timing, missing karaoke
+audio, changed background assets, missing glyphs, uncalibrated vocal regions and
+missing FFmpeg are checked before a job begins.
+
+The legacy `heartbeam-video` command remains available for `karaoke.mp3` plus
+`timings.json` workflows. Saved projects use the richer revision snapshot route.

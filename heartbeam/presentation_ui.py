@@ -124,6 +124,26 @@ def controls(project, root, selection):
     preset_controls(project, root, identity)
 
 
+def display_controls(project):
+    """Song-wide reading lead/hold; musical word timing remains untouched."""
+    from .editor_ui import change
+    value = S.display_settings(project)
+    with st.expander("Lyric reading timing"):
+        st.caption("Show a phrase early enough to read it. These controls change only when lines are visible; word highlighting and vocal levels keep their original timing.")
+        with st.form(f"display_schedule_{project.id}_{project.revision}"):
+            automatic = st.checkbox("Automatically schedule lyric lines", value["automatic"])
+            c = st.columns(2)
+            advance = c[0].number_input("Show before singing (ms)", 0, 10000, value["advance_ms"], step=100)
+            hold = c[1].number_input("Keep after singing (ms)", 0, 10000, value["hold_ms"], step=100)
+            upcoming = st.checkbox("Show the next lyric in a second slot", value["show_upcoming"])
+            offset = st.number_input("Next-line vertical offset", -1080, 1080, value["upcoming_offset_y"], step=10,
+                                     help="Negative places the upcoming line above its normal position; positive places it below.")
+            if st.form_submit_button("Apply lyric reading timing"):
+                change(project, lambda p: S.set_display_settings(p, {"automatic": automatic,
+                    "advance_ms": advance, "hold_ms": hold, "show_upcoming": upcoming,
+                    "upcoming_offset_y": offset}))
+
+
 def _uploaded_files(uploads, action):
     """Use temporary input copies; committed assets receive safe hashed names."""
     with tempfile.TemporaryDirectory(prefix="heartbeam-style-") as folder:

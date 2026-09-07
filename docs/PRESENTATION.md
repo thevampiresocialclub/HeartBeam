@@ -124,8 +124,9 @@ without surviving words start from song defaults.
 
 Exports retain `project-snapshot.json`, `presentation.json`, `lyrics.ass`, exact
 font files, a copied background, warnings and effective `timings.json` (the GUI
-adapter writes timing JSON). P06 should call this compiler/render path from its
-snapshot jobs, not introduce another saved style or subtitle compiler.
+adapter writes timing JSON). P06's background jobs call this exact path from a
+deep-copied project revision. `export-manifest.json` records the source revision,
+audio hash, asset IDs/hashes, export kind and optional passage range.
 
 ## Verification and limits
 
@@ -142,8 +143,9 @@ actual text. Automatic shrinking is never applied. Browser/native decoding,
 colour management and rasterization are not claimed pixel-identical. Video
 background preview requires a browser-supported codec (H.264 MP4 is verified).
 Registered media remains in Streamlit RAM and audio uses decoded whole buffers.
-Undo is session-local; Save persists content. Long-running export job management
-remains P06. Refer to BUILD-STATUS.md for the measured verification record.
+Undo is session-local; Save persists content. Export jobs survive ordinary editor
+reruns; a process exit labels an unfinished saved job as interrupted. Refer to
+BUILD-STATUS.md for the measured verification record.
 
 Primary references: [ASS tags](https://aegisub.org/docs/latest/ass_tags/),
 [libass parsing](https://github.com/libass/libass/blob/master/libass/ass_parse.c),

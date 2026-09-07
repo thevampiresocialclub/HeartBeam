@@ -116,6 +116,52 @@ def test_word_and_sweep_keep_sung_colour_and_absolute_gap_timing():
     assert r"{\k60}Bright" in swept
 
 
+def test_automatic_display_lead_hold_and_upcoming_slot_do_not_shift_audio_timing():
+    p = song()
+    before = copy.deepcopy(p.original_alignment)
+    S.set_display_settings(p, {"automatic": True, "advance_ms": 300,
+                               "hold_ms": 400, "show_upcoming": True,
+                               "upcoming_offset_y": -160})
+    compiled = S.compile_project(p, 8000)
+    # First sung word is 500ms, so the first line appears at 200ms. The first
+    # line's final word ends at 3200ms and remains until 3600ms.
+    assert "Dialogue: 0,0:00:00.20,0:00:03.60,Line0" in compiled["ass"]
+    # The next line appears in its second slot only until its current event
+    # starts at 4.2s, so a line never occupies both roles simultaneously.
+    assert r"\pos(960,840)" in compiled["ass"]
+    upcoming = [row for row in compiled["ass"].splitlines()
+                if row.startswith("Dialogue") and "Café" in row]
+    assert len(upcoming) == 2
+    assert any("0:00:00.20,0:00:03.60" in row for row in upcoming)
+    assert any("0:00:04.20,0:00:07.60" in row for row in upcoming)
+    assert p.original_alignment == before
+
+
+def test_display_settings_roundtrip_and_reject_invalid_values(tmp_path):
+    p = song()
+    S.set_display_settings(p, {"automatic": True, "advance_ms": 1250,
+                               "hold_ms": 750, "show_upcoming": False})
+    P.save_project(p, tmp_path)
+    assert S.display_settings(P.load_project(tmp_path)) == S.display_settings(p)
+    with pytest.raises(P.ProjectError, match="display setting"):
+        S.set_display_settings(p, {"advance_ms": -1})
+
+
+def test_adjacent_automatic_windows_share_a_boundary_without_cutting_words():
+    p = song()
+    S.set_display_settings(p, {"automatic": True, "advance_ms": 1200,
+                               "hold_ms": 500, "show_upcoming": True})
+    compiled = S.compile_project(p, 8000)
+    rows = [row for row in compiled["ass"].splitlines() if row.startswith("Dialogue")]
+    current0 = next(row for row in rows if ",Line0," in row and "Bright" in row)
+    current1 = next(row for row in rows if ",Line1," in row and r"{\k" in row)
+    assert "0:00:00.00,0:00:03.30" in current0
+    assert "0:00:03.30,0:00:07.70" in current1
+    assert any("shortened" in warning for warning in compiled["warnings"])
+    assert p.effective_timing("w0-3").end_ms == 3200
+    assert p.effective_timing("w1-0").start_ms == 4500
+
+
 def test_alignment_independent_of_box_anchor_and_scale():
     p = song()
     S.apply_style(p, {"box": {"anchor": "top left", "x": 200, "y": 100, "width_px": 600, "alignment": "right"}})

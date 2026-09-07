@@ -391,5 +391,14 @@ Legacy TOML styles can be imported into song defaults.
 **Render video** uses the current project's timing, vocal mix and appearance.
 Positions, font sizes and outlines scale together from a 1920 × 1080 design
 canvas to 720p, 1080p or 4K. Visual changes make older videos stale while keeping
-prepared audio. Save the project to keep edits across sessions. The presentation
-schema and compiler contract are in [docs/PRESENTATION.md](docs/PRESENTATION.md).
+prepared audio. **Lyric reading timing** can show each phrase before its first
+word, hold it afterward, and optionally show the next phrase in a second slot;
+word highlighting and vocal regions keep their musical timing.
+
+Rendering runs as a revision-labeled job, so the editor remains available.
+Progress and cancellation are shown in the app. A video is published only after
+the complete encode succeeds; failure or cancellation keeps the last good video.
+Use **Render a short passage first** for a final-quality check of up to 60 seconds.
+Save the project to keep edits across sessions. See [docs/EXPORTS.md](docs/EXPORTS.md)
+for the workflow and recovery files, and [docs/PRESENTATION.md](docs/PRESENTATION.md)
+for the presentation/compiler contract.
