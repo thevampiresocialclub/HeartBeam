@@ -25,8 +25,10 @@ from pathlib import Path
 
 import streamlit as st
 
+from heartbeam import editor as ed
 from heartbeam import lyrics as lyr
 from heartbeam import project as prj
+from heartbeam import waveform as wfm
 from heartbeam.models import PRESETS, PRIMARY_PRESETS, resolve_default
 from heartbeam.style import toml_string
 
@@ -534,6 +536,170 @@ def _lyrics_editor(project, project_dir: Path) -> None:
                 st.caption(f"...and {len(unresolved) - 50} more.")
 
 
+def _timeline_component():
+    """Register the component.
+
+    Deliberately NOT cached. Registration populates Streamlit's per-run
+    component registry, so caching the returned renderer skips registration on
+    later runs and the mount fails with "Component ... is not registered".
+    Registering each run is the supported pattern; only the assets are cached.
+    """
+    return ed.timeline_component()
+
+
+@st.cache_data(show_spinner="Reading waveform...")
+def _timeline_data(audio_path_str: str, mtime: float, buckets: int):
+    """Peaks + inlined audio, cached on (path, mtime).
+
+    Cached because both are expensive and neither changes while the user drags:
+    peaks require decoding the audio, and base64-encoding a 5 MB MP3 on every
+    rerun would dominate the interaction budget.
+    """
+    import soundfile as sf
+
+    path = Path(audio_path_str)
+    samples, sr = sf.read(str(path), dtype="float32", always_2d=False)
+    peaks = wfm.compute_peaks(samples, sr, buckets=buckets)
+    duration_ms = int(round(len(samples) / sr * 1000)) if sr else 0
+    return peaks.to_dict(), duration_ms, ed.audio_data_url(path)
+
+
+def _timing_editor(project, project_dir: Path, karaoke_path: Path) -> None:
+    """The P03 timing editor: waveform, transport and draggable word bounds."""
+    st.divider()
+    st.subheader("Timing")
+
+    if karaoke_path is None or not karaoke_path.exists():
+        st.info("Timing editing needs the song's audio. Open a project that has it.")
+        return
+
+    try:
+        peaks_dict, duration_ms, audio_src = _timeline_data(
+            str(karaoke_path), karaoke_path.stat().st_mtime, 2000)
+    except Exception as exc:  # noqa: BLE001 - the editor must not kill the page
+        st.error(f"Could not prepare the waveform: {type(exc).__name__}: {exc}")
+        return
+
+    if "undo_stack" not in st.session_state:
+        st.session_state.undo_stack = lyr.UndoStack()
+    stack = st.session_state.undo_stack
+
+    payload = {
+        "words": ed.words_payload(project),
+        "peaks": {"mins": peaks_dict["mins"], "maxs": peaks_dict["maxs"]},
+        "duration_ms": duration_ms,
+        "selected_id": st.session_state.get("selected_word_id"),
+        "audio_src": audio_src,
+    }
+
+    timeline = _timeline_component()
+    result = timeline(data=payload, key="hb_timeline")
+
+    # --- committed edits come back here, one per finished gesture ---
+    edit = result.get("timing_edit") if result else None
+    if edit:
+        nonce = edit.get("nonce")
+        if nonce != st.session_state.get("last_timing_nonce"):
+            st.session_state.last_timing_nonce = nonce
+            stack.commit(project)
+            ok, message = ed.apply_timing_edit(project, edit, duration_ms)
+            if ok:
+                st.session_state.timing_message = ("ok", message)
+            else:
+                stack.undo(project)   # reject cleanly; do not leave a half state
+                st.session_state.timing_message = ("err", message)
+            st.rerun()
+
+    selected = result.get("selected") if result else None
+    if selected and selected != st.session_state.get("selected_word_id"):
+        # Selection is transient UI state: it must not mark the song dirty.
+        st.session_state.selected_word_id = selected
+
+    kind_message = st.session_state.pop("timing_message", None)
+    if kind_message:
+        kind, message = kind_message
+        (st.success if kind == "ok" else st.error)(message)
+
+    _timing_controls(project, duration_ms, stack)
+
+
+def _timing_controls(project, duration_ms: int, stack) -> None:
+    """Numeric nudges, manual timing and review navigation."""
+    selected_id = st.session_state.get("selected_word_id")
+    word = project.find_word(selected_id) if selected_id else None
+
+    cols = st.columns([2, 1, 1, 1, 1])
+    with cols[0]:
+        if word is None:
+            st.caption("Select a word in the timeline to nudge or time it.")
+        else:
+            timing = project.effective_timing(word.id)
+            if timing and timing.resolved:
+                st.caption(f"**{word.text}** - {timing.start_ms} to {timing.end_ms} ms")
+            else:
+                st.caption(f"**{word.text}** - needs timing")
+
+    nudge_ms = st.session_state.setdefault("nudge_ms", 10)
+    with cols[1]:
+        nudge_ms = st.number_input("Nudge (ms)", min_value=1, max_value=1000,
+                                   value=nudge_ms, step=5, key="nudge_ms")
+    for col, (label, delta, key) in zip(cols[2:4], [
+        ("<- earlier", -1, "nudge_back"), ("later ->", 1, "nudge_fwd"),
+    ]):
+        with col:
+            if st.button(label, key=key, disabled=word is None):
+                stack.commit(project)
+                ok, message = ed.nudge(project, word.id, delta * int(nudge_ms),
+                                       audio_duration_ms=duration_ms)
+                if not ok:
+                    stack.undo(project)
+                st.session_state.timing_message = ("ok" if ok else "err", message)
+                st.rerun()
+    with cols[4]:
+        if st.button("Undo", key="undo_timing", disabled=not stack.can_undo):
+            stack.undo(project)
+            st.rerun()
+
+    nav = st.columns(3)
+    with nav[0]:
+        if st.button("Next untimed word", key="next_untimed"):
+            nxt = ed.next_unresolved(project, selected_id)
+            st.session_state.selected_word_id = nxt
+            if nxt is None:
+                st.session_state.timing_message = ("ok", "No untimed words left.")
+            st.rerun()
+    with nav[1]:
+        if st.button("Next uncertain word", key="next_uncertain"):
+            nxt = ed.next_low_confidence(project, selected_id)
+            st.session_state.selected_word_id = nxt
+            if nxt is None:
+                st.session_state.timing_message = ("ok", "No uncertain words left.")
+            st.rerun()
+    with nav[2]:
+        untimed = len(project.unresolved_words())
+        st.caption(f"{untimed} word(s) still need timing")
+
+    if word is not None:
+        timing = project.effective_timing(word.id)
+        if timing is None or not timing.resolved:
+            with st.form("manual_timing"):
+                st.caption(f"Set timing for **{word.text}** by hand")
+                c1, c2, c3 = st.columns([1, 1, 1])
+                start = c1.number_input("Start (ms)", min_value=0,
+                                        max_value=max(0, duration_ms), step=10)
+                end = c2.number_input("End (ms)", min_value=0,
+                                      max_value=max(0, duration_ms), step=10,
+                                      value=min(duration_ms, 500))
+                if c3.form_submit_button("Assign"):
+                    stack.commit(project)
+                    ok, message = ed.set_manual_timing(
+                        project, word.id, int(start), int(end), duration_ms)
+                    if not ok:
+                        stack.undo(project)
+                    st.session_state.timing_message = ("ok" if ok else "err", message)
+                    st.rerun()
+
+
 def main() -> None:
     st.set_page_config(page_title="HeartBeam", page_icon=":microphone:", layout="centered")
     st.title("HeartBeam")
@@ -691,6 +857,11 @@ def main() -> None:
         st.divider()
         st.subheader("Result")
         st.audio(str(karaoke_path))
+
+        if st.session_state.get("project") is not None:
+            _timing_editor(st.session_state.project,
+                           st.session_state.project_dir, karaoke_path)
+
         with open(karaoke_path, "rb") as f:
             st.download_button(
                 "Download karaoke.mp3",

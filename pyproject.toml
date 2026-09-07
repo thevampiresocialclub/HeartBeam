@@ -57,7 +57,10 @@ ml = [
     "whisperx>=3.1",
 ]
 gui = [
-    "streamlit>=1.30",
+    # The timing editor uses st.components.v2, which takes raw HTML/CSS/JS
+    # strings and therefore needs no Node build step. That API is not in
+    # 1.30; 1.57 is the version P03.1 was verified against.
+    "streamlit>=1.57",
 ]
 dev = [
     "pytest>=8.0",
@@ -76,7 +79,10 @@ where = ["."]
 include = ["heartbeam*"]
 
 [tool.setuptools.package-data]
-heartbeam = ["styles/*.toml"]
+# editor_assets ships the timing editor's frontend. It is plain ES-module JS and
+# CSS with no build step, which is what keeps Node.js out of an ordinary user's
+# install; these files must be present in the installed package.
+heartbeam = ["styles/*.toml", "editor_assets/*.js", "editor_assets/*.css"]
 
 [tool.pytest.ini_options]
 markers = [

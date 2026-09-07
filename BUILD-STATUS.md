@@ -12,7 +12,9 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | P01.4 Visible project workflow | **Verified** |
 | **P01 overall** | **Complete** |
 | **P02 Lyrics editor** | **Verified** |
-| P03-P07 | Not started |
+| **P03.1 Architecture proof** | **Verified** |
+| P03.2-P03.4 | Not started |
+| P04-P07 | Not started |
 
 **P01 and P02 are complete.** A song can be generated, saved, closed, reopened
 and restyled without rerunning separation; lyrics can be pasted rather than
@@ -338,6 +340,99 @@ unresolved.
 
 ---
 
+## P03.1 - Prove the interactive architecture: VERIFIED
+
+The gate this project opens with. Result: **the approach works, with two real
+defects found and fixed, and three limitations recorded.**
+
+### The architecture, and why it clears the packaging constraint
+
+Streamlit 1.57 ships `st.components.v2.component(name, html=, css=, js=)`, which
+accepts **raw HTML/CSS/JS strings**. The frontend is therefore plain ES-module
+JavaScript in `heartbeam/editor_assets/`, shipped as package data. There is no
+React, no bundler and **no Node.js anywhere** -- which is what makes the
+contract's requirement ("ordinary users must not need Node.js") satisfiable
+rather than aspirational. Pinned: `streamlit==1.57.0`, API `components.v2`.
+
+Data flows in through `data=`; committed gestures come back through
+`setTriggerValue`. Playback, dragging, hover, zoom and the playhead never cross
+the bridge. One drag equals one trigger equals one undo step.
+
+### Verified by driving a real browser
+
+AppTest cannot execute JavaScript, so this was checked against a running server
+with a real 245-word project (Helena, 3:24):
+
+| Check | Result |
+|---|---|
+| Waveform renders from Python-computed peaks | Yes, 702x150 canvas |
+| Component instances after several reruns | **1** (see defect 1) |
+| Click a word body | Selects, seeks to 2.12 s, does NOT play, does NOT dirty |
+| Selection reaches Python | `Long - 2122 to 4384 ms` |
+| 10 ms nudge | 2122/4384 -> **2132/4394**, exactly +10 ms |
+| Assign timing to an untimed word | `hearse - 7000 to 7600 ms`; untimed 2 -> 1 |
+| Save, then reopen from disk | revision 3, edit persisted, proposal untouched |
+| Audio playback | `paused: false`, advanced 2.02 s in 2.0 s wall time |
+| On-screen clock vs audio element | **33 ms** drift (one tick, see defect 2) |
+
+### Defects the proof found
+
+1. **A click near a word edge committed a no-op edit.** It started a
+   zero-distance drag; mouseup committed unchanged values, marking the project
+   dirty and consuming an undo step. This directly violated "selection changes
+   should not unintentionally commit an edit". `commitDrag` now compares against
+   the drag origin and treats an unmoved gesture as a selection.
+
+2. **The display depended on `requestAnimationFrame` alone.** In the automated
+   browser rAF never fired, and audio kept playing while the playhead and clock
+   sat frozen at 0:00 -- silent desynchronisation from what you hear. Although
+   the non-compositing pane is a test artifact, the same freeze happens in a
+   background tab or an occluded window. The component now drives its display
+   from rAF **and** a 60 ms interval, whichever fires, with a 25 ms guard so the
+   two do not double-draw. Measured drift afterwards: 33 ms, with rAF still not
+   firing at all.
+
+3. **Every rerun stacked another timeline.** Streamlit re-invokes the module
+   against the same parent element, and the code appended a fresh root (and a
+   fresh `<audio>`) each time. It now removes its previous root and aborts the
+   old mount's window listeners via `AbortController`. Confirmed: one editor on
+   the page after many reruns.
+
+Also fixed while diagnosing: `@st.cache_resource` on the component registration
+broke mounting with "Component is not registered" -- registration populates a
+per-run registry, so it must happen every run. And the `<audio>` element is now
+attached to the DOM (hidden) instead of detached, because an inspectable element
+is the difference between "playback is broken" and knowing why.
+
+### Limitations recorded
+
+- **Audio is inlined as a base64 data URL** (6.5 MB for a 5 MB MP3). Streamlit
+  offers no static route an `<audio>` element can point at, so this is the
+  proof's main cost. Capped at 40 MB with a clear error. A served URL or chunked
+  delivery is the obvious P03.2 improvement.
+- **Source switching (original / lead / karaoke) is not implemented**, so its
+  30 ms acceptance target is untested. It belongs to P03.2 and the P01.3 cache
+  already holds the stems it needs.
+- **No ASS lyric preview yet.** The P03.1 brief lists it; SubtitlesOctopus
+  remains a candidate, not a dependency, and has not been evaluated.
+- Peaks are computed at a fixed 2000 buckets; zoom stretches them rather than
+  recomputing at higher resolution.
+
+### Validation
+
+```
+pytest -m "not slow"  -> 168 passed
+pytest -m media       -> 3 passed
+```
+
+`tests/test_timing_editor.py` (29) covers peak extraction and caching, exact
+nudges in both directions, refusal of invalid timings without clamping, manual
+timing for untimed words, review navigation that distinguishes model confidence
+from user review, and the payload. Two of them are regression guards asserting
+the frontend keeps its interval fallback and its no-op-drag check.
+
+---
+
 ## Parked: model A/B sweep (belongs to P07)
 
 Tooling is ready and deliberately unused. `scripts/sweep.py` renders one song
@@ -368,7 +463,7 @@ first separation pass when comparing second-pass models.
 
 ---
 
-## Next: P03 - playback and timing editor
+## Next: P03.2 - one transport and waveform
 
 
 

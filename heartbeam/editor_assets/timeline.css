@@ -1,0 +1,51 @@
+.hb-editor {
+  font: 13px system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: inherit;
+}
+
+.hb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.hb-btn {
+  font: inherit;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(140, 160, 190, 0.45);
+  background: rgba(130, 160, 210, 0.14);
+  color: inherit;
+  cursor: pointer;
+}
+.hb-btn:hover { background: rgba(130, 160, 210, 0.26); }
+.hb-btn.on {
+  background: rgba(255, 215, 0, 0.22);
+  border-color: rgba(255, 215, 0, 0.7);
+}
+
+.hb-time { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.hb-sel { opacity: 0.85; }
+
+.hb-speed, .hb-zoomwrap { display: flex; align-items: center; gap: 6px; opacity: 0.85; }
+.hb-rate { font: inherit; }
+.hb-zoom { width: 120px; }
+
+/* Horizontal scroll is the zoom mechanism: the canvas grows wider than the
+   viewport rather than the drawing being scaled, so peaks stay crisp. */
+.hb-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid rgba(140, 160, 190, 0.3);
+  border-radius: 8px;
+  background: rgba(20, 26, 38, 0.35);
+}
+
+.hb-canvas { display: block; }
+
+.hb-hint { margin-top: 6px; font-size: 12px; opacity: 0.6; }
+
+.hb-hint.err { color: rgb(240, 140, 120); opacity: 1; }
+.hb-audio { display: none; }

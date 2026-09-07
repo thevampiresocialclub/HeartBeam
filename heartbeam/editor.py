@@ -1,0 +1,220 @@
+"""Python side of the timing editor component (P03.1).
+
+Owns the bridge between the saved project and the browser timeline: what goes
+out (words, waveform peaks, audio), and what comes back (committed timing
+edits, selection).
+
+**Why this shape.** The contract requires that high-frequency interaction --
+playback, dragging, the playhead -- never trigger a Python rerun, and that only
+committed changes cross the bridge. So the component receives a self-contained
+snapshot and sends back one message per finished gesture. A drag that moves
+through 200 mouse positions produces exactly one `timing_edit` trigger and
+therefore one undo step.
+
+**No build step.** `st.components.v2.component` accepts raw HTML/CSS/JS strings,
+so the frontend is plain ES-module JavaScript in `editor_assets/`. There is no
+React, no bundler and no Node dependency -- which is what makes the packaging
+requirement ("ordinary users must not need Node.js") satisfiable at all. The
+assets ship as package data.
+"""
+from __future__ import annotations
+
+import base64
+import mimetypes
+from pathlib import Path
+from typing import Any
+
+from . import waveform as wf
+from .project import Project, WordTiming
+
+ASSET_DIR = Path(__file__).parent / "editor_assets"
+
+#: Below this score a word is drawn as low-confidence. Matches the aligner's
+#: own threshold so the two views agree about which words look uncertain.
+LOW_CONFIDENCE = 0.3
+
+#: Ceiling on inlining audio as a data URL. Streamlit has no general static
+#: file route we can point an <audio> element at, so the proof inlines the
+#: audio. A 4-minute MP3 is roughly 5 MB, about 6.7 MB base64-encoded, which is
+#: acceptable once per project load but is the main limitation of this approach
+#: and is recorded as such in BUILD-STATUS.
+MAX_INLINE_AUDIO_BYTES = 40 * 1024 * 1024
+
+
+class EditorAssetError(RuntimeError):
+    pass
+
+
+def _read_asset(name: str) -> str:
+    path = ASSET_DIR / name
+    if not path.exists():
+        raise EditorAssetError(
+            f"editor asset missing: {path}. The package data may not have been "
+            "installed; reinstall with scripts/install.ps1."
+        )
+    return path.read_text(encoding="utf-8")
+
+
+def audio_data_url(path: str | Path) -> str:
+    """Inline an audio file as a data URL for the component's <audio> element."""
+    p = Path(path)
+    size = p.stat().st_size
+    if size > MAX_INLINE_AUDIO_BYTES:
+        raise EditorAssetError(
+            f"{p.name} is {size / 1024 / 1024:.0f} MB, above the "
+            f"{MAX_INLINE_AUDIO_BYTES / 1024 / 1024:.0f} MB inline limit"
+        )
+    mime = mimetypes.guess_type(p.name)[0] or "audio/mpeg"
+    return f"data:{mime};base64,{base64.b64encode(p.read_bytes()).decode('ascii')}"
+
+
+def words_payload(project: Project) -> list[dict[str, Any]]:
+    """Flatten the project's words into what the timeline needs to draw.
+
+    Unresolved words are included with null times rather than dropped: they are
+    exactly the words the user opened the editor to fix, so they must remain
+    visible and selectable.
+    """
+    out: list[dict[str, Any]] = []
+    for line, word in project.iter_words():
+        if word.non_sung:
+            continue
+        timing = project.effective_timing(word.id)
+        start = timing.start_ms if timing else None
+        end = timing.end_ms if timing else None
+        score = timing.score if timing and timing.score is not None else 1.0
+        out.append({
+            "id": word.id,
+            "text": word.text,
+            "line_id": line.id,
+            "start_ms": start,
+            "end_ms": end,
+            "low_confidence": bool(score < LOW_CONFIDENCE),
+            "edited": word.id in project.timing_edits,
+        })
+    return out
+
+
+def build_payload(project: Project, audio_path: str | Path,
+                  peaks: wf.Peaks, duration_ms: int,
+                  selected_id: str | None = None) -> dict[str, Any]:
+    return {
+        "words": words_payload(project),
+        "peaks": {"mins": peaks.mins, "maxs": peaks.maxs},
+        "duration_ms": duration_ms,
+        "selected_id": selected_id,
+        "audio_src": audio_data_url(audio_path),
+    }
+
+
+def apply_timing_edit(project: Project, edit: dict[str, Any],
+                      audio_duration_ms: int | None = None) -> tuple[bool, str]:
+    """Commit one dragged boundary. Returns (ok, message).
+
+    Validates before writing. The contract requires resolved words to satisfy
+    0 <= start < end <= duration, and an invalid edit must be reported rather
+    than silently clamped into a different song.
+    """
+    word_id = edit.get("word_id")
+    if not word_id or project.find_word(word_id) is None:
+        return False, f"unknown word id: {word_id!r}"
+    try:
+        start = int(edit["start_ms"])
+        end = int(edit["end_ms"])
+    except (KeyError, TypeError, ValueError):
+        return False, "timing edit is missing usable start_ms/end_ms"
+
+    if start < 0:
+        return False, f"start ({start} ms) is before the beginning of the song"
+    if end <= start:
+        return False, f"end ({end} ms) must be after start ({start} ms)"
+    if audio_duration_ms and end > audio_duration_ms:
+        return False, (f"end ({end} ms) is past the end of the audio "
+                       f"({audio_duration_ms} ms)")
+
+    existing = project.effective_timing(word_id)
+    score = existing.score if existing else None
+    project.timing_edits[word_id] = WordTiming(
+        start_ms=start, end_ms=end, score=score)
+    word = project.find_word(word_id)
+    return True, f"{word.text}: {start} - {end} ms"
+
+
+def nudge(project: Project, word_id: str, delta_ms: int, *,
+          edge: str = "both", audio_duration_ms: int | None = None) -> tuple[bool, str]:
+    """Shift a word's timing by an exact number of milliseconds.
+
+    Exact, not approximate: a 10 ms nudge must change the persisted value by
+    precisely 10 ms, which is an acceptance criterion and the reason this is
+    integer arithmetic on stored values rather than anything routed through the
+    pixel space of a drag.
+    """
+    timing = project.effective_timing(word_id)
+    if timing is None or not timing.resolved:
+        return False, "this word has no timing yet; set it before nudging"
+    start, end = timing.start_ms, timing.end_ms
+    if edge in ("both", "start"):
+        start += delta_ms
+    if edge in ("both", "end"):
+        end += delta_ms
+    return apply_timing_edit(
+        project, {"word_id": word_id, "start_ms": start, "end_ms": end},
+        audio_duration_ms=audio_duration_ms)
+
+
+def set_manual_timing(project: Project, word_id: str, start_ms: int, end_ms: int,
+                      audio_duration_ms: int | None = None) -> tuple[bool, str]:
+    """Give an unresolved word a timing by hand."""
+    return apply_timing_edit(
+        project, {"word_id": word_id, "start_ms": start_ms, "end_ms": end_ms},
+        audio_duration_ms=audio_duration_ms)
+
+
+def next_unresolved(project: Project, after_word_id: str | None = None) -> str | None:
+    """ID of the next word needing timing, wrapping around."""
+    ids = [w.id for _, w in project.iter_words() if not w.non_sung]
+    unresolved = {w.id for _, w, _ in project.unresolved_words()}
+    if not unresolved:
+        return None
+    start = ids.index(after_word_id) + 1 if after_word_id in ids else 0
+    for wid in ids[start:] + ids[:start]:
+        if wid in unresolved:
+            return wid
+    return None
+
+
+def next_low_confidence(project: Project, after_word_id: str | None = None,
+                        threshold: float = LOW_CONFIDENCE) -> str | None:
+    """ID of the next word the model was unsure about.
+
+    Model confidence and user review are different things: correcting a word
+    does not raise the model's score, so a reviewed word is skipped by virtue of
+    having a manual edit, not by having its score rewritten.
+    """
+    ids = [w.id for _, w in project.iter_words() if not w.non_sung]
+    candidates = set()
+    for _, word in project.iter_words():
+        if word.non_sung or word.id in project.timing_edits:
+            continue  # already reviewed by hand
+        timing = project.original_alignment.get(word.id)
+        if timing and timing.score is not None and timing.score < threshold:
+            candidates.add(word.id)
+    if not candidates:
+        return None
+    start = ids.index(after_word_id) + 1 if after_word_id in ids else 0
+    for wid in ids[start:] + ids[:start]:
+        if wid in candidates:
+            return wid
+    return None
+
+
+def timeline_component():
+    """Register the component. Import streamlit lazily so this module stays
+    usable (and testable) without a Streamlit runtime."""
+    import streamlit as st
+
+    return st.components.v2.component(
+        "heartbeam_timeline",
+        css=_read_asset("timeline.css"),
+        js=_read_asset("timeline.js"),
+    )
