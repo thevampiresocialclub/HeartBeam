@@ -182,6 +182,7 @@ def separate(
                 )
 
         # Pass 2: lead vs backing on the vocals stem.
+        vocals, _ = load_audio(classified_a['vocals'], sr=sr, mono=False)
         sep_b = _get_separator(preset.karaoke_model, device, tmp)
         out_b_paths = _resolve(sep_b.separate(classified_a["vocals"]))
         # Karaoke-model output naming conventions differ:
@@ -209,11 +210,12 @@ def separate(
 
         instrumental, _ = load_audio(classified_a["instrumental"], sr=sr, mono=False)
 
-    n = min(len(instrumental), len(lead), len(backing))
+    n = min(len(instrumental), len(lead), len(backing), len(vocals))
     return {
         "instrumental": instrumental[:n],
         "lead": lead[:n],
         "backing": backing[:n],
+        "vocals": vocals[:n],
         "sr": sr,
         "preset": preset.name,
     }

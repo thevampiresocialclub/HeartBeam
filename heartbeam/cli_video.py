@@ -56,6 +56,9 @@ def main(argv: list[str] | None = None) -> int:
         style.video.resolution = args.resolution
 
     timings = timings_mod.from_json(args.timings)
+    if any(w.get('start_s') is None for phrase in timings.alignment.get('phrases', []) for w in phrase['words']):
+        log.error('Some lyric words need timing. Open the saved project and review its Timing tab before exporting.')
+        return 2
     log.info("loaded timings: %d lines, %d words",
              len(timings.lines), sum(len(ln.words) for ln in timings.lines))
 

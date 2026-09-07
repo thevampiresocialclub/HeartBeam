@@ -25,6 +25,7 @@ Intervals are start-inclusive / end-exclusive.
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import os
 import shutil
@@ -255,6 +256,7 @@ class Project:
     alignment_proposals: dict[str, WordTiming] = field(default_factory=dict)
     reviewed: dict[str, bool] = field(default_factory=dict)
     command_ids: list[str] = field(default_factory=list)
+    alignment: dict[str, Any] = field(default_factory=dict)
 
     presentation: Presentation = field(default_factory=Presentation)
     vocal_mix: VocalMix = field(default_factory=VocalMix)
@@ -326,6 +328,7 @@ class Project:
             "alignment_proposals": {k: asdict(v) for k, v in self.alignment_proposals.items()},
             "reviewed": self.reviewed.copy(),
             "command_ids": self.command_ids[:],
+            "alignment": copy.deepcopy(self.alignment),
             "presentation": asdict(self.presentation),
             "vocal_mix": asdict(self.vocal_mix),
             "provenance": asdict(self.provenance),
@@ -371,6 +374,7 @@ class Project:
             alignment_proposals={k: WordTiming(**v) for k, v in d.get("alignment_proposals", {}).items()},
             reviewed=dict(d.get("reviewed", {})),
             command_ids=list(d.get("command_ids", [])),
+            alignment=dict(d.get('alignment', {})),
             presentation=Presentation(**d.get("presentation", {})),
             vocal_mix=VocalMix(
                 default_value=vm.get("default_value", 0.0),
@@ -629,14 +633,33 @@ def import_legacy_timings(project_dir: str | Path, timings_path: str | Path,
 
     legacy = timings_mod.from_json(tpath)
     project = create_project(root, name or tpath.parent.name or "Imported project")
+    if legacy.alignment:
+        project.alignment['last_run'] = {k:v for k,v in legacy.alignment.items() if k != 'phrases'}
+        if legacy.alignment.get('failure'):
+            project.alignment['failure'] = legacy.alignment['failure']
+    if legacy.alignment.get('online_candidate'):
+        project.alignment['online_candidate'] = legacy.alignment['online_candidate']
+        project.alignment['metadata'] = {k:legacy.alignment['online_candidate'].get(k) for k in ('title','artist','album','duration')}
 
     for ln in legacy.lines:
-        words = [Word(id=new_id("w"), text=w.text) for w in ln.words]
+        phrase = next((p for p in legacy.alignment.get('phrases', []) if p['index'] == ln.index), None)
+        words = [Word(id=new_id('w'), text=w['text']) for w in phrase['words']] if phrase else [Word(id=new_id("w"), text=w.text) for w in ln.words]
         line = Line(id=new_id("line"), words=words)
         if ln.words:
             line.display_start_ms = seconds_to_ms(ln.start_s)
             line.display_end_ms = seconds_to_ms(ln.end_s)
         project.lines.append(line)
+        if phrase:
+            import copy
+            entry = copy.deepcopy(phrase)
+            entry['word_ids'] = [w.id for w in words]
+            project.alignment.setdefault('phrases', {})[line.id] = entry
+            for source, word in zip(phrase['words'], words):
+                project.original_alignment[word.id] = WordTiming(
+                    start_ms=seconds_to_ms(source['start_s']) if source['start_s'] is not None else None,
+                    end_ms=seconds_to_ms(source['end_s']) if source['end_s'] is not None else None,
+                    score=source['score'], reason=source['reason'])
+            continue
         for src_word, new_word in zip(ln.words, words):
             project.original_alignment[new_word.id] = WordTiming(
                 start_ms=seconds_to_ms(src_word.start_s),

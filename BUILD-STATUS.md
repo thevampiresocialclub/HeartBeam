@@ -23,6 +23,11 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **P01 through P06 are implemented.** See the latest sections below for current verification; earlier sections are historical snapshots.
 
+**7 September timing follow-up:** Online lyrics lookup and phrase-first matching
+are implemented. **299 Python tests and 14 JavaScript tests pass.** See
+`docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
+accuracy across songs remains unverified; uncertain words are retained for review.
+
 **P01 and P02 foundation:** A song can be generated, saved, closed, reopened
 and restyled without rerunning separation; lyrics can be pasted rather than
 uploaded and edited without losing timing work; and the lossless audio the
@@ -1011,3 +1016,67 @@ Browser evidence and screenshots:
 The offline wheel in `work\workstation-wheel` includes both workstation assets
 and the updated timeline assets, checked against source. SHA-256:
 `da124d4112c6c50098f0d70c3a8e6a129153c01d5d8ad5cd9f6374edd453f9e5`.
+
+## Follow-up: online lyrics and phrase-first timing — 7 September 2026
+
+Implemented the owner's two-source timing workflow. LRCLIB lookup previews
+lyrics before adoption; a saved project can retain its text and adopt only
+timing hints. Lookup failures use cached results or local matching. Only song
+metadata is sent online. Complete vocals are retained in new separation caches;
+older projects combine saved lead/backing tracks and expose that result as an
+audition source.
+
+The proportional lyric-to-ASR allocation is removed. Full-song sequence matching
+finds phrase anchors before words are refined. Online cues require distributed
+acoustic corroboration; incorrect recording length/order is rejected. Selected
+lines keep whole-song context to disambiguate repeated choruses. Recognition is
+cached independently of lyric edits. A manually bounded phrase skips recognition.
+Missing words remain in the lyrics and review list. Plain draft phrase rendering
+does not manufacture word highlights; final export retains its timing checks.
+
+Timing proposals retain stable line/word IDs, original proposals and manual
+corrections, and use the existing undo/revision system. New timing JSON sidecars
+are validated before import. Generation catches timing-model failure and saves
+completed audio plus unresolved lyrics for later repair. Per-phrase refinement
+failure does not throw away other phrases.
+
+Verification:
+
+- Full Python suite: **299 passed in 18.45 seconds**. Covers matching, dropped
+  words, repeated occurrences, cache reuse, manual windows without recognition,
+  malformed timing input, provider outages, saved-audio integrity, preserved
+  manual edits, undo/reopen and generation recovery. Two Streamlit AppTest flows
+  verify explicit lookup adoption and non-mutating phrase audition.
+- Existing browser logic suite: **14 passed** for transport, preview placement,
+  lyric navigation and workstation component lifecycles.
+- Live LRCLIB query for the owner's song returned record 25227215. Its duration
+  metadata is 152.48 s, but its sung timestamps extend to 176.02 s. With source
+  audio at 152.50 s, HeartBeam displays the mismatch and falls back locally.
+- A real WhisperX CPU run on complete saved vocals produced 209 of 266 word
+  proposals; 30 of 38 lines require review. The first chorus proposal starts
+  around 66 s instead of being forced into the preceding verse. These are
+  changes in proposal placement, not manually verified accuracy measurements.
+- Real in-app browser at **http://localhost:8505/** opened the independent
+  `frost-hybrid-proof` copy, ran whole-song matching and saved it. Complete vocals
+  became available in the shared source selector. A 0.241–5.000 s phrase loop
+  played with the waveform/lyric preview: the displayed clock and song position
+  advanced to about 4.4 s and wrapped to about 1.4 s. Pause worked. No second
+  player or extra audio clock was added.
+- The same browser ran a repair of just the first phrase within the explicit
+  window; its review state updated and the test repair was undone. The saved
+  proof copy retains the whole-song proposal for listening review. No browser
+  console errors were reported during these checks.
+
+The original project under the user's temporary generation folder was not
+overwritten. Proof copies and lookup evidence are in
+`C:\Users\young\Documents\Codex\2026-09-06\run` under `frost-phrase-proof`,
+`frost-hybrid-proof`, and `lookup-proof`. `scripts/timing_proof.py` reproduces
+saved-audio matching into a new folder. The implementation and continuation
+details are in `docs/TIMING_SYSTEM.md` and `HANDOFF.md`.
+
+Limits: the problem song remains a review draft with 57 untimed words after the
+whole-song run. There is no broad annotated timing benchmark or verified held
+note endpoint accuracy. Lead/backing RMS assignment and separation models were
+not changed. SOFA was not installed or evaluated. The existing torch/CUDA setup
+was preserved. Runtime libraries still emit the previously documented optional
+TorchCodec/checkpoint warnings; the tested alignment path completed successfully.

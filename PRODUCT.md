@@ -24,7 +24,13 @@ project save followed by video editing. The desktop editor is a workstation with
 playback, video and waveform on the left and independently scrolling lyric,
 appearance, timing, vocal and export controls on the right. Play must be visible
 at the top and all preview surfaces must follow the same audio clock.
-P07 covers controlled audio-quality/model work.
+Lyric timing has two sources: optional LRCLIB lookup, checked against the actual
+recording, and local matching against complete vocals. Match sung phrases before
+words. Missing or ambiguous words stay visible for review. A user can bound and
+loop one phrase, retry selected lines, and keep manual timing corrections. The
+number of lyric rows on screen remains a presentation setting. Model failure
+must not discard completed separation or lyric text.
+P07 covers broader controlled audio-quality/model evaluation.
 Read BUILD-STATUS.md for the current verification record.
 
 ## Product character and principles

@@ -4,7 +4,7 @@ Lyrics-aware karaoke generator and video editor. Load a song and paste its lyric
 
 Two phases, one engine:
 
-- **Phase 1 (`heartbeam`)** — audio. Source-separates the song, force-aligns your lyrics to the lead vocal, builds a time-domain mask, and writes `karaoke.mp3` + `timings.json` + `lyrics.lrc`.
+- **Phase 1 (`heartbeam`)** — audio. Separates the song, matches lyric phrases against the complete vocals, refines word timings, builds a time-domain mask, and writes `karaoke.mp3` + `timings.json` + `lyrics.lrc`. Unmatched words remain available for repair in the editor.
 - **Phase 2 (`heartbeam-video`)** — video. Consumes `karaoke.mp3` + `timings.json` + a `style.toml`, generates an ASS subtitle file with per-word karaoke (`\k`) tags, and renders the final MP4 via `ffmpeg` + `libass`.
 
 Re-running Phase 2 with a different style does not re-run the slow ML pipeline.
@@ -114,10 +114,10 @@ Rough wall-clock for a 4-minute song:
 | RTX 5070 (measured) | ~80 s | ~2–4 min |
 | Modern 8-core CPU | ~20–30 min | ~45–75 min |
 
-If you do run on CPU, `--whisper-model small` is close to free: the transcript
-only anchors your *known* lyrics to the timeline, so its word-error rate barely
-matters (`small.en` and `medium.en` are both 3.1% WER on LibriSpeech
-test-clean). Setting `OMP_NUM_THREADS` to your physical core count helps too.
+These measurements predate the phrase-matching workflow. A smaller recognition
+model can reduce CPU work, but recognition errors can prevent a phrase from
+being located. HeartBeam now matches the actual lyric sequence and flags gaps;
+it does not proportionally distribute lyrics across whatever speech was found.
 
 ### Moving models between machines
 
@@ -346,6 +346,18 @@ These are all additive — they don't require changes to the engine modules.
 
 
 ## Timing and section vocal editing
+
+**Find lyrics online** searches LRCLIB by song metadata and previews the result
+before you choose it. In a saved project, choose its text and timing hints or
+keep your text and use only its timing hints. No song audio is uploaded.
+
+In **Timing → Match lyric timing**, match the whole song, selected lines, or
+lines needing review. The matcher uses complete vocals, verifies online timing
+against the recording, then refines words inside their own phrases. Recognition
+is cached. For a difficult phrase, select its line, set approximate start/end
+boundaries, use **Loop this phrase** and **Play**, then run matching on that line.
+Manual word corrections are retained. See [the timing system](docs/TIMING_SYSTEM.md)
+for the architecture, tests and known limits.
 
 Open a saved project to edit lyrics directly in the text box. The timing editor
 supports word/edge dragging, precise numeric times, word/line/song nudges,

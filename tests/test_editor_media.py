@@ -125,7 +125,7 @@ def test_missing_tracks_are_explicit_and_audition_does_not_edit_project(tmp_path
     project, root, audio = song(tmp_path)
     before = project.to_dict()
     sources = EM.build_sources(project, root, audio, register=lambda path, coord: "/media/" + path.name)
-    assert [s["available"] for s in sources] == [True, False, False]
+    assert [s["available"] for s in sources] == [True, False, False, False]
     assert all(s["reason"] for s in sources[1:])
     assert all("path" not in s for s in sources)
     assert project.to_dict() == before
@@ -152,7 +152,7 @@ def test_260_word_payload_contains_no_inline_audio_or_peaks(tmp_path):
     assert len(serialized.encode()) < 100_000
     assert "base64" not in serialized and "audio_src" not in payload
     assert all("mins" not in source for source in sources)
-    assert all(source["src"].startswith("/media/") for source in sources)
+    assert all(source["src"].startswith("/media/") for source in sources if source['available'])
 
 
 def test_registration_and_streamlit_range_endpoint(tmp_path, monkeypatch):

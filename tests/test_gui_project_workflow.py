@@ -88,6 +88,38 @@ def test_new_session_starts_with_no_project():
     assert at.button(key="step_video").disabled
 
 
+def test_online_search_keeps_draft_until_user_chooses_result(monkeypatch):
+    from heartbeam import lyrics_lookup_ui
+    candidate=dict(id=1,title='Song',artist='Artist',album='',duration=4.,lyrics='new lyrics',synced_lines=[])
+    monkeypatch.setattr(lyrics_lookup_ui,'lookup',lambda *a,**k:dict(status='Found lyrics',candidates=[candidate]))
+    at=_fresh_app()
+    at.text_area(key='lyrics_text').set_value('my existing draft').run()
+    before=at.session_state['lyrics_text']
+    next(b for b in at.button if b.label == 'Find lyrics').click().run()
+    assert not at.exception
+    assert at.session_state['lyrics_text'] == before
+    at.button(key='lookup_use_generate_empty').click().run()
+    assert not at.exception
+    assert at.session_state['lyrics_text'] == 'new lyrics'
+
+
+def test_selected_phrase_bounds_use_shared_audition_without_editing_project(tmp_path):
+    project_dir=_existing_song_project(tmp_path)
+    at=_fresh_app()
+    at.text_input(key='open_project_path').set_value(str(project_dir))
+    at.button(key='open_project_btn').click().run()
+    project=at.session_state['project'];line=project.lines[0]
+    at.session_state['selected_word_id']=line.words[0].id
+    at.selectbox(key='alignment_scope').set_value('Selected lines').run()
+    at.checkbox(key=f'anchor_{line.id}').set_value(True).run()
+    before=at.session_state['project'].to_dict()
+    at.button(key='audition_phrase').click().run()
+    assert not at.exception
+    assert at.session_state['project'].to_dict() == before
+    event=at.session_state[f'phrase_audition_{project.id}']
+    assert event['start_ms'] == 500 and event['end_ms'] == 2500
+
+
 def test_opening_a_project_resumes_the_song_without_a_run(tmp_path):
     """The P01.4 acceptance criterion, end to end."""
     project_dir = _existing_song_project(tmp_path)

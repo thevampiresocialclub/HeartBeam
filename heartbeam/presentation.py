@@ -316,6 +316,7 @@ def _layout(spec, line, breaks, face):
 def compile_project(project, duration_ms, root=None, *, draft=False):
     """The sole presentation compiler for preview and project exports."""
     from .project_preview import current_timings
+    from .phrase_project import phrase_window
     current_timings(project, duration_ms, draft=draft)  # common timing validation
     width, height = project.presentation.design_width, project.presentation.design_height
     base = resolved_style(project)
@@ -331,8 +332,11 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
             spans = [project.effective_timing(word.id) for word in line.words if not word.non_sung]
             spans = [timing for timing in spans if timing and timing.resolved and
                      0 <= timing.start_ms < timing.end_ms <= duration_ms]
-            if spans:
-                first, last = min(t.start_ms for t in spans), max(t.end_ms for t in spans)
+            phrase = phrase_window(project, line, duration_ms) if draft else None
+            partial = len(spans) < sum(not word.non_sung for word in line.words)
+            if spans or (phrase and partial):
+                first, last = (phrase if phrase and partial else
+                               (min(t.start_ms for t in spans), max(t.end_ms for t in spans)))
                 scheduled[line.id] = {"start": max(0, first - schedule["advance_ms"]),
                                       "end": min(duration_ms, last + schedule["hold_ms"]),
                                       "first": first, "last": last}
@@ -375,20 +379,23 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
             timing = project.effective_timing(word.id)
             if not word.non_sung and timing and timing.resolved and 0 <= timing.start_ms < timing.end_ms <= duration_ms:
                 words.append((word, timing))
-        if not words:
+        phrase = phrase_window(project, line, duration_ms) if draft else None
+        partial = draft and len(words) < sum(not word.non_sung for word in line.words)
+        if not words and not (phrase and partial):
             continue
-        first_sung, last_sung = min(t.start_ms for _, t in words), max(t.end_ms for _, t in words)
+        first_sung, last_sung = (phrase if phrase and partial else
+                                (min(t.start_ms for _, t in words), max(t.end_ms for _, t in words)))
         if schedule["automatic"]:
             start, end = scheduled[line.id]["start"], scheduled[line.id]["end"]
         else:
             start = line.display_start_ms if line.display_start_ms is not None else first_sung
             end = line.display_end_ms if line.display_end_ms is not None else last_sung
-        if not 0 <= start <= min(t.start_ms for _, t in words) < max(t.end_ms for _, t in words) <= end <= duration_ms:
+        if not 0 <= start <= first_sung < last_sung <= end <= duration_ms:
             if not draft:
                 raise P.ProjectError(f"Line {index + 1} has an invalid display window.")
             warnings.append(f"Line {index + 1}: invalid display window; preview uses word timing.")
-            start, end = min(t.start_ms for _, t in words), max(t.end_ms for _, t in words)
-        layouts.append({**layout, "line_id": line.id, "ass_name": f"Line{index}", "word_id": words[0][0].id,
+            start, end = first_sung, last_sung
+        layouts.append({**layout, "line_id": line.id, "ass_name": f"Line{index}", "word_id": words[0][0].id if words else line.words[0].id,
                         "start_ms": start, "end_ms": end, "label": line.text,
                         "style": spec, "exception": bool(project.presentation.line_overrides.get(line.id))})
         overrides = project.presentation.line_overrides.get(line.id, {}).get("box", {})
@@ -415,6 +422,10 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
             span = max(1, finish - begin)
             parts.append(f"{{\\{tag}{span}}}" + A.escape_text(display_text(word)))
             previous = max(previous, begin) + span
+        if partial:
+            unsung = A.hex_to_ass_colour(spec['colour']['primary'])
+            parts = [f'{{\\1c{unsung}}}' + A.escape_text(wrapped_text(project, line)).replace('\n', r'\N')]
+            warnings.append(f'Line {index + 1}: showing the whole phrase without word highlighting until all words are timed.')
         events.append(f"Dialogue: 0,{A._fmt_ass_time(start / 1000)},{A._fmt_ass_time(end / 1000)},{name},,0,0,0,,{tags}{''.join(parts)}")
         compiled_lines.append({"line": line, "name": name, "start": start, "end": end,
                                "first_sung": first_sung, "spec": spec, "layout": layout})

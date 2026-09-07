@@ -6,6 +6,7 @@ Orchestrates load → separate → align → mask → mix → write outputs.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -105,6 +106,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sofa-ckpt", default=None, help="path to SOFA .ckpt (or HEARTBEAM_SOFA_CKPT)")
     p.add_argument("--sofa-dict", default=None, help="path to SOFA dictionary file (or HEARTBEAM_SOFA_DICT)")
     p.add_argument("--language", default=None, help="force ASR/alignment language (e.g. 'en'); auto-detect if omitted")
+    p.add_argument('--lyrics-candidate', type=Path, help='Optional saved online lyrics candidate to verify against this audio')
     p.add_argument("-v", "--verbose", action="store_true")
     return p
 
@@ -272,40 +274,55 @@ def main(argv: list[str] | None = None) -> int:
     instrumental = stems["instrumental"]
     lead = stems["lead"]
     backing = stems["backing"]
+    vocals = stems.get('vocals', lead + backing)
 
     # Trim everything to common length.
-    n = min(len(original), len(lead), len(backing), len(instrumental))
+    n = min(len(original), len(lead), len(backing), len(instrumental), len(vocals))
     original = original[:n]
     lead = lead[:n]
     backing = backing[:n]
     instrumental = instrumental[:n]
+    vocals = vocals[:n]
 
     if args.keep_stems:
         io_mod.write_wav(stems_dir / "lead.wav", lead, sr)
         io_mod.write_wav(stems_dir / "backing.wav", backing, sr)
         io_mod.write_wav(stems_dir / "instrumental.wav", instrumental, sr)
+        io_mod.write_wav(stems_dir / 'vocals.wav', vocals, sr)
         log.info("wrote stems to %s", stems_dir)
 
     # Free separator VRAM before loading WhisperX (matters on ≤4 GB cards).
     separate_mod.release_models()
 
     align_device = device if args.align_device == "auto" else args.align_device
-    if args.aligner == "sofa":
-        from . import align_sofa
-        sofa_cfg = align_sofa.SOFAConfig.from_env_or_args(
-            python_bin=args.sofa_python, repo_dir=args.sofa_repo,
-            ckpt_path=args.sofa_ckpt, dictionary_path=args.sofa_dict,
-        )
-        log.info("running SOFA forced alignment (sidecar venv=%s)…", sofa_cfg.python_bin)
-        ar = align_sofa.align(lead, sr=sr, lyrics_text=lyrics_text, sofa=sofa_cfg)
-        aligner_id = f"sofa-{Path(sofa_cfg.ckpt_path).stem}"
-    else:
-        log.info("running WhisperX forced alignment of lyrics to lead-vocal stem (device=%s)…", align_device)
-        ar = align_mod.align(
-            lead, sr=sr, lyrics_text=lyrics_text,
-            whisper_model=args.whisper_model, device=align_device, language=args.language,
-        )
-        aligner_id = f"whisperx-{args.whisper_model}"
+    online = None
+    aligner_id = f"{args.aligner}-{args.whisper_model}"
+    try:
+        if args.lyrics_candidate:
+            online = json.loads(args.lyrics_candidate.read_text(encoding='utf-8'))
+        if args.aligner == "sofa":
+            from . import align_sofa
+            sofa_cfg = align_sofa.SOFAConfig.from_env_or_args(
+                python_bin=args.sofa_python, repo_dir=args.sofa_repo,
+                ckpt_path=args.sofa_ckpt, dictionary_path=args.sofa_dict,
+            )
+            log.info("running SOFA forced alignment (sidecar venv=%s)…", sofa_cfg.python_bin)
+            ar = align_sofa.align(vocals, sr=sr, lyrics_text=lyrics_text, sofa=sofa_cfg)
+            aligner_id = f"sofa-{Path(sofa_cfg.ckpt_path).stem}"
+        else:
+            log.info("matching lyric phrases against complete vocals (device=%s)…", align_device)
+            ar = align_mod.align(
+                vocals, sr=sr, lyrics_text=lyrics_text,
+                whisper_model=args.whisper_model, device=align_device, language=args.language,
+                cache_dir=args.out / 'cache' / 'alignment', online=online,
+            )
+    except Exception as exc:  # Preserve completed separation when timing models fail.
+        from .alignment_engine import unresolved_result
+        reason = f'{type(exc).__name__}: {exc}'
+        log.warning('Separation finished, but timing could not finish: %s. '
+                    'Saving audio and lyrics for timing repair in the editor.', reason)
+        ar = unresolved_result(lyrics_text, reason, language=args.language, online=online)
+        aligner_id += '-incomplete'
     log.info(
         "alignment: %d words across %d lines (%d low-confidence, lang=%s)",
         ar.total_words, len(ar.lines), ar.low_confidence_count, ar.language,
@@ -386,6 +403,7 @@ def main(argv: list[str] | None = None) -> int:
                     "backing": backing,
                     "instrumental": instrumental,
                     "clean": clean_reference,
+                    "vocals": vocals,
                 },
                 sample_rate=sr,
                 source_sha256=cache_mod.file_sha256(args.song),
@@ -430,6 +448,7 @@ def main(argv: list[str] | None = None) -> int:
             aligner=aligner_id,
         ),
         lines=ar.lines,
+        alignment=ar.diagnostics,
     )
     timings_path = args.out / "timings.json"
     lrc_path = args.out / "lyrics.lrc"
@@ -443,8 +462,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  lyrics.lrc")
     if args.keep_stems:
         print(f"  stems/        (lead.wav, backing.wav, instrumental.wav)")
-    print(f"\nTo render a karaoke video:")
-    print(f"  heartbeam-video {karaoke_path} {timings_path} -o {args.out / 'karaoke.mp4'}")
+    unresolved = sum(w['start_s'] is None for p in ar.diagnostics.get('phrases', []) for w in p['words'])
+    if unresolved:
+        print(f'\n{unresolved} words still need timing. Open the saved result in the editor to match and review them.')
+    else:
+        print(f"\nTo render a karaoke video:")
+        print(f"  heartbeam-video {karaoke_path} {timings_path} -o {args.out / 'karaoke.mp4'}")
     return 0
 
 

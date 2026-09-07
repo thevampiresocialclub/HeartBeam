@@ -1,15 +1,10 @@
 """
 Forced alignment of user-supplied lyrics to the isolated vocal stem.
 
-Strategy:
-1. Run WhisperX ASR to discover where in the song people are singing (rough
-   segment start/end times).
-2. Distribute the user's lyrics across those segments proportionally to
-   ASR-detected word counts. This pins user words to the right region of audio
-   without trusting Whisper's actual transcribed text.
-3. Run WhisperX's CTC alignment to snap each user word to its exact onset/offset.
-4. Re-group the resulting word timings into the user's original lyric lines
-   (preserving phrasing for the Phase-2 video renderer).
+The active phrase-first pipeline lives in alignment_engine.py. Recognized
+phrases provide acoustic anchors, verified online timing can fill gaps, and
+individual words are refined inside their own phrase. Older regrouping helpers
+remain available for importing legacy results.
 
 ML imports are deferred so the rest of the package stays importable without torch.
 """
@@ -49,77 +44,6 @@ def _split_lyrics(text: str) -> list[tuple[int, str]]:
         if stripped:
             out.append((i, stripped))
     return out
-
-
-def _distribute_lyrics_to_segments(
-    user_lines: list[tuple[int, str]],
-    asr_segments: list[dict],
-) -> list[dict]:
-    """
-    Build alignment-input segments by proportionally assigning user words to ASR segment time spans.
-
-    Each output segment carries 'line_indices' so we can re-group after alignment.
-    """
-    if not asr_segments:
-        raise RuntimeError("WhisperX ASR found no speech segments in the vocal stem.")
-
-    # Flatten user words with their source line index.
-    flat: list[tuple[str, int]] = []
-    for orig_idx, line in user_lines:
-        for w in line.split():
-            flat.append((w, orig_idx))
-    if not flat:
-        raise ValueError("lyrics file contains no words after stripping")
-
-    # Allocation proportional to ASR words-per-segment.
-    asr_word_counts = [max(1, len(s.get("text", "").split())) for s in asr_segments]
-    total_asr_words = sum(asr_word_counts)
-    n_user = len(flat)
-
-    allocations: list[int] = []
-    running = 0.0
-    for count in asr_word_counts:
-        share = n_user * count / total_asr_words
-        running += share
-        allocations.append(int(round(running)) - sum(allocations))
-    # Patch any drift.
-    drift = n_user - sum(allocations)
-    allocations[-1] += drift
-
-    new_segments: list[dict] = []
-    cursor = 0
-    for seg, take in zip(asr_segments, allocations):
-        if take <= 0:
-            continue
-        chunk = flat[cursor : cursor + take]
-        cursor += take
-        if not chunk:
-            continue
-        new_segments.append(
-            {
-                "text": " ".join(w for w, _ in chunk),
-                "start": float(seg["start"]),
-                "end": float(seg["end"]),
-                # Sidecar: which user-line index does each word in this segment belong to?
-                "_line_indices": [li for _, li in chunk],
-            }
-        )
-    if cursor < n_user:
-        # Stragglers go to the last segment.
-        leftover = flat[cursor:]
-        if new_segments:
-            new_segments[-1]["text"] += " " + " ".join(w for w, _ in leftover)
-            new_segments[-1]["_line_indices"].extend(li for _, li in leftover)
-        else:
-            new_segments.append(
-                {
-                    "text": " ".join(w for w, _ in leftover),
-                    "start": 0.0,
-                    "end": float(asr_segments[-1]["end"]),
-                    "_line_indices": [li for _, li in leftover],
-                }
-            )
-    return new_segments
 
 
 def _normalise_token(token: str) -> str:
@@ -240,45 +164,10 @@ def align(
     whisper_model: str = "medium",
     device: str = "cpu",
     language: str | None = None,
+    **options,
 ) -> AlignmentResult:
     """
     vocal_samples: float32 ndarray, mono or stereo, range ~[-1, 1].
     """
-    import whisperx  # deferred
-
-    audio = _resample_to_16k_mono(vocal_samples, sr)
-
-    compute_type = "float16" if device == "cuda" else "int8"
-    log.info("loading whisperx ASR model: %s (device=%s)", whisper_model, device)
-    asr = whisperx.load_model(whisper_model, device, compute_type=compute_type)
-    asr_result = asr.transcribe(audio, batch_size=8, language=language)
-    lang = asr_result.get("language", language or "en")
-
-    user_lines = _split_lyrics(lyrics_text)
-    if not user_lines:
-        raise ValueError("lyrics file is empty")
-
-    new_segments = _distribute_lyrics_to_segments(user_lines, asr_result["segments"])
-    seg_line_indices = [s.pop("_line_indices") for s in new_segments]
-    # The exact source tokens handed to the aligner, flattened in the same order
-    # as seg_line_indices. Needed to re-match the aligner's output when it drops
-    # words, so a missing word does not shift its successors onto other lines.
-    expected_tokens = [tok for seg in new_segments for tok in seg["text"].split()]
-
-    log.info("loading whisperx alignment model (language=%s)", lang)
-    align_model, metadata = whisperx.load_align_model(language_code=lang, device=device)
-    aligned = whisperx.align(
-        new_segments, align_model, metadata, audio, device, return_char_alignments=False
-    )
-
-    word_segments = aligned.get("word_segments", [])
-    lines, low_conf = _group_words_into_lines(
-        word_segments, seg_line_indices, user_lines,
-        expected_tokens=expected_tokens,
-    )
-    return AlignmentResult(
-        lines=lines,
-        language=lang,
-        low_confidence_count=low_conf,
-        total_words=sum(len(ln.words) for ln in lines),
-    )
+    from .alignment_engine import align as phrase_align
+    return phrase_align(vocal_samples, sr, lyrics_text, whisper_model, device, language, **options)

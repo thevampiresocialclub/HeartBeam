@@ -17,6 +17,7 @@ from . import waveform as wf
 
 SOURCE_ROLES = (("karaoke", "Karaoke", "karaoke_audio"),
                 ("original", "Original", "original_audio"),
+                ("vocals", "Complete vocals", "vocals_stem"),
                 ("lead", "Lead vocal", "lead_stem"))
 
 
@@ -35,7 +36,7 @@ def attach_cached_audio(project: P.Project, project_dir: Path,
         raise P.ProjectError("No usable audio_cache.json in that folder.")
     mappings = {"original": "original_audio", "lead": "lead_stem",
                 "backing": "backing_stem", "instrumental": "instrumental_stem",
-                "clean": "clean_audio"}
+                "clean": "clean_audio", "vocals": "vocals_stem"}
     checked = []
     basis = None
     for role, asset_role in mappings.items():

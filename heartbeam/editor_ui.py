@@ -226,6 +226,61 @@ def _audio_tools(project, root):
 
 
 def _alignment_tools(project, root):
+    from .phrase_project import align_saved, apply_result, review_lines
+    needs_review = review_lines(project)
+    last_run = project.alignment.get('last_run', {})
+    if last_run.get('online'):
+        st.caption(last_run['online'])
+    if project.alignment.get('failure'):
+        st.warning('Separation is saved. Automatic timing could not finish; match timing here when the model is available.')
+    if needs_review:
+        st.warning(f'Check timing in {len(needs_review)} lyric lines.')
+        with st.expander('Lines to review'):
+            for line, number, issues in needs_review:
+                st.caption(f'{number}. {line.text}: {", ".join(issues)}')
+                if st.button('Select this line', key=f'review_line_{line.id}'):
+                    st.session_state.selected_word_id = line.words[0].id
+                    st.rerun()
+    else:
+        st.caption('No unresolved timing checks. Listen through before export.')
+    with st.expander('Match lyric timing', expanded=True):
+        st.caption('Match phrases first, then words. Uses saved complete vocals and checks any online timing hints. Manual word corrections are kept.')
+        scope = st.selectbox('Timing scope', ['Whole song', 'Selected lines', 'Lines needing review'], key='alignment_scope')
+        choices = {ln.id: f'{i+1}. {ln.text}' for i,ln in enumerate(project.lines)}
+        selected = next((ln.id for ln,w in project.iter_words() if w.id == st.session_state.get('selected_word_id')), None)
+        line_ids = None
+        if scope == 'Selected lines':
+            line_ids = st.multiselect('Phrases to match', list(choices), default=[selected] if selected else [],
+                                     format_func=choices.get, key=f'align_lines_{project.id}')
+        elif scope == 'Lines needing review':
+            line_ids = [line.id for line,_,_ in needs_review]
+        bounds = None
+        if line_ids and len(line_ids) == 1:
+            line = project.find_line(line_ids[0])
+            if st.checkbox('Set approximate phrase boundaries', key=f'anchor_{line.id}'):
+                times = [project.effective_timing(w.id) for w in line.words]
+                times = [t for t in times if t and t.resolved]
+                duration = max((a.duration_ms or 0 for a in project.assets), default=0)/1000
+                duration = duration or 3600.
+                cols = st.columns(2)
+                start = cols[0].number_input('Phrase start (seconds)', 0., duration,
+                    min(duration, min((t.start_ms for t in times), default=0)/1000), step=.1, key=f'phrase_start_{line.id}')
+                end = cols[1].number_input('Phrase end (seconds)', 0., duration,
+                    min(duration, max((t.end_ms for t in times), default=5000)/1000), step=.1, key=f'phrase_end_{line.id}')
+                bounds = {line.id:(start,end)}
+                if st.button('Loop this phrase', key='audition_phrase', disabled=end <= start):
+                    st.session_state[f'phrase_audition_{project.id}'] = dict(id=P.new_id('listen'), start_ms=round(start*1000), end_ms=round(end*1000))
+                    st.rerun()
+        only_missing = st.checkbox('Fill only untimed words', value=False, key='phrase_only_missing')
+        if st.button('Match phrases and words', key='run_phrase_alignment', disabled=line_ids == []):
+            revision = project.revision
+            try:
+                with st.spinner('Matching lyric timing against the saved vocals…'):
+                    result = align_saved(copy.deepcopy(project), root, line_ids=line_ids, bounds=bounds)
+                change(project, lambda p: apply_result(p, result, only_unresolved=only_missing),
+                       command={'id':P.new_id('cmd'), 'base_revision':revision})
+            except (RuntimeError, OSError, ValueError, P.ProjectError) as exc:
+                st.error(f'Timing could not finish: {exc}')
     with st.expander("Apply alignment results"):
         st.caption("Apply a saved timing result to matching words. Manual corrections remain intact; original proposals remain available for comparison.")
         uploaded = st.file_uploader("Alignment timings.json", type=["json"], key="alignment_upload")
@@ -237,19 +292,15 @@ def _alignment_tools(project, root):
             except (ValueError, KeyError, TypeError) as exc:
                 st.error(f"Could not read alignment: {exc}")
             else:
-                change(project, lambda p: lyrics.apply_alignment(p, incoming.lines, only_unresolved=only_missing))
-        lead = project.asset_by_role("lead_stem")
-        st.caption("Run alignment again only when needed. This loads the speech model; it does not run vocal separation.")
-        if st.button("Run alignment on saved lead vocal", disabled=lead is None or not lead.resolve(root).is_file()):
-            from .project_align import align_saved
-            base_revision = project.revision
-            try:
-                with st.spinner("Aligning the saved lead vocal…"):
-                    result = align_saved(copy.deepcopy(project), root)
-                command = {"id": P.new_id("cmd"), "base_revision": base_revision}
-                change(project, lambda p: lyrics.apply_alignment(p, result.lines, only_unresolved=only_missing), command=command)
-            except (RuntimeError, OSError, ValueError) as exc:
-                st.error(f"Alignment could not finish: {exc}")
+                if incoming.alignment:
+                    from .timings import AlignmentResult
+                    if not incoming.alignment.get('input_words'):
+                        st.error('Open this timing file as a project, or match against this project’s saved audio. It has no lyric IDs for safe application here.')
+                    else:
+                        result = AlignmentResult(incoming.lines, '', 0, 0, incoming.alignment)
+                        change(project, lambda p: apply_result(p, result, only_unresolved=only_missing))
+                else:
+                    change(project, lambda p: lyrics.apply_alignment(p, incoming.lines, only_unresolved=only_missing))
 
 
 def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=None):
@@ -280,6 +331,7 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
         preview = None
         st.error(f"Lyric preview could not load: {exc}")
     payload.update(preview=preview, presentation_selection=appearance_selection,
+                    phrase_audition=st.session_state.get(f'phrase_audition_{project.id}'),
                     can_undo=h.can_undo, can_redo=h.can_redo,
                     command_ack=st.session_state.get(f"command_ack_{project.id}"))
     try:

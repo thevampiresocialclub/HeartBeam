@@ -1,6 +1,6 @@
 # HeartBeam handoff
 
-**Updated:** 7 September 2026 by Codex, adding the two-step editing workstation.
+**Updated:** 7 September 2026 by Codex, adding online lyrics and phrase-first timing.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
@@ -8,8 +8,11 @@ Read **BUILD-STATUS.md first**. It is the authoritative record of completion,
 tests, measured performance and remaining validation limits. This handoff
 explains how to continue without breaking the working editor.
 
-P03, P04, P05 and **P06, dependable preview/export**, are implemented. Next is
-P07 controlled audio-quality/model work. The original program is in
+P03, P04, P05 and **P06, dependable preview/export**, are implemented. The owner's
+follow-up timing system is now implemented too; read `docs/TIMING_SYSTEM.md`.
+It adds optional LRCLIB lookup, complete-vocal matching, phrase-local refinement,
+selective/manual-window repair, cached recognition and honest unresolved words.
+Broader P07 audio-quality/model evaluation remains. The original program is in
 `C:\Users\young\Documents\Codex\2026-09-06\run\outputs\heartbeam-claude-handoff`.
 Read `06-PREVIEW-EXPORT.md`, `docs/PRESENTATION.md`,
 `08-SHARED-CONTRACT.md` and `09-RELEASE-CHECKLIST.md` before continuing.
@@ -38,6 +41,18 @@ cu121 does not support its sm_120 kernels. Keep the model sweep parked.
 
 Claude's server may still exist on 8501; P03/P04 used 8503. P05 used a separate
 server on 8504. Do not kill a server without establishing which task owns it.
+This timing implementation was browser-tested on its own server at 8505, using
+`C:\Users\young\Documents\Codex\2026-09-06\run\frost-hybrid-proof`.
+The owner's original temporary project was not changed. The copy is a review
+draft, not a completed karaoke timing track: 57 words remain untimed after the
+whole-song proposal. The matching LRCLIB record has cues past the actual audio
+end despite apparently matching duration metadata; the new guard rejects it.
+
+The most important new regression is selected repeated lyrics: keep the entire
+song's text as matching context, then refine/apply only selected IDs. Matching
+just the selected text globally can silently choose a different chorus. Never
+restore the removed proportional lyric-to-ASR allocation. Manual boundaries
+skip recognition; automatic missing-line recovery remains bounded and flagged.
 
 ## Code map and contracts
 

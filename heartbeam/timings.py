@@ -42,6 +42,7 @@ class AlignmentResult:
     language: str
     low_confidence_count: int
     total_words: int
+    diagnostics: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -96,15 +97,58 @@ def _validate_line(ln: "Line") -> None:
             raise TimingsValidationError(f"{where}: score is not finite ({w.score!r})")
 
 
+def validate_phrases(alignment, lines, duration):
+    """Validate nullable word proposals before they can bypass legacy validation."""
+    if not isinstance(alignment, dict):
+        raise TimingsValidationError('Alignment must be an object.')
+    if not alignment:
+        return
+    if alignment.get('version') != 1 or not isinstance(alignment.get('phrases'), list):
+        raise TimingsValidationError('Unsupported phrase alignment format.')
+    expected = {line.index: line.text.split() for line in lines}
+    seen = set()
+    for phrase in alignment['phrases']:
+        index = phrase['index']
+        if index in seen or index not in expected:
+            raise TimingsValidationError('Duplicate or unknown phrase index.')
+        seen.add(index)
+        words = phrase['words']
+        if [w['text'] for w in words] != expected[index] or phrase['text'].split() != expected[index]:
+            raise TimingsValidationError(f'Line {index}: phrase words differ from the supplied lyrics.')
+        for word in words:
+            start, end = word.get('start_s'), word.get('end_s')
+            if start is None and end is None:
+                continue
+            where = f"line {index} word {word['text']!r}"
+            if start is None or end is None:
+                raise TimingsValidationError(f'{where}: both word boundaries are required.')
+            start = _check_time(start, where, 'start_s')
+            end = _check_time(end, where, 'end_s')
+            if not start < end <= duration + .05:
+                raise TimingsValidationError(f'{where}: word is reversed or outside the recording.')
+            if word.get('score') is None or not math.isfinite(float(word['score'])):
+                raise TimingsValidationError(f'{where}: invalid confidence score.')
+        anchor = phrase.get('anchor')
+        if anchor:
+            start = _check_time(anchor['start_s'], f'line {index}', 'phrase start')
+            end = _check_time(anchor['end_s'], f'line {index}', 'phrase end')
+            if not start < end <= duration + .05:
+                raise TimingsValidationError(f'Line {index}: phrase is outside the recording.')
+    if seen != set(expected):
+        raise TimingsValidationError('Alignment does not include every supplied lyric line.')
+
+
 @dataclass
 class Timings:
     source: Source
     models: Models
     lines: list[Line] = field(default_factory=list)
     schema_version: int = SCHEMA_VERSION
+    alignment: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "alignment": self.alignment,
             "schema_version": self.schema_version,
             "source": asdict(self.source),
             "models": asdict(self.models),
@@ -150,7 +194,8 @@ class Timings:
         # they produce silently wrong output rather than an error.
         for ln in lines:
             _validate_line(ln)
-        return cls(source=src, models=mdl, lines=lines, schema_version=sv)
+        validate_phrases(d.get('alignment', {}), lines, _check_time(src.duration_s, 'source', 'duration_s'))
+        return cls(source=src, models=mdl, lines=lines, schema_version=sv, alignment=d.get('alignment', {}))
 
 
 def to_json(timings: Timings, path: str | Path) -> None:
@@ -173,5 +218,7 @@ def to_lrc(timings: Timings, path: str | Path) -> None:
     """Emit a standard LRC sidecar — one line per source-lyric line, timestamped at line start."""
     out_lines = []
     for ln in timings.lines:
+        if not ln.words:
+            continue
         out_lines.append(f"{_fmt_lrc_ts(ln.start_s)}{ln.text}")
     Path(path).write_text("\n".join(out_lines) + "\n", encoding="utf-8")

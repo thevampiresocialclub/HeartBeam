@@ -541,6 +541,26 @@ def _lyrics_editor(project, project_dir: Path) -> None:
     existing word IDs and reports exactly what the edit cost.
     """
     stack = ui.history(project)
+    from heartbeam.lyrics_lookup_ui import controls as lookup_controls
+    candidate = lookup_controls(project.id, project.alignment.get('metadata', {'title': project.name}),
+                                project_dir / 'cache' / 'lyrics')
+    if candidate:
+        st.session_state[f'lookup_pending_{project.id}'] = candidate
+    pending = st.session_state.get(f'lookup_pending_{project.id}')
+    if pending:
+        st.caption('A lyrics result is ready. Choose whether to use its text or keep your current lyrics.')
+        cols = st.columns(2)
+        def adopt(p, replace_text):
+            if replace_text:
+                lyr.apply_lyrics_edit(p, pending['lyrics'])
+            p.alignment['online_candidate'] = pending
+            p.alignment['metadata'] = {k:pending[k] for k in ('title','artist','album','duration')}
+        if cols[0].button('Use text and timing hints', key='adopt_online_text'):
+            st.session_state.pop(f'lookup_pending_{project.id}', None)
+            ui.change(project, lambda p: adopt(p, True))
+        if cols[1].button('Keep my text; use timing hints', key='adopt_online_timing'):
+            st.session_state.pop(f'lookup_pending_{project.id}', None)
+            ui.change(project, lambda p: adopt(p, False))
 
     current = lyr.to_text(project)
     # Streamlit forbids writing st.session_state[key] once that widget exists,
@@ -677,6 +697,22 @@ def _separation_page() -> None:
 
     # --- Inputs ---
     song_up = st.file_uploader("Song (mp3 / wav / flac / ogg)", type=["mp3", "wav", "flac", "ogg", "m4a"])
+    from heartbeam.lyrics_lookup_ui import controls as lookup_controls
+    from heartbeam.lyrics_lookup import audio_metadata
+    upload_key = f'{song_up.name}_{song_up.size}' if song_up else 'empty'
+    defaults = audio_metadata(song_up) if song_up else {}
+    if song_up and not defaults.get('title'):
+        name = Path(song_up.name).stem
+        if ' - ' in name:
+            artist, title = name.split(' - ', 1)
+            defaults.update(artist=artist, title=re.sub(r'\s*\(Official.*?\)', '', title, flags=re.I))
+        else:
+            defaults['title'] = name
+    candidate = lookup_controls(f'generate_{upload_key}', defaults)
+    if candidate:
+        st.session_state.lyrics_text = candidate['lyrics']
+        st.session_state.generation_candidate = (upload_key, candidate)
+        st.rerun()
     lyrics_text = _lyrics_input()
 
     primary = list(PRIMARY_PRESETS)
@@ -749,6 +785,11 @@ def _separation_page() -> None:
         out_dir.mkdir()
         song_path.write_bytes(song_up.getbuffer())
         lyrics_path.write_text(lyrics_text, encoding="utf-8")
+        selected_candidate = st.session_state.get('generation_candidate')
+        if selected_candidate and selected_candidate[0] == upload_key:
+            candidate_path = run_root / 'lyrics-candidate.json'
+            candidate_path.write_text(json.dumps(selected_candidate[1]), encoding='utf-8')
+            extra_flags += ['--lyrics-candidate', str(candidate_path)]
 
         st.session_state.log_lines = []
         st.session_state.status = {"progress": 0.0, "label": "Starting", "done": False, "returncode": None}

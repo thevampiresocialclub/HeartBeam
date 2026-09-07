@@ -95,6 +95,7 @@ export default function (component) {
     requestAnimationFrame(() => { root.dataset.commitPaintMs = (performance.now() - state.pendingCommand?.at || 0).toFixed(1); });
   }
   function loopBounds() {
+    if (state.phraseLoop) return [state.phraseLoop.start_ms / 1000, state.phraseLoop.end_ms / 1000];
     const selected = state.mix?.selection, word = currentWord();
     const range = state.sourceId === 'mix' && selected && !selected.song ? selected : word;
     if (range?.start_ms == null || range?.end_ms == null) return null;
@@ -128,8 +129,9 @@ export default function (component) {
     render();
   }
   function select(word, notify = false, shouldSeek = false) {
+    if (word?.id !== state.selectedId) state.phraseLoop = null;
     state.selectedId = word?.id || null;
-    if (word?.start_ms == null) state.looping = false;
+    if (word?.start_ms == null && !state.phraseLoop) state.looping = false;
     $('.hb-sel').textContent = word ? `Selected: ${word.text}${word.start_ms == null ? ' (needs timing)' : ''}` : '';
     for (const [id, button] of wordButtons) button.setAttribute('aria-pressed', String(id === state.selectedId));
     if (shouldSeek && word?.start_ms != null) seek(word.start_ms);
@@ -447,6 +449,13 @@ export default function (component) {
     resize(); render();
     presentation.draft = null;
     presentation.update(data.preview, data.presentation_selection); void updateMix(data.mix); syncLoop(); buttons();
+    const audition = data.phrase_audition;
+    if (audition && audition.id !== state.lastAudition && Number.isFinite(audition.start_ms) &&
+        Number.isFinite(audition.end_ms) && 0 <= audition.start_ms && audition.start_ms < audition.end_ms && audition.end_ms <= state.durationMs) {
+      state.lastAudition = audition.id; state.phraseLoop = audition; state.looping = true;
+      syncLoop(); seek(audition.start_ms); buttons();
+      status('Phrase loop ready. Press Play to listen; selecting another word returns to word looping.');
+    }
   }
   parent._hbTimeline = {projectId: component.data.project_id, version: component.data.frontend_version, root, update, destroy};
   status(); update(component); rafId = requestAnimationFrame(frame);

@@ -35,6 +35,23 @@ def test_defaults_and_zero_override_inherit_reset_undo():
     assert S.resolved_style(p, "line0")["box"]["outline_px"] == 0
 
 
+def test_phrase_draft_keeps_missing_words_visible_without_fake_highlighting():
+    p=song();p.lines=p.lines[:1]
+    line=p.lines[0]
+    for word in line.words:
+        p.timing_edits[word.id]=P.WordTiming(reason='Needs matching')
+    p.alignment={'phrases':{line.id:{'word_ids':[w.id for w in line.words],
+                                  'anchor':{'start_s':1.,'end_s':3.}}}}
+    compiled=S.compile_project(p,5000,draft=True)
+    dialogue=next(row for row in compiled['ass'].splitlines() if row.startswith('Dialogue:'))
+    assert 'Bright' in dialogue and 'guide us' in dialogue
+    assert '\\kf' not in dialogue and '{\\k' not in dialogue
+    assert any('without word highlighting' in w for w in compiled['warnings'])
+    assert all(not p.effective_timing(w.id).resolved for w in line.words)
+    with pytest.raises(P.ProjectError,match='untimed'):
+        S.compile_project(p,5000)
+
+
 def test_colour_exception_does_not_freeze_song_font_or_placement():
     p = song()
     S.apply_style(p, {"colour": {"highlight": "#ABCDEF"}}, ["line0"])
