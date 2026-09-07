@@ -78,6 +78,9 @@ def attach_cached_audio(project: P.Project, project_dir: Path,
         asset.sample_count = entry.sample_count
         asset.duration_ms = P.seconds_to_ms(entry.sample_count / entry.sample_rate)
     project.provenance.settings["audition_cache_source_sha256"] = manifest.source_sha256
+    if project.asset_by_role("original_audio") and project.asset_by_role("clean_audio"):
+        from .vocal_mix import bind_references
+        bind_references(project, source_sha256=manifest.source_sha256, recipe=manifest.settings)
     return len(checked)
 
 
@@ -134,7 +137,7 @@ def register_media(path: Path, coordinates: str) -> str:
         # AppTest has no HTTP server. Its media URLs are intentionally inert;
         # unit/media tests exercise registration with a real/fake manager.
         return "/media/unavailable-in-apptest"
-    mime = "application/json" if path.suffix == ".json" else (
+    mime = {".json": "application/json", ".js": "application/javascript", ".wasm": "application/wasm", ".ttf": "font/ttf"}.get(path.suffix) or (
         mimetypes.guess_type(path.name)[0] or "audio/wav")
     return runtime.get_instance().media_file_mgr.add(str(path), mime, coordinates)
 

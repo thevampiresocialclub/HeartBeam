@@ -14,10 +14,10 @@ and the owner's request to continue HANDOFF.md.
 
 ## Current task
 
-Continue P03.2: one playback clock, original/lead/karaoke audition, served media,
-zoom-appropriate waveform detail, and selection from the lyric list. Preserve
-the existing Streamlit shell and controls. This is an extension of the approved
-editing workflow, with no new brand or theme direction.
+Complete P03 timing/playback/review and P04 section vocal mixing, including
+rendered lyric preview, precise timing scopes, calibrated vocal regions and
+export integration. Preserve the existing Streamlit shell. P05 remains the
+full presentation editor; P06/P07 cover export jobs and later quality work.
 
 ## Product character and principles
 

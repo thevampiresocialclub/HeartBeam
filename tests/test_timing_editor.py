@@ -89,7 +89,7 @@ def test_nudge_changes_the_persisted_value_by_exactly_that_many_ms(tmp_path):
     assert after.end_ms == before.end_ms + 10
 
 
-@pytest.mark.parametrize("delta", [-25, -10, -1, 1, 10, 250])
+@pytest.mark.parametrize("delta", [-25, -10, -1, 1, 10, 50])
 def test_nudge_is_exact_in_both_directions(tmp_path, delta):
     proj = _project(tmp_path)
     wid = proj.word_ids()[1]
@@ -176,7 +176,7 @@ def test_manual_timing_resolves_an_untimed_word(tmp_path):
     proj.timing_edits[wid] = P.WordTiming(reason="needs timing")
     assert len(proj.unresolved_words()) == 1
 
-    ok, _ = ed.set_manual_timing(proj, wid, 1000, 1400, DURATION_MS)
+    ok, _ = ed.set_manual_timing(proj, wid, 100, 400, DURATION_MS)
     assert ok
     assert proj.unresolved_words() == []
     assert proj.effective_timing(wid).resolved
@@ -210,9 +210,9 @@ def test_next_low_confidence_skips_words_already_reviewed(tmp_path):
     the word has been reviewed and should not be offered again."""
     proj = _project(tmp_path, "alpha bravo charlie\n")
     ids = proj.word_ids()
-    for wid in ids:
+    for i, wid in enumerate(ids):
         proj.original_alignment[wid] = P.WordTiming(
-            start_ms=0, end_ms=100, score=0.1)
+            start_ms=i * 500, end_ms=i * 500 + 100, score=0.1)
 
     assert ed.next_low_confidence(proj) == ids[0]
     ed.nudge(proj, ids[0], 5, audio_duration_ms=DURATION_MS)   # reviewed by hand

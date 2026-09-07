@@ -260,7 +260,11 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
     assert not at.exception, at.exception
     assert [e.value for e in at.error] == []
 
-    out = project_dir / P.EXPORTS_DIR / "karaoke.mp4"
+    outputs = list((project_dir / P.EXPORTS_DIR).glob("rev-*/karaoke.mp4"))
+    assert len(outputs) == 1
+    out = outputs[0]
+    assert (out.parent / "project-snapshot.json").exists()
+    assert (out.parent / "timings.json").exists()
     assert out.exists(), "video should land in the project's exports folder"
     duration = float(subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -343,3 +347,49 @@ def test_undo_restores_the_previous_lyrics(tmp_path):
     at.button(key="undo_lyrics").click().run()
     assert not at.exception
     assert at.session_state["project"].word_ids() == before_ids
+
+
+def test_vocal_commands_save_reopen_and_export_current_mix(tmp_path, monkeypatch):
+    import numpy as np
+    from heartbeam import audio_cache as AC, editor_media as EM, editor as ED
+    project_dir = _existing_song_project(tmp_path)
+    cache = tmp_path / 'cache'
+    samples = np.sin(np.arange(32000) * .12).astype(np.float32)[:, None].repeat(2, axis=1) * .2
+    arrays = {role: samples.copy() for role in AC.ROLES}
+    arrays['clean'] *= .1
+    AC.write_cache(cache, arrays, sample_rate=8000, source_sha256='test-original', settings={'mix_strategy':'subtract'})
+    p = P.load_project(project_dir); EM.attach_cached_audio(p, project_dir, cache); P.save_project(p, project_dir)
+    result = {}
+    monkeypatch.setattr(ED, 'timeline_component', lambda: lambda **kw: result)
+    at = _fresh_app()
+    at.text_input(key='open_project_path').set_value(str(project_dir))
+    at.button(key='open_project_btn').click().run()
+    for i, value in enumerate([.2, 0., 1.]):
+        p = at.session_state['project']
+        result['command'] = {'id':f'vocal-{i}', 'base_revision':p.revision, 'kind':'vocal',
+                             'payload':{'start_ms':i*1000,'end_ms':(i+1)*1000,'value':value}}
+        at.run()
+        assert not at.exception
+    at.button(key='save_project').click().run()
+    at.button(key='close_project').click().run()
+    at.text_input(key='open_project_path').set_value(str(project_dir))
+    at.button(key='open_project_btn').click().run()
+    p = at.session_state['project']
+    assert [r.value for r in p.vocal_mix.regions] == [.2,0.,1.]
+    next(b for b in at.button if b.label=='Prepare final mix for audition and download').click().run()
+    assert not at.exception and not at.error
+    revision, path = at.session_state[f'final_mix_{p.id}']
+    assert revision == p.revision and Path(path).exists()
+
+
+def test_second_gui_opens_readonly_and_does_not_steal_the_writer(tmp_path):
+    from heartbeam.project_lock import WriterLease
+    root = _existing_song_project(tmp_path)
+    with WriterLease(root):
+        at = _fresh_app()
+        at.text_input(key='open_project_path').set_value(str(root))
+        at.button(key='open_project_btn').click().run()
+        assert not at.exception
+        assert at.session_state['project_readonly'] is True
+        assert at.button(key='save_project').disabled
+        assert not any(t.label=='Edit lyrics' for t in at.text_area)

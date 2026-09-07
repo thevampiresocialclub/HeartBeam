@@ -336,3 +336,31 @@ pytest -m slow
 - Streaming / realtime.
 
 These are all additive — they don't require changes to the engine modules.
+
+
+## Timing and section vocal editing
+
+Open a saved project to edit lyrics directly in the text box. The timing editor
+supports word/edge dragging, precise numeric times, word/line/song nudges,
+review flags, undo/redo, configurable selection loops, and a rendered lyric
+preview. Save keeps corrected timing and review state. Export uses those current
+timings; unresolved words or timing conflicts must be fixed first.
+
+Under **Section vocals**, target a lyric line, multiple lines, a named section,
+or a time range. **Vocal level** ranges from 0% (processed karaoke reference) to
+100% (original reference). Drag the live slider or enter an exact percentage.
+Regions replace overlapping portions of the same lane; they do not stack gains.
+Use **Refit to source lyrics** to move a region after timing corrections, and
+**Rebuild clean audio from corrected timing** only when you want to rebuild the
+removal mask from saved stems. Both actions can be undone.
+
+Older projects need calibrated clean/original audio: link their generation
+cache, or explicitly prepare references from the original file and saved stems.
+A normalized karaoke MP3 is not a calibrated clean reference. Final mix audition
+and WAV download are available under **Audio references and final mix**; video
+export uses the edited mix and retains a revision-specific project snapshot.
+
+The renderer and fonts are bundled; ordinary users need no Node installation
+or browser CDN access. Full visual lyric placement/font editing is the next
+project (P05). See [BUILD-STATUS.md](BUILD-STATUS.md) for verified behavior and
+limits, and [HANDOFF.md](HANDOFF.md) for the continuation guide.

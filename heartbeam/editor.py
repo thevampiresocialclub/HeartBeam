@@ -20,6 +20,8 @@ assets ship as package data.
 from __future__ import annotations
 
 from pathlib import Path
+import copy
+import hashlib
 from typing import Any
 
 from .project import Project, WordTiming
@@ -67,6 +69,7 @@ def words_payload(project: Project) -> list[dict[str, Any]]:
             "end_ms": end,
             "low_confidence": bool(score < LOW_CONFIDENCE),
             "edited": word.id in project.timing_edits,
+            "reviewed": project.reviewed.get(word.id, False),
         })
     return out
 
@@ -75,6 +78,8 @@ def build_payload(project: Project, sources: list[dict], duration_ms: int,
                   selected_id: str | None = None) -> dict[str, Any]:
     return {
         "project_id": project.id,
+        "frontend_version": hashlib.sha256((_read_asset("timeline.js") + _read_asset("audio_transport.js") + _read_asset("timeline.css")).encode()).hexdigest()[:12],
+        "revision": project.revision,
         "words": words_payload(project),
         "sources": sources,
         "duration_ms": duration_ms,
@@ -94,6 +99,8 @@ def apply_timing_edit(project: Project, edit: dict[str, Any],
     if not word_id or project.find_word(word_id) is None:
         return False, f"unknown word id: {word_id!r}"
     try:
+        if any(type(edit[k]) is not int for k in ("start_ms", "end_ms")):
+            return False, "Timing must use whole milliseconds."
         start = int(edit["start_ms"])
         end = int(edit["end_ms"])
     except (KeyError, TypeError, ValueError):
@@ -103,14 +110,20 @@ def apply_timing_edit(project: Project, edit: dict[str, Any],
         return False, f"start ({start} ms) is before the beginning of the song"
     if end <= start:
         return False, f"end ({end} ms) must be after start ({start} ms)"
-    if audio_duration_ms and end > audio_duration_ms:
+    if audio_duration_ms is not None and end > audio_duration_ms:
         return False, (f"end ({end} ms) is past the end of the audio "
                        f"({audio_duration_ms} ms)")
 
     existing = project.effective_timing(word_id)
     score = existing.score if existing else None
-    project.timing_edits[word_id] = WordTiming(
+    candidate = copy.deepcopy(project)
+    candidate.timing_edits[word_id] = WordTiming(
         start_ms=start, end_ms=end, score=score)
+    error = new_conflict(project, candidate)
+    if error:
+        return False, error
+    project.timing_edits[word_id] = candidate.timing_edits[word_id]
+    project.reviewed[word_id] = True
     word = project.find_word(word_id)
     return True, f"{word.text}: {start} - {end} ms"
 
@@ -169,9 +182,9 @@ def next_low_confidence(project: Project, after_word_id: str | None = None,
     ids = [w.id for _, w in project.iter_words() if not w.non_sung]
     candidates = set()
     for _, word in project.iter_words():
-        if word.non_sung or word.id in project.timing_edits:
+        if word.non_sung or project.reviewed.get(word.id, word.id in project.timing_edits):
             continue  # already reviewed by hand
-        timing = project.original_alignment.get(word.id)
+        timing = project.effective_timing(word.id)
         if timing and timing.score is not None and timing.score < threshold:
             candidates.add(word.id)
     if not candidates:
@@ -191,5 +204,56 @@ def timeline_component():
     return st.components.v2.component(
         "heartbeam_timeline",
         css=_read_asset("timeline.css"),
-        js=_read_asset("timeline.js"),
+        js=_read_asset("vendor/subtitles-octopus.js") + "\n" +
+           _read_asset("audio_transport.js") + "\n" + _read_asset("timeline.js"),
     )
+
+
+def timing_conflicts(project: Project) -> dict[tuple[str, str], int]:
+    """Report ordering/overlap conflicts without rewriting imported proposals."""
+    timed = [(w, project.effective_timing(w.id)) for _, w in project.iter_words()
+             if not w.non_sung]
+    timed = [(w, t) for w, t in timed if t and t.resolved]
+    return {(a.id, b.id): ta.end_ms - tb.start_ms
+            for (a, ta), (b, tb) in zip(timed, timed[1:]) if ta.end_ms > tb.start_ms}
+
+
+def new_conflict(before, after):
+    previous = timing_conflicts(before)
+    for pair, overlap in timing_conflicts(after).items():
+        if overlap > previous.get(pair, 0):
+            words = [after.find_word(w).text for w in pair]
+            return f"This would overlap or reverse ‘{words[0]}’ and ‘{words[1]}’ by {overlap} ms."
+    return None
+
+
+def shift_timing(project: Project, word_id: str, delta_ms: int, scope: str,
+                 duration_ms: int):
+    if type(delta_ms) is not int or scope not in ("word", "line", "song"):
+        return False, "Choose a timing scope and a whole millisecond offset."
+    selected_line = next((ln for ln, w in project.iter_words() if w.id == word_id), None)
+    if scope != "song" and selected_line is None:
+        return False, "Select a word first."
+    candidate = copy.deepcopy(project)
+    changed = 0
+    for line, word in candidate.iter_words():
+        if word.non_sung or (scope == "word" and word.id != word_id) or (
+                scope == "line" and line.id != selected_line.id):
+            continue
+        t = candidate.effective_timing(word.id)
+        if t is None or not t.resolved:
+            continue
+        if t.start_ms + delta_ms < 0 or t.end_ms + delta_ms > duration_ms:
+            return False, "The shifted timing would go outside the song."
+        candidate.timing_edits[word.id] = WordTiming(t.start_ms + delta_ms,
+                                                    t.end_ms + delta_ms, t.score)
+        candidate.reviewed[word.id] = True
+        changed += 1
+    error = new_conflict(project, candidate)
+    if error:
+        return False, error
+    if not changed:
+        return False, "There are no resolved words in this selection."
+    project.timing_edits = candidate.timing_edits
+    project.reviewed = candidate.reviewed
+    return True, f"Shifted {changed} word(s) by {delta_ms} ms."

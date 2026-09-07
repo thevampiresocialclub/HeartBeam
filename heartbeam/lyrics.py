@@ -153,7 +153,8 @@ def _match_words(old_words: list[Word], new_tokens: list[str]) -> list[Word]:
     return [w for w in result if w is not None]
 
 
-def reconcile(old_lines: list[Line], new_text: str) -> ReconcileResult:
+def reconcile(old_lines: list[Line], new_text: str,
+              old_sections: list[Section] | None = None) -> ReconcileResult:
     """Rebuild the line list from edited text, preserving what did not change."""
     parsed = parse_lyrics(new_text)
 
@@ -211,8 +212,11 @@ def reconcile(old_lines: list[Line], new_text: str) -> ReconcileResult:
 
     lines = [ln for ln in new_lines if ln is not None]
 
-    # Sections, rebuilt with IDs matched by label sequence so renaming one does
-    # not renumber the rest.
+    # Match membership, never the heading text: repeated choruses are distinct.
+    old_members = {s.id: {w.id for ln in old_lines if ln.id in s.line_ids
+                          for w in ln.words} for s in (old_sections or [])}
+    for line in lines:
+        line.section_id = None
     sections: list[Section] = []
     for index in sorted(section_at):
         label = section_at[index]
@@ -223,6 +227,20 @@ def reconcile(old_lines: list[Line], new_text: str) -> ReconcileResult:
         if pos + 1 < len(sections):
             following = set(sections[pos + 1].line_ids)
             sec.line_ids = [lid for lid in sec.line_ids if lid not in following]
+    candidates = []
+    for pos, sec in enumerate(sections):
+        members = {w.id for ln in lines if ln.id in sec.line_ids for w in ln.words}
+        for sid, old in old_members.items():
+            overlap = len(members & old)
+            if overlap:
+                candidates.append((-overlap, pos, sid))
+    assigned, used = set(), set()
+    for _, pos, sid in sorted(candidates):
+        if pos not in assigned and sid not in used:
+            sections[pos].id = sid
+            assigned.add(pos)
+            used.add(sid)
+    for sec in sections:
         for lid in sec.line_ids:
             line = next((l for l in lines if l.id == lid), None)
             if line is not None:
@@ -246,13 +264,15 @@ def apply_lyrics_edit(project: Project, new_text: str) -> ReconcileResult:
     with them. New words get an explicit unresolved entry with a reason rather
     than a plausible-looking guess.
     """
-    result = reconcile(project.lines, new_text)
+    result = reconcile(project.lines, new_text, project.sections)
     project.lines = result.lines
     project.sections = result.sections
 
     for wid in result.removed_word_ids:
         project.original_alignment.pop(wid, None)
         project.timing_edits.pop(wid, None)
+        project.alignment_proposals.pop(wid, None)
+        project.reviewed.pop(wid, None)
     for wid in result.new_word_ids:
         project.timing_edits[wid] = WordTiming(reason=REASON_NEW_TEXT)
     return result
@@ -398,9 +418,12 @@ def apply_alignment(project: Project, aligned_lines, *,
                 skipped += 1
                 continue
 
-            project.original_alignment[target.id] = WordTiming(
-                start_ms=int(round(source.start_s * 1000)),
-                end_ms=int(round(source.end_s * 1000)),
+            from .project import seconds_to_ms
+            proposals = (project.alignment_proposals if target.id in project.original_alignment
+                         else project.original_alignment)
+            proposals[target.id] = WordTiming(
+                start_ms=seconds_to_ms(source.start_s),
+                end_ms=seconds_to_ms(source.end_s),
                 score=float(source.score),
             )
             # A word that was flagged as needing timing no longer is.
@@ -408,6 +431,7 @@ def apply_alignment(project: Project, aligned_lines, *,
             if edit is not None and not edit.resolved:
                 del project.timing_edits[target.id]
             filled += 1
+            project.reviewed.pop(target.id, None)
 
     unmatched = [w for w in project_words if w.id not in matched_ids]
     for word in unmatched:

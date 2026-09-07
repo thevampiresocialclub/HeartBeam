@@ -29,6 +29,8 @@ from heartbeam import editor as ed
 from heartbeam import editor_media as em
 from heartbeam import lyrics as lyr
 from heartbeam import project as prj
+from heartbeam import editor_ui as ui
+from heartbeam.project_lock import WriterLease
 from heartbeam.models import PRESETS, PRIMARY_PRESETS, resolve_default
 from heartbeam.style import toml_string
 
@@ -81,7 +83,8 @@ def _write_style_toml(path: Path, *, font_size: int, text_colour: str,
     background_value_t = toml_string(background_value)
     resolution_t = toml_string(resolution)
     path.write_text(
-        f'''[font]
+f'''[font]
+family = "Noto Sans"
 size_px = {font_size}
 bold    = true
 
@@ -223,6 +226,7 @@ def _project_snapshot(project) -> str:
     d = project.to_dict()
     d.pop("modified_at", None)
     d.pop("revision", None)
+    d.pop("command_ids", None)
     return json.dumps(d, sort_keys=True)
 
 
@@ -251,16 +255,54 @@ def _open_project(path: Path) -> tuple[bool, str]:
         if recovered is None:
             return False, f"Could not open: {exc}"
         st.session_state.project = recovered
+        recovered._disk_hash = prj.file_sha256(path / prj.MANIFEST_NAME) if (path / prj.MANIFEST_NAME).exists() else None
         st.session_state.project_dir = path
+        _activate_writer(path)
         _mark_saved(recovered)
+        st.session_state.project_saved_snapshot = ""
+        st.session_state.history_project = None
+        st.session_state.lyrics_editor_version = st.session_state.get("lyrics_editor_version", 0) + 1
         return True, (
             f"{exc}. Recovered revision {recovered.revision} from autosave - "
             "save to make that recovery permanent."
         )
     st.session_state.project = project
+    st.session_state.history_project = None
+    st.session_state.lyrics_editor_version = st.session_state.get("lyrics_editor_version", 0) + 1
     st.session_state.project_dir = path
+    st.session_state[f"last_video_{project.id}"] = _latest_project_video(project, path)
+    _activate_writer(path)
     _mark_saved(project)
     return True, f"Opened '{project.name}' (revision {project.revision})"
+
+
+def _latest_project_video(project, root):
+    """Restore a completed export from its saved snapshot after reopening."""
+    files = sorted((root / prj.EXPORTS_DIR).glob("rev-*/karaoke.mp4"),
+                   key=lambda p: p.stat().st_mtime_ns, reverse=True)
+    for path in files:
+        try:
+            snapshot = json.loads((path.parent / "project-snapshot.json").read_text(encoding="utf-8"))
+            if snapshot.get("id") == project.id:
+                return snapshot["revision"], str(path)
+        except (OSError, ValueError, KeyError):
+            continue
+    return None
+
+
+def _activate_writer(path):
+    old = st.session_state.get("writer_lease")
+    if old and st.session_state.get("writer_root") == str(path.resolve()):
+        return
+    if old:
+        old.close()
+    st.session_state.writer_lease = None
+    st.session_state.writer_root = str(path.resolve())
+    try:
+        st.session_state.writer_lease = WriterLease(path)
+        st.session_state.project_readonly = False
+    except prj.ProjectError:
+        st.session_state.project_readonly = True
 
 
 def _project_media(project, project_dir: Path):
@@ -310,6 +352,7 @@ def _adopt_run_into_project(out_dir: Path, song_name: str) -> None:
             st.session_state.project_message = f"Project created; audition tracks were not linked: {exc}"
     st.session_state.project = project
     st.session_state.project_dir = project_dir
+    _activate_writer(project_dir)
     _mark_saved(project)
 
 
@@ -324,11 +367,11 @@ def _render_missing_assets(project, project_dir: Path) -> None:
             f"Relink {a.role}", key=f"relink_{a.id}",
             placeholder="full path to the file",
         )
-        if st.button("Relink", key=f"relink_btn_{a.id}"):
+        if st.button("Relink", key=f"relink_btn_{a.id}", disabled=st.session_state.get("project_readonly", False)):
             try:
                 if not new_path:
                     raise prj.ProjectError("Enter the full path to the file first.")
-                prj.relink_asset(project, project_dir, a.id, new_path)
+                ui.history(project).execute(project, lambda p: prj.relink_asset(p, project_dir, a.id, new_path))
                 st.success("Relinked.")
             except prj.ProjectError as exc:
                 st.error(str(exc))
@@ -351,18 +394,27 @@ def _project_controls() -> None:
             st.markdown(f"**{project.name}**")
             st.caption(f"revision {project.revision} - {state}")
             st.caption(str(project_dir))
+            if st.session_state.get("project_readonly"):
+                st.info("Read only: another editor has this project open. Close it there and reopen here, or save a copy to edit independently.")
             _render_missing_assets(project, project_dir)
 
             cols = st.columns(2)
             with cols[0]:
-                if st.button("Save", key="save_project"):
-                    prj.save_project(project, project_dir)
-                    _mark_saved(project)
-                    st.success(f"Saved revision {project.revision}")
+                if st.button("Save", key="save_project", disabled=st.session_state.get("project_readonly", False)):
+                    try:
+                        prj.save_project(project, project_dir, bump=False)
+                        _mark_saved(project)
+                        st.success(f"Saved revision {project.revision}")
+                    except (prj.ProjectError, OSError) as exc:
+                        st.error(str(exc))
             with cols[1]:
                 if st.button("Close", key="close_project"):
+                    if st.session_state.get("writer_lease"):
+                        st.session_state.writer_lease.close()
+                    st.session_state.writer_lease = None
                     st.session_state.project = None
                     st.session_state.project_dir = None
+                    st.rerun()
 
             save_as = st.text_input(
                 "Save As (new folder)", key="save_as_path",
@@ -377,9 +429,10 @@ def _project_controls() -> None:
                     copy = prj.save_project_as(project, Path(save_as), src_dir=project_dir)
                     st.session_state.project = copy
                     st.session_state.project_dir = Path(save_as)
+                    _activate_writer(Path(save_as))
                     _mark_saved(copy)
                     st.success(f"Saved a copy to {save_as}")
-                except OSError as exc:
+                except (OSError, prj.ProjectError) as exc:
                     st.error(f"Could not save a copy: {exc}")
 
         st.divider()
@@ -420,6 +473,7 @@ def _project_controls() -> None:
                         )
                         st.session_state.project = imported
                         st.session_state.project_dir = Path(d_path)
+                        _activate_writer(Path(d_path))
                         _mark_saved(imported)
                         st.session_state.project_message = f"Imported '{imported.name}'"
                         st.rerun()
@@ -477,9 +531,7 @@ def _lyrics_editor(project, project_dir: Path) -> None:
     st.divider()
     st.subheader("Lyrics")
 
-    if "undo_stack" not in st.session_state:
-        st.session_state.undo_stack = lyr.UndoStack()
-    stack = st.session_state.undo_stack
+    stack = ui.history(project)
 
     current = lyr.to_text(project)
     # Streamlit forbids writing st.session_state[key] once that widget exists,
@@ -501,8 +553,7 @@ def _lyrics_editor(project, project_dir: Path) -> None:
     with cols[0]:
         if st.button("Apply edits", key="apply_lyrics",
                      disabled=(edited or "") == current):
-            stack.commit(project)
-            result = lyr.apply_lyrics_edit(project, edited or "")
+            result = stack.execute(project, lambda p: lyr.apply_lyrics_edit(p, edited or ""))
             if result.changed:
                 st.success(
                     f"{len(result.kept_word_ids)} words kept their timing; "
@@ -554,167 +605,13 @@ def _timeline_component():
 
 
 def _timing_editor(project, project_dir: Path, karaoke_path: Path) -> None:
-    """The P03 timing editor: waveform, transport and draggable word bounds."""
-    st.divider()
-    st.subheader("Timing")
-
-    if karaoke_path is None or not karaoke_path.exists():
-        st.info("Timing editing needs the song's audio. Open a project that has it.")
-        return
-
-    try:
-        sources = em.build_sources(project, project_dir, karaoke_path)
-    except Exception as exc:  # noqa: BLE001 - the editor must not kill the page
-        st.error(f"Could not prepare the waveform: {type(exc).__name__}: {exc}")
-        return
-
-    available = [source for source in sources if source["available"]]
-    if not available:
-        st.error("No playable tracks: " + "; ".join(source["reason"] for source in sources))
-        return
-    duration_ms = available[0]["duration_ms"]
-    missing = [source for source in sources if not source["available"]]
-    if missing:
-        with st.expander("Missing audition tracks"):
-            for source in missing:
-                st.caption(f"{source['label']}: {source['reason']}")
-            with st.form(f"audition_cache_{project.id}"):
-                cache_folder = st.text_input(
-                    "Audio cache folder", help="Choose the cache folder from this song's generation run.")
-                if st.form_submit_button("Link cached tracks"):
-                    try:
-                        count = em.attach_cached_audio(project, project_dir, Path(cache_folder))
-                        prj.save_project(project, project_dir)
-                        _mark_saved(project)
-                        st.session_state.timing_message = ("ok", f"Saved {count} audition tracks with this project.")
-                        st.rerun()
-                    except (OSError, prj.ProjectError) as exc:
-                        st.error(str(exc))
-
-    if "undo_stack" not in st.session_state:
-        st.session_state.undo_stack = lyr.UndoStack()
-    stack = st.session_state.undo_stack
-
-    payload = ed.build_payload(project, sources, duration_ms,
-                               st.session_state.get("selected_word_id"))
-
-    timeline = _timeline_component()
-    result = timeline(data=payload, key=f"hb_timeline_{project.id}")
-
-    # Consume a new persistent selection BEFORE timing controls/edits. Its nonce
-    # prevents an old component value from overriding Python review navigation.
-    selection = result.get("selection") if result else None
-    selection_key = f"last_selection_nonce_{project.id}"
-    if selection and selection.get("nonce") != st.session_state.get(selection_key):
-        selected = selection.get("word_id")
-        if selected and project.find_word(selected):
-            st.session_state.selected_word_id = selected
-            st.session_state[selection_key] = selection["nonce"]
-
-    # --- committed edits come back here, one per finished gesture ---
-    edit = result.get("timing_edit") if result else None
-    if edit:
-        nonce = edit.get("nonce")
-        if nonce != st.session_state.get("last_timing_nonce"):
-            st.session_state.last_timing_nonce = nonce
-            stack.commit(project)
-            ok, message = ed.apply_timing_edit(project, edit, duration_ms)
-            if ok:
-                st.session_state.selected_word_id = edit["word_id"]
-                st.session_state.timing_message = ("ok", message)
-            else:
-                stack.undo(project)   # reject cleanly; do not leave a half state
-                st.session_state.timing_message = ("err", message)
-            st.rerun()
-
-    kind_message = st.session_state.pop("timing_message", None)
-    if kind_message:
-        kind, message = kind_message
-        (st.success if kind == "ok" else st.error)(message)
-
-    _timing_controls(project, duration_ms, stack)
-
-
-def _timing_controls(project, duration_ms: int, stack) -> None:
-    """Numeric nudges, manual timing and review navigation."""
-    selected_id = st.session_state.get("selected_word_id")
-    word = project.find_word(selected_id) if selected_id else None
-
-    cols = st.columns([2, 1, 1, 1, 1])
-    with cols[0]:
-        if word is None:
-            st.caption("Select a word in the timeline to nudge or time it.")
-        else:
-            timing = project.effective_timing(word.id)
-            if timing and timing.resolved:
-                st.caption(f"**{word.text}** - {timing.start_ms} to {timing.end_ms} ms")
-            else:
-                st.caption(f"**{word.text}** - needs timing")
-
-    with cols[1]:
-        nudge_ms = st.number_input("Nudge (ms)", min_value=1, max_value=1000,
-                                   value=10, step=5, key="nudge_ms")
-    for col, (label, delta, key) in zip(cols[2:4], [
-        ("<- earlier", -1, "nudge_back"), ("later ->", 1, "nudge_fwd"),
-    ]):
-        with col:
-            if st.button(label, key=key, disabled=word is None):
-                stack.commit(project)
-                ok, message = ed.nudge(project, word.id, delta * int(nudge_ms),
-                                       audio_duration_ms=duration_ms)
-                if not ok:
-                    stack.undo(project)
-                st.session_state.timing_message = ("ok" if ok else "err", message)
-                st.rerun()
-    with cols[4]:
-        if st.button("Undo", key="undo_timing", disabled=not stack.can_undo):
-            stack.undo(project)
-            st.rerun()
-
-    nav = st.columns(3)
-    with nav[0]:
-        if st.button("Next untimed word", key="next_untimed"):
-            nxt = ed.next_unresolved(project, selected_id)
-            st.session_state.selected_word_id = nxt
-            if nxt is None:
-                st.session_state.timing_message = ("ok", "No untimed words left.")
-            st.rerun()
-    with nav[1]:
-        if st.button("Next uncertain word", key="next_uncertain"):
-            nxt = ed.next_low_confidence(project, selected_id)
-            st.session_state.selected_word_id = nxt
-            if nxt is None:
-                st.session_state.timing_message = ("ok", "No uncertain words left.")
-            st.rerun()
-    with nav[2]:
-        untimed = len(project.unresolved_words())
-        st.caption(f"{untimed} word(s) still need timing")
-
-    if word is not None:
-        timing = project.effective_timing(word.id)
-        if timing is None or not timing.resolved:
-            with st.form("manual_timing"):
-                st.caption(f"Set timing for **{word.text}** by hand")
-                c1, c2, c3 = st.columns([1, 1, 1])
-                start = c1.number_input("Start (ms)", min_value=0,
-                                        max_value=max(0, duration_ms), step=10)
-                end = c2.number_input("End (ms)", min_value=0,
-                                      max_value=max(0, duration_ms), step=10,
-                                      value=min(duration_ms, 500))
-                if c3.form_submit_button("Assign"):
-                    stack.commit(project)
-                    ok, message = ed.set_manual_timing(
-                        project, word.id, int(start), int(end), duration_ms)
-                    if not ok:
-                        stack.undo(project)
-                    st.session_state.timing_message = ("ok" if ok else "err", message)
-                    st.rerun()
+    ui.render(project, project_dir, karaoke_path)
 
 
 def main() -> None:
     st.set_page_config(page_title="HeartBeam", page_icon=":microphone:", layout="centered")
     st.title("HeartBeam")
-    st.caption("Lyrics-aware karaoke generator — strip lead vocals, keep harmonies.")
+    st.caption("Make karaoke audio and videos with editable lyrics, timing, and vocal levels.")
 
     if "log_lines" not in st.session_state:
         st.session_state.log_lines = []
@@ -843,7 +740,7 @@ def main() -> None:
     # --- Results (from this session's run, or from an opened project) ---
     # Resolving the media from either source is what fulfils P01.4: an existing
     # song reaches the video controls without rerunning separation.
-    if st.session_state.get("project") is not None:
+    if st.session_state.get("project") is not None and not st.session_state.get("project_readonly"):
         _lyrics_editor(st.session_state.project, st.session_state.project_dir)
 
     karaoke_path: Path | None = None
@@ -867,7 +764,7 @@ def main() -> None:
         out_dir: Path = work_dir
         st.divider()
         st.subheader("Result")
-        if st.session_state.get("project") is not None:
+        if st.session_state.get("project") is not None and not st.session_state.get("project_readonly"):
             _timing_editor(st.session_state.project,
                            st.session_state.project_dir, karaoke_path)
         else:
@@ -930,11 +827,23 @@ def main() -> None:
             position = st.selectbox("Position", ["bottom", "center", "top"], index=0)
 
         video_path = out_dir / "karaoke.mp4"
+        current_project = st.session_state.get("project")
+        last_video = st.session_state.get(f"last_video_{current_project.id}") if current_project else None
+        if last_video:
+            video_path = Path(last_video[1])
         can_render = bg_kind == "solid" or bool(bg_value)
         if not can_render:
             st.info(f"Upload a background {bg_kind}, or switch back to a solid colour.")
 
-        if st.button("Render video", type="primary", disabled=not can_render):
+        if current_project and not st.session_state.get("project_readonly"):
+            if st.button("Apply style to lyric preview"):
+                style_data = {"font": {"family": "Noto Sans", "size_px": font_size, "bold": True},
+                              "colour": {"primary": text_colour, "highlight": highlight_colour},
+                              "box": {"position": position},
+                              "background": {"kind": bg_kind, "value": bg_value or "#101820"},
+                              "video": {"resolution": resolution}}
+                ui.change(current_project, lambda p: setattr(p.presentation, "song_style", style_data))
+        if st.button("Render video", type="primary", disabled=not can_render or st.session_state.get("project_readonly", False)):
             out_dir.mkdir(parents=True, exist_ok=True)
             style_path = out_dir / "style.toml"
             _write_style_toml(
@@ -947,16 +856,43 @@ def main() -> None:
                 background_kind=bg_kind,
                 background_value=bg_value or "#101820",
             )
-            with st.spinner("Rendering with ffmpeg + libass…"):
-                rc, video_path = _render_video(
-                    karaoke_path, timings_path, out_dir, style_path,
-                    st.session_state.log_lines,
-                )
+            rc = 0
+            try:
+                render_audio, render_timings, render_dir = karaoke_path, timings_path, out_dir
+                if current_project:
+                    import copy
+                    import soundfile as sf
+                    from heartbeam.project_preview import current_timings
+                    from heartbeam import timings as timing_io, vocal_mix
+                    snapshot = copy.deepcopy(current_project)
+                    duration = prj.seconds_to_ms(sf.info(str(karaoke_path)).duration)
+                    # Export the edited manifest, never the immutable import.
+                    compiled = current_timings(snapshot, duration)
+                    render_dir = st.session_state.project_dir / prj.EXPORTS_DIR / f"rev-{snapshot.revision}-{prj.new_id('video')}"
+                    render_dir.mkdir(parents=True, exist_ok=True)
+                    render_timings = render_dir / "timings.json"
+                    timing_io.to_json(compiled, render_timings)
+                    if snapshot.vocal_mix.references:
+                        render_audio = vocal_mix.render_mix(snapshot, st.session_state.project_dir)
+                    elif snapshot.vocal_mix.regions or snapshot.vocal_mix.default_value:
+                        raise prj.ProjectError("Restore calibrated audio references before exporting the vocal mix.")
+                    (render_dir / "project-snapshot.json").write_text(json.dumps(snapshot.to_dict(), indent=2), encoding="utf-8")
+                    shutil.copyfile(style_path, render_dir / "style.toml")
+                    style_path = render_dir / "style.toml"
+                with st.spinner("Rendering with ffmpeg + libass…"):
+                    rc, video_path = _render_video(render_audio, render_timings, render_dir,
+                                                   style_path, st.session_state.log_lines)
+                if current_project and rc == 0:
+                    st.session_state[f"last_video_{current_project.id}"] = (current_project.revision, str(video_path))
+            except (prj.ProjectError, OSError, ValueError) as exc:
+                st.error(str(exc))
             if rc != 0:
                 st.error(f"heartbeam-video exited with code {rc}.")
                 st.code("".join(st.session_state.log_lines[-40:]), language="text")
 
         if video_path.exists():
+            if last_video and current_project and last_video[0] != current_project.revision:
+                st.caption(f"This video was rendered from revision {last_video[0]}. Render again to include newer edits.")
             st.video(str(video_path))
             with open(video_path, "rb") as f:
                 st.download_button(

@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import json
+import os
 from pathlib import Path
 
 from .style import Style
@@ -29,6 +31,21 @@ def _ffmpeg_path() -> str:
 def _solid_colour_to_ffmpeg(hex_str: str) -> str:
     """libavfilter `color=` accepts 0xRRGGBB or named colours."""
     return "0x" + hex_str.lstrip("#")
+
+
+def _audio_duration(path: Path) -> float:
+    """Bound video frames explicitly; -shortest alone can retain encoder tail."""
+    import soundfile as sf
+    try:
+        return sf.info(str(path)).duration
+    except (RuntimeError, ValueError):
+        probe = shutil.which("ffprobe") or str(Path(_ffmpeg_path()).with_name("ffprobe.exe" if os.name == "nt" else "ffprobe"))
+        result = subprocess.run([probe, "-v", "error", "-select_streams", "a:0",
+                "-show_entries", "stream=duration:format=duration", "-of", "json", str(path)],
+                capture_output=True, check=True, text=True)
+        data = json.loads(result.stdout)
+        value = next((s.get("duration") for s in data.get("streams", []) if s.get("duration") not in (None, "N/A")), data.get("format", {}).get("duration"))
+        return float(value)
 
 
 def _escape_path_for_ass_filter(path: Path) -> str:
@@ -84,6 +101,9 @@ def render(
 
     ass_filter_path = _escape_path_for_ass_filter(ass_path.resolve())
     vf = f"ass='{ass_filter_path}'"
+    if style.font.family == "Noto Sans":
+        from .project_preview import VENDOR
+        vf += f":fontsdir='{_escape_path_for_ass_filter(VENDOR.resolve())}'"
 
     cmd = [_ffmpeg_path(), "-nostdin", "-y", "-loglevel", "error"]
 
@@ -122,10 +142,9 @@ def render(
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", style.video.audio_bitrate,
-        # Bound the render to the song. The image and video backgrounds are
-        # looped indefinitely (-loop 1 / -stream_loop -1), so without this the
-        # output would never terminate.
-        "-shortest",
+        # Explicit duration bounds the looping background without letting the
+        # last rounded video frame truncate the audio via -shortest.
+        "-t", f"{_audio_duration(audio_path):.9f}",
         str(out_path),
     ]
     log.debug("ffmpeg cmd: %s", " ".join(cmd))

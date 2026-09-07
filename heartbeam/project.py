@@ -185,6 +185,8 @@ class VocalRegion:
     value: float
     transition_ms: int = 40
     source_line_ids: list[str] = field(default_factory=list)
+    source_word_ids: list[str] = field(default_factory=list)
+    source_section_id: str | None = None
 
 
 @dataclass
@@ -192,6 +194,8 @@ class VocalMix:
     default_value: float = 0.0
     regions: list[VocalRegion] = field(default_factory=list)
     restoration_mode: str = "clean_to_original"
+    transition_ms: int = 40
+    references: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -241,6 +245,9 @@ class Project:
     original_alignment: dict[str, WordTiming] = field(default_factory=dict)
     #: User corrections, keyed by word ID. Overrides the original.
     timing_edits: dict[str, WordTiming] = field(default_factory=dict)
+    alignment_proposals: dict[str, WordTiming] = field(default_factory=dict)
+    reviewed: dict[str, bool] = field(default_factory=dict)
+    command_ids: list[str] = field(default_factory=list)
 
     presentation: Presentation = field(default_factory=Presentation)
     vocal_mix: VocalMix = field(default_factory=VocalMix)
@@ -281,7 +288,7 @@ class Project:
         edit = self.timing_edits.get(word_id)
         if edit is not None:
             return edit
-        return self.original_alignment.get(word_id)
+        return self.alignment_proposals.get(word_id, self.original_alignment.get(word_id))
 
     def unresolved_words(self) -> list[tuple[Line, Word, str | None]]:
         """Words the editor should surface for review."""
@@ -309,6 +316,9 @@ class Project:
             "lines": [asdict(ln) for ln in self.lines],
             "original_alignment": {k: asdict(v) for k, v in self.original_alignment.items()},
             "timing_edits": {k: asdict(v) for k, v in self.timing_edits.items()},
+            "alignment_proposals": {k: asdict(v) for k, v in self.alignment_proposals.items()},
+            "reviewed": self.reviewed.copy(),
+            "command_ids": self.command_ids[:],
             "presentation": asdict(self.presentation),
             "vocal_mix": asdict(self.vocal_mix),
             "provenance": asdict(self.provenance),
@@ -351,11 +361,16 @@ class Project:
             timing_edits={
                 k: WordTiming(**v) for k, v in d.get("timing_edits", {}).items()
             },
+            alignment_proposals={k: WordTiming(**v) for k, v in d.get("alignment_proposals", {}).items()},
+            reviewed=dict(d.get("reviewed", {})),
+            command_ids=list(d.get("command_ids", [])),
             presentation=Presentation(**d.get("presentation", {})),
             vocal_mix=VocalMix(
                 default_value=vm.get("default_value", 0.0),
                 regions=[VocalRegion(**r) for r in vm.get("regions", [])],
                 restoration_mode=vm.get("restoration_mode", "clean_to_original"),
+                transition_ms=vm.get("transition_ms", 40),
+                references=vm.get("references", {}),
             ),
             provenance=Provenance(**d.get("provenance", {})),
             exports=[ExportRecord(**e) for e in d.get("exports", [])],
@@ -371,6 +386,8 @@ class Project:
 def create_project(project_dir: str | Path, name: str) -> Project:
     """Create the folder skeleton and an empty manifest (not yet saved)."""
     root = Path(project_dir)
+    if (root / MANIFEST_NAME).exists():
+        raise ProjectError("That folder already contains a project. Open it or choose a new folder.")
     for sub in (ASSETS_DIR, AUDIO_DIR, CACHE_DIR, AUTOSAVE_DIR, EXPORTS_DIR):
         (root / sub).mkdir(parents=True, exist_ok=True)
     return Project(id=new_id("proj"), name=name)
@@ -399,14 +416,25 @@ def _atomic_write(path: Path, text: str) -> None:
 
 def save_project(project: Project, project_dir: str | Path, *, bump: bool = True) -> Path:
     """Write the manifest atomically and take an autosave snapshot."""
+    from .project_lock import WriterLease
     root = Path(project_dir)
     root.mkdir(parents=True, exist_ok=True)
+    with WriterLease(root, ".save.lock"):
+        return _save_locked(project, root, bump=bump)
+
+
+def _save_locked(project, root, *, bump):
+    manifest = root / MANIFEST_NAME
+    disk_hash = file_sha256(manifest) if manifest.exists() else None
+    if hasattr(project, "_disk_hash") and project._disk_hash != disk_hash:
+        raise ProjectError("The saved project changed in another session. Save a copy or reopen it before saving.")
     if bump:
         project.revision += 1
         project.modified_at = time.time()
     text = json.dumps(project.to_dict(), indent=2, ensure_ascii=False)
     manifest = root / MANIFEST_NAME
     _atomic_write(manifest, text)
+    project._disk_hash = file_sha256(manifest)
 
     autosave = root / AUTOSAVE_DIR
     autosave.mkdir(parents=True, exist_ok=True)
@@ -430,7 +458,9 @@ def load_project(project_dir: str | Path) -> Project:
         data = json.loads(manifest.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ProjectError(f"{manifest} is not valid JSON: {exc}") from exc
-    return Project.from_dict(data)
+    project = Project.from_dict(data)
+    project._disk_hash = file_sha256(manifest)
+    return project
 
 
 def save_project_as(project: Project, dest_dir: str | Path,
@@ -441,6 +471,8 @@ def save_project_as(project: Project, dest_dir: str | Path,
     gets a fresh ID, so later saves to either cannot be confused for each other.
     """
     dest = Path(dest_dir)
+    if (dest / MANIFEST_NAME).exists():
+        raise ProjectError("That folder already contains a project. Choose a new folder for the copy.")
     dest.mkdir(parents=True, exist_ok=True)
     if src_dir is not None:
         src = Path(src_dir)

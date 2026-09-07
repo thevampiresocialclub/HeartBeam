@@ -339,7 +339,9 @@ def test_explicit_realignment_replaces_proposals_but_not_manual_edits(tmp_path):
     L.apply_alignment(proj, _aligned([("alpha", 9.0, 9.5), ("bravo", 9.6, 10.0)]),
                       only_unresolved=False)
     assert proj.effective_timing(ids[0]).start_ms == 1234, "manual edit still wins"
-    assert proj.original_alignment[ids[1]].start_ms == 9600, "proposal replaced"
+    assert proj.original_alignment[ids[1]].start_ms == 500, "original proposal retained"
+    assert proj.alignment_proposals[ids[1]].start_ms == 9600, "new proposal retained separately"
+    assert proj.effective_timing(ids[1]).start_ms == 9600
 
 
 def test_partial_alignment_leaves_missing_words_unresolved(tmp_path):

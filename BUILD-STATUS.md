@@ -14,10 +14,14 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | **P02 Lyrics editor** | **Verified** |
 | **P03.1 Architecture proof** | **Verified** |
 | **P03.2 Transport and waveform** | **Implemented; Python and browser checks below** |
-| P03.3-P03.4 | Next / not started |
-| P04-P07 | Not started |
+| P03.3-P03.4 Timing and review | **Complete; verification below** |
+| **P03 overall** | **Complete** |
+| **P04 Section vocals** | **Complete; verification and limits below** |
+| P05-P07 | Not started |
 
-**P01 and P02 are complete.** A song can be generated, saved, closed, reopened
+**P01 through P04 are implemented.** See the P03/P04 continuation section below for current verification; earlier sections are historical snapshots.
+
+**P01 and P02 foundation:** A song can be generated, saved, closed, reopened
 and restyled without rerunning separation; lyrics can be pasted rather than
 uploaded and edited without losing timing work; and the lossless audio the
 section mixer will need is retained with provenance.
@@ -588,3 +592,145 @@ work, and the P01.3 cache so auditioning original/lead/karaoke needs no rerun.
 
 The old note saying P01.3 still needed to persist pre-mastering audio was stale.
 P01.3 already writes that cache; P03.2 now links its roles into saved projects.
+
+
+---
+
+## P03 and P04 continuation — 6 September 2026
+
+P03.1's missing ASS proof, P03.3, P03.4, and P04 are now implemented. This
+section supersedes older "not started", "no ASS preview", "unstable section
+IDs", and "no alignment UI" notes elsewhere in this historical log.
+
+### What works
+
+- One AudioContext clock drives source playback, sample-accurate selection
+  loops, waveform position, current-word feedback and a local libass WASM ASS
+  preview. Browser and native rendering use the same ASS compiler and bundled
+  Noto Sans fonts. ASS converts absolute boundaries to centiseconds so per-word
+  rounding does not accumulate across a phrase.
+- Move a whole word or either edge; assign or edit exact numeric times; nudge
+  word, lyric line or whole song independently. Arrow keys nudge 10 ms, Shift
+  changes that to 100 ms. Text/native inputs retain their normal key handling.
+  Loop context is configurable. Imported overlaps are reported, not flattened;
+  edits may repair them but cannot introduce or worsen a conflict.
+- Explicit reviewed flags, next-untimed/uncertain navigation, saved-result
+  alignment import, and an explicit GPU alignment action on the saved lead
+  stem. Manual corrections win; original proposals remain immutable and later
+  alignment proposals have their own layer. Ordinary editing loads no models.
+- Shared atomic command history covers lyrics, timing, review, vocal levels,
+  reference preparation/rebuild and basic preview style. Unique command IDs and
+  base revisions reject duplicate/stale browser messages. Undo/redo advance the
+  content revision; saving alone does not create another editor content edit.
+- Section IDs follow surviving word membership, including renamed headings and
+  line rewrapping; repeated headings retain distinct IDs.
+- Song default plus one non-overlapping vocal lane. Target a lyric line, several
+  lines, a named section, explicit time range, existing region, or song default.
+  Region insertion splits/replaces overlaps in one undo step. The live slider,
+  numeric entry, region reset, source-lyric refit and selection loop are wired.
+- Restoration is `clean + value * (original - clean)` before mastering. One
+  continuous linear envelope compiler feeds both offline rendering and browser
+  audition templates. Short spans cap adjacent ramps; touching spans share a
+  transition. Slider movement stays in the browser and commits once per gesture.
+  Compiled envelopes run as audio buffers, so looping does not depend on rAF or
+  a foreground JavaScript timer. Graph changes have a short audition crossfade.
+- Calibrated lossless references are checked by hash, sample rate, channels and
+  sample count. Legacy normalized MP3s cannot masquerade as clean references.
+  Explicit preparation from matching original/stems stores its chosen recipe;
+  new pipeline caches retain the full recipe. Rebuilding the clean audio from
+  corrected timing is explicit and undoable, retaining prior referenced files.
+  Vocal regions keep their stored times until explicitly refitted.
+- Final mix rendering is cached by content, blends first, and then applies one
+  loudness / 4x oversampled peak stage. It is available on the same transport
+  and as a WAV download. Stale final auditions are hidden after content changes;
+  stale asynchronous browser preparation cannot replace the current revision.
+- Video export now uses **effective project timing and the edited vocal mix**.
+  It writes revision-specific output folders with timing, style and project
+  snapshots. The old GUI incorrectly rendered the immutable imported timing
+  file. Export rejects unresolved/conflicting timing. Explicit audio duration
+  also fixes an observed 1.9-second encoder tail without cutting the soundtrack
+  to a rounded video frame.
+- OS writer leases make a second GUI read-only, with an independent copy route.
+  Atomic saves also check the last-read manifest hash under a short save lock,
+  preventing a stale writer from silently replacing a newer manifest.
+
+### Verification
+
+Commands: `.venv\Scripts\python.exe -m pytest -q -m "not slow"` and
+`node --test tests/audio_transport.test.mjs`. Node is a development test tool;
+the installed application has no Node build/runtime requirement.
+
+The final suite passed: 216 Python tests and 5 focused JavaScript playback tests.
+It covers the old regressions, timing scopes, conflict repair, persistent review,
+stable sections, atomic/duplicate/stale commands, undo/redo, writer leases and
+stale saves, 0/20/100% mixes, overlap splitting, short/boundary/stereo envelopes,
+preview/offline coefficient agreement, explicit refit/rebuild, missing or
+replaced references, final mastering, effective-timing export, real video
+duration, and GUI save/reopen of vocal commands. The JS tests include the actual
+transport class with a controlled audio clock, stale preparation races, shared
+loop starts, and selection preserving the existing audible mix.
+
+Real browser evidence (260-word Helena fixture, current in-app browser):
+
+- libass worker ready, fonts rendered; the visible `Long ago` preview matched
+  the native FFmpeg frame in wording, highlight, layout and font. This was a
+  visual comparison, not a pixel-identity claim across rasterizers.
+- Single slider drag produced one revision and a 20% vocal region. Whole-word
+  dragging moved both boundaries by -73 ms while retaining duration; one Undo
+  restored 2132–4394 ms. The saved vocal region retained its original times.
+- Observed visible commit paints: 0.7–4.1 ms. Streamlit command acknowledgements:
+  668–690 ms. These are different measurements: the UI responds optimistically
+  within the 100 ms target; server confirmation is not sub-100 ms.
+- Cached source switches: 0.1–0.2 ms loading interval and 0.000 ms position
+  error. Initial audio decode was 346–405 ms. These are local observations,
+  not cross-device latency guarantees. Source, selection and zoom survived
+  ordinary command reruns; entering text did not issue timing commands.
+- A second session opened read-only; Save was disabled. Save a copy produced
+  an independent editable project through the real UI.
+- The mix remained playing in its selection loop while a separate blank tab
+  was foreground for several minutes. On inspection, waveform/ASS clocks both
+  read 2986 ms inside the selected loop, with playback active and zoom 20 retained.
+
+Real media / model evidence:
+
+- Stereo 44.1 kHz, 204.745578-second reference pair. 0% and 100% endpoint maximum
+  absolute sample error: **0.0** for each. Compiled coefficients remained in
+  [0,1]; maximum adjacent coefficient change for the 40 ms proof transitions:
+  0.0005668998. 20/0/100% regions were rendered in a full-song proof video.
+- Full video: H.264 960×540 + AAC stereo 44.1 kHz; audio duration 204.745011 s,
+  video duration 204.733333 s (within one 30 fps frame). Latest render/preview
+  extraction took about 4.5 seconds locally.
+- Explicit saved-lead alignment ran on CUDA in **53.08 seconds**: 260 aligned
+  words, 244 proposals applied, all **16 manual timings preserved**, 0 unmatched
+  words. This checks integration and mapping, not perceptual alignment accuracy.
+  The existing TorchCodec warning did not prevent the in-memory audio path.
+- An offline wheel was built and inspected: all renderer JS/WASM, font and
+  license files were included with matching hashes. The upstream npm tarball
+  integrity was checked. Sources and hashes are in `editor_assets/vendor/README.md`.
+
+Local evidence files are under
+`C:\Users\young\Documents\Codex\2026-09-06\run\work\p034-verification`:
+`evidence.json`, `alignment-evidence.json`, `native-preview.png`,
+`karaoke-proof.mp4`, and `vocal-levels-0-20-100.wav`. The latter compares the
+same four-second phrase at 0%, 20% and 100%. Audio files are not committed.
+The fixture was prepared from existing stems with an explicitly chosen recipe;
+it is not claimed to reproduce the historical normalized karaoke MP3 exactly.
+
+### Limits and next work
+
+- This validates implementation, numerical continuity and browser interaction;
+  no human listening or subjective separation-quality verdict is claimed.
+  0% means the saved processed mix, and 100% restores the original reference;
+  neither guarantees perfect lead isolation or unchanged harmonies.
+- Browser lyric preview currently uses a solid canvas. Full visual placement,
+  richer font/outline controls, image/video background preview and presentation
+  editing remain P05. Long export-job management remains P06; the model sweep
+  stays parked for P07.
+- Streamlit stores served media in RAM and browser audition decodes whole
+  buffers. Large songs/multiple projects can consume substantial memory; this
+  is not disk-streaming playback. ASS presentation has 10 ms time resolution.
+- Close the project to release its writer lease promptly. A disconnected
+  browser session may retain its lease until Streamlit disposes that session;
+  read-only / Save a copy prevents data loss meanwhile.
+- Undo history is session-local. Content and recovery snapshots are durable
+  after Save; closing without saving intentionally does not publish unsaved edits.

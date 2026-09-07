@@ -160,6 +160,7 @@ def test_render_maps_streams_explicitly(tmp_path, monkeypatch):
 
     monkeypatch.setattr(render_mod.subprocess, "run", fake_run)
     monkeypatch.setattr(render_mod, "_ffmpeg_path", lambda: "ffmpeg")
+    monkeypatch.setattr(render_mod, "_audio_duration", lambda path: 4.0)
 
     ass = tmp_path / "x.ass"
     ass.write_text("", encoding="utf-8")
@@ -179,7 +180,7 @@ def test_render_maps_streams_explicitly(tmp_path, monkeypatch):
     pairs = [(cmd[i], cmd[i + 1]) for i, a in enumerate(cmd) if a == "-map"]
     assert ("-map", "0:v:0") in pairs
     assert ("-map", "1:a:0") in pairs
-    assert "-shortest" in cmd, "render must be bounded by the audio program"
+    assert float(cmd[cmd.index("-t") + 1]) == 4.0, "render must be bounded by the complete audio program"
 
 
 # --------------------------------------------------------------------------

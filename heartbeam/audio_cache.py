@@ -82,6 +82,7 @@ class CacheManifest:
     audio_format: str = "wav"
     entries: dict[str, CachedAudio] = field(default_factory=dict)
     provenance: dict[str, Any] = field(default_factory=dict)
+    settings: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -92,6 +93,7 @@ class CacheManifest:
             "audio_format": self.audio_format,
             "entries": {k: asdict(v) for k, v in self.entries.items()},
             "provenance": self.provenance,
+            "settings": self.settings,
         }
 
     @classmethod
@@ -110,6 +112,7 @@ class CacheManifest:
             audio_format=d.get("audio_format", "wav"),
             entries={k: CachedAudio(**v) for k, v in d.get("entries", {}).items()},
             provenance=d.get("provenance", {}),
+            settings=d.get("settings", {}),
         )
 
 
@@ -200,6 +203,7 @@ def write_cache(cache_dir: str | Path, arrays: dict[str, np.ndarray], *,
         audio_format=audio_format,
         entries=entries,
         provenance=provenance or {},
+        settings=settings,
     )
     _atomic_write_text(manifest_path,
                        json.dumps(manifest.to_dict(), indent=2, ensure_ascii=False))

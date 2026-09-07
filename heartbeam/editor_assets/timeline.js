@@ -1,8 +1,9 @@
-// The audio element is the only playback clock. Browser-only audition state
+// The AudioContext is the only playback clock. Browser-only audition state
 // survives Streamlit reruns; only selections and committed edits cross the bridge.
 export default function (component) {
   const parent = component.parentElement;
   if (parent._hbTimeline?.projectId === component.data.project_id &&
+      parent._hbTimeline.version === component.data.frontend_version &&
       parent._hbTimeline.root.isConnected) {
     parent._hbTimeline.update(component);
     return;
@@ -18,7 +19,7 @@ export default function (component) {
   root.innerHTML = `
     <div class="hb-toolbar">
       <button class="hb-btn" data-act="play">Play</button>
-      <button class="hb-btn" data-act="loop" aria-pressed="false">Loop selected word</button>
+      <button class="hb-btn" data-act="loop" aria-pressed="false">Loop selection</button>
       <label>Listen to <select class="hb-source"></select></label>
       <span class="hb-time"><span class="hb-cur">0:00.00</span> / <span class="hb-dur"></span></span>
       <label>Speed <select class="hb-rate"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option></select></label>
@@ -27,21 +28,30 @@ export default function (component) {
       <button class="hb-btn" data-act="seek">Seek</button>
       <span class="hb-sel"></span>
     </div>
+    <div class="hb-toolbar"><label>Before (ms) <input class="hb-before" type="number" min="0" max="5000" step="50" value="250"></label>
+      <label>After (ms) <input class="hb-after" type="number" min="0" max="5000" step="50" value="250"></label>
+      <button class="hb-btn" data-act="undo">Undo</button><button class="hb-btn" data-act="redo">Redo</button></div>
+    <div class="hb-preview"><canvas class="hb-ass" width="960" height="540" aria-label="Rendered lyric preview"></canvas></div>
+    <div class="hb-preview-status" role="status">Loading lyric preview…</div>
     <input class="hb-position" aria-label="Song position" type="range" min="0" step="1" value="0">
     <div class="hb-scroll"><div class="hb-track"><canvas class="hb-canvas" aria-label="Waveform and word timing"></canvas></div></div>
+    <div class="hb-vocal-lane" aria-label="Vocal regions"></div>
+    <div class="hb-vocal" hidden><strong class="hb-vocal-title"></strong>
+      <label>Vocal level <input class="hb-vocal-level" type="range" min="0" max="100" step="1" value="0"><output class="hb-vocal-value">0%</output></label>
+      <p>0% = processed karaoke · 100% = original vocal level. Separation may also affect backing vocals. Draft audition has fixed headroom; final audio is mastered once.</p></div>
     <div class="hb-hint" role="status" aria-live="polite"></div>
     <details class="hb-lyrics" open><summary>Lyrics — select a word to seek</summary><div class="hb-lines"></div></details>`;
   parent.appendChild(root);
   const $ = selector => root.querySelector(selector);
-  const audio = document.createElement('audio');
-  audio.className = 'hb-audio'; audio.hidden = true; audio.preload = 'auto'; root.appendChild(audio);
+  const audio = new HBTransport();
   const canvas = $('.hb-canvas'), ctx = canvas.getContext('2d'), scroll = $('.hb-scroll');
   const sourceSelect = $('.hb-source'), playButton = $('[data-act="play"]');
-  const hint = 'Drag a word edge to change timing. Select a lyric to seek. Space plays when the editor has focus.';
+  const hint = 'Drag a word or its edges. Arrow keys nudge 10 ms (Shift: 100 ms). Space plays. Ctrl+Z undoes. Text fields keep their normal keys.';
   const state = { words: [], sources: [], durationMs: 0, selectedId: null,
     zoom: 1, looping: false, drag: null, sourceId: null, sourceKey: null,
     peaks: {mins: [], maxs: []}, busy: false, pending: null, switchEpoch: 0,
-    peakEpoch: 0, peakKey: null, lastServerSelection: null };
+    peakEpoch: 0, peakKey: null, lastServerSelection: null, revision: 0, pendingCommand: null, mix: null };
+  let ass = null, assText = null, workerBlob = null, mixSignature = null;
   const wordButtons = new Map(), peaksCache = new Map();
   let sourceAbort = null, peakAbort = null, rafId = 0, lastTick = 0, selectionSequence = 0;
   const fmt = ms => { const s = Math.max(0, ms || 0) / 1000;
@@ -52,13 +62,30 @@ export default function (component) {
   const msToX = ms => ms / (state.durationMs || 1) * width();
   const xToMs = x => x / width() * state.durationMs;
   const wordAt = ms => state.words.find(w => w.start_ms != null && w.end_ms != null && ms >= w.start_ms && ms < w.end_ms);
+  function commit(kind, payload = {}) {
+    if (state.pendingCommand) return;
+    const id = crypto.randomUUID(); state.pendingCommand = {id, at: performance.now()};
+    bridge.setTriggerValue('command', {id, base_revision: state.revision, kind, payload});
+    root.dataset.lastCommand = id; root.dataset.commandState = 'pending';
+    requestAnimationFrame(() => { root.dataset.commitPaintMs = (performance.now() - state.pendingCommand?.at || 0).toFixed(1); });
+  }
+  function loopBounds() {
+    const selected = state.mix?.selection, word = currentWord();
+    const range = state.sourceId === 'mix' && selected && !selected.song ? selected : word;
+    if (range?.start_ms == null || range?.end_ms == null) return null;
+    return [Math.max(0, range.start_ms - Number($('.hb-before').value)) / 1000,
+            Math.min(state.durationMs, range.end_ms + Number($('.hb-after').value)) / 1000];
+  }
+  function syncLoop() { audio.setLoop(state.looping ? loopBounds() : null); }
   function status(message = hint, error = false) { $('.hb-hint').textContent = message; $('.hb-hint').classList.toggle('err', error); }
   function buttons() {
     playButton.textContent = audio.paused ? 'Play' : 'Pause';
     playButton.disabled = state.busy || !state.sourceId;
     $('[data-act="loop"]').classList.toggle('on', state.looping);
     $('[data-act="loop"]').setAttribute('aria-pressed', String(state.looping));
-    $('[data-act="loop"]').disabled = currentWord()?.start_ms == null;
+    $('[data-act="loop"]').disabled = !loopBounds();
+    $('[data-act="undo"]').disabled = !bridge.data.can_undo || !!state.pendingCommand;
+    $('[data-act="redo"]').disabled = !bridge.data.can_redo || !!state.pendingCommand;
     $('[data-act="seek"]').disabled = state.busy;
     $('.hb-position').disabled = state.busy;
   }
@@ -78,6 +105,7 @@ export default function (component) {
     for (const [id, button] of wordButtons) button.setAttribute('aria-pressed', String(id === state.selectedId));
     if (shouldSeek && word?.start_ms != null) seek(word.start_ms);
     buttons(); draw();
+    syncLoop();
     // Selection is persistent component state. A one-shot trigger can be lost
     // when a nearby Python button causes another rerun before it is consumed.
     if (notify && word) bridge.setStateValue('selection', {
@@ -136,6 +164,7 @@ export default function (component) {
       const errorMs = await loadAudio(source, snapshot, ownSignal);
       if (epoch !== state.switchEpoch || signal.aborted) return;
       state.sourceId = source.id; state.sourceKey = source.key; sourceSelect.value = source.id;
+      syncLoop();
       root.dataset.switchSeekErrorMs = errorMs.toFixed(3);
       root.dataset.switchLatencyMs = (performance.now() - started).toFixed(1);
       root.dataset.switchCount = String(Number(root.dataset.switchCount || 0) + 1);
@@ -218,12 +247,14 @@ export default function (component) {
   }
   const localX = event => event.clientX - canvas.getBoundingClientRect().left + scroll.scrollLeft;
   canvas.addEventListener('mousedown', event => {
-    if (state.busy) return;
+    if (state.busy || state.pendingCommand) return;
+    if (event.clientY - canvas.getBoundingClientRect().top < 99) { seek(xToMs(localX(event))); return; }
+    event.preventDefault(); root.focus({preventScroll: true});
     const x = localX(event), hit = hitTest(x);
     if (!hit) { seek(xToMs(x)); return; }
     if (event.shiftKey) { state.looping = true; select(hit.word, true, true); return; }
-    select(hit.word, !hit.edge, !hit.edge);
-    if (hit.edge) state.drag = {wordId: hit.word.id, edge: hit.edge, startX: x, origStart: hit.word.start_ms, origEnd: hit.word.end_ms};
+    select(hit.word, false, false);
+    state.drag = {wordId: hit.word.id, edge: hit.edge || 'both', startX: x, origStart: hit.word.start_ms, origEnd: hit.word.end_ms};
   });
   window.addEventListener('mousemove', event => {
     const x = localX(event), drag = state.drag;
@@ -231,14 +262,16 @@ export default function (component) {
     const word = state.words.find(w => w.id === drag.wordId); if (!word) return;
     const delta = xToMs(x) - xToMs(drag.startX);
     if (drag.edge === 'start') word.start_ms = Math.round(Math.max(0, Math.min(drag.origStart + delta, word.end_ms - 10)));
-    else word.end_ms = Math.round(Math.min(state.durationMs, Math.max(drag.origEnd + delta, word.start_ms + 10)));
+    else if (drag.edge === 'end') word.end_ms = Math.round(Math.min(state.durationMs, Math.max(drag.origEnd + delta, word.start_ms + 10)));
+    else { const shift = Math.round(Math.max(-drag.origStart, Math.min(state.durationMs - drag.origEnd, delta)));
+      word.start_ms = drag.origStart + shift; word.end_ms = drag.origEnd + shift; }
     draw();
   }, {signal});
   window.addEventListener('mouseup', () => {
     const drag = state.drag; if (!drag) return; state.drag = null;
     const word = state.words.find(w => w.id === drag.wordId); if (!word) return;
     if (word.start_ms === drag.origStart && word.end_ms === drag.origEnd) { select(word, true, true); return; }
-    bridge.setTriggerValue('timing_edit', {word_id: word.id, start_ms: word.start_ms, end_ms: word.end_ms, nonce: Date.now()});
+    commit('timing', {word_id: word.id, start_ms: word.start_ms, end_ms: word.end_ms});
   }, {signal});
   async function togglePlay() {
     if (state.busy || !state.sourceId) return;
@@ -247,7 +280,11 @@ export default function (component) {
     buttons();
   }
   playButton.addEventListener('click', togglePlay);
-  $('[data-act="loop"]').addEventListener('click', () => { state.looping = !state.looping; if (state.looping) seek(Math.max(0, currentWord().start_ms - 250)); buttons(); });
+  $('[data-act="loop"]').addEventListener('click', () => { state.looping = !state.looping; syncLoop(); if (state.looping && loopBounds()) seek(loopBounds()[0] * 1000); buttons(); });
+  for (const selector of ['.hb-before', '.hb-after']) $(selector).addEventListener('change', e => {
+    e.target.value = String(Math.max(0, Math.min(5000, Math.round(Number(e.target.value) || 0)))); syncLoop(); });
+  $('[data-act="undo"]').addEventListener('click', () => commit('undo'));
+  $('[data-act="redo"]').addEventListener('click', () => commit('redo'));
   $('[data-act="seek"]').addEventListener('click', () => seek(Number($('.hb-seek').value) * 1000));
   $('.hb-seek').addEventListener('keydown', e => { if (e.key === 'Enter') seek(Number(e.target.value) * 1000); });
   $('.hb-position').addEventListener('input', e => seek(Number(e.target.value)));
@@ -256,7 +293,15 @@ export default function (component) {
   $('.hb-zoom').addEventListener('input', e => { const start = xToMs(scroll.scrollLeft); state.zoom = Number(e.target.value); resize(); scroll.scrollLeft = msToX(start); draw(); });
   scroll.addEventListener('scroll', draw);
   root.addEventListener('keydown', e => {
-    if (e.target.closest('input, textarea, select, button, summary, [contenteditable="true"]')) return;
+    if (e.target.closest('input, textarea, select, summary, [contenteditable="true"]')) return;
+    if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); commit(e.shiftKey ? 'redo' : 'undo'); return; }
+    if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+      const word = currentWord(); if (!word || word.start_ms == null || state.pendingCommand) return;
+      e.preventDefault(); const delta = (e.shiftKey ? 100 : 10) * (e.code === 'ArrowLeft' ? -1 : 1);
+      word.start_ms += delta; word.end_ms += delta; draw();
+      commit('timing', {word_id: word.id, start_ms: word.start_ms, end_ms: word.end_ms}); return;
+    }
+    if (e.target.closest('button')) return;
     if (e.code === 'Space') { e.preventDefault(); void togglePlay(); }
   });
   audio.addEventListener('play', buttons); audio.addEventListener('pause', buttons);
@@ -264,10 +309,7 @@ export default function (component) {
   audio.addEventListener('error', () => { if (!state.busy) status(`Audio failed (code ${audio.error?.code || '?'})`, true); });
   function render() {
     let ms = audio.currentTime * 1000;
-    const word = currentWord();
-    if (!state.busy && !audio.paused && state.looping && word?.end_ms != null && ms >= word.end_ms + 250) {
-      audio.currentTime = Math.max(0, word.start_ms - 250) / 1000; ms = audio.currentTime * 1000;
-    }
+    if (ass) { ass.setCurrentTime(ms / 1000); root.dataset.assClockMs = String(Math.round(ms)); }
     $('.hb-cur').textContent = fmt(ms); $('.hb-position').value = String(Math.round(ms));
     const singing = wordAt(ms)?.id;
     for (const [id, button] of wordButtons) button.classList.toggle('singing', id === singing);
@@ -282,10 +324,80 @@ export default function (component) {
   function frame() { if (signal.aborted) return; tick(); rafId = requestAnimationFrame(frame); }
   const interval = setInterval(tick, 60); // rAF can stop while audio continues
   const observer = new ResizeObserver(resize); observer.observe(scroll);
-  function destroy() { controller.abort(); sourceAbort?.abort(); peakAbort?.abort(); clearInterval(interval); cancelAnimationFrame(rafId); observer.disconnect(); audio.pause(); audio.removeAttribute('src'); audio.load(); root.remove(); }
+  function destroy() { controller.abort(); sourceAbort?.abort(); peakAbort?.abort(); clearInterval(interval); cancelAnimationFrame(rafId); observer.disconnect(); audio.dispose(); ass?.dispose(); if (workerBlob) URL.revokeObjectURL(workerBlob); root.remove(); }
+  function updatePreview(preview) {
+    if (!preview) return;
+    $('.hb-preview').style.background = preview.background;
+    const message = preview.draft || preview.conflicts ? 'Draft lyric preview — untimed words are omitted; resolve timing conflicts before export.' : 'Rendered lyric preview · same ASS and bundled font as export';
+    if (!ass) {
+      const absolute = path => new URL(path, location.href).href;
+      workerBlob = URL.createObjectURL(new Blob([`var Module={locateFile:function(){return ${JSON.stringify(absolute(preview.wasm))}}};importScripts(${JSON.stringify(absolute(preview.worker))});`], {type: 'application/javascript'}));
+      ass = new SubtitlesOctopus({canvas: $('.hb-ass'), subContent: preview.ass,
+        workerUrl: workerBlob, fonts: preview.fonts.map(absolute), fallbackFont: absolute(preview.fonts[0]),
+        targetFps: 30, onReady: () => { root.dataset.assReady = 'true'; $('.hb-preview-status').textContent = message; },
+        onError: error => { root.dataset.assReady = 'false'; $('.hb-preview-status').textContent = `Lyric preview failed: ${String(error.message || error)}`; }});
+      assText = preview.ass;
+    } else if (assText !== preview.ass) { assText = preview.ass; ass.setTrack(preview.ass); $('.hb-preview-status').textContent = message; }
+  }
+  async function updateMix(data) {
+    state.mix = data;
+    $('.hb-vocal').hidden = !data?.selection;
+    $('.hb-vocal-level').disabled = true;
+    $('.hb-vocal-lane').replaceChildren();
+    if (!data) return;
+    for (const region of data.regions) {
+      const button = document.createElement('button'); button.className = 'hb-region';
+      button.style.left = `${region.start_ms / state.durationMs * 100}%`;
+      button.style.width = `${(region.end_ms - region.start_ms) / state.durationMs * 100}%`;
+      button.textContent = `${Math.round(region.value * 100)}%`; button.title = `Vocal region ${fmt(region.start_ms)}–${fmt(region.end_ms)}: ${Math.round(region.value * 100)}%`;
+      button.addEventListener('click', () => { seek(region.start_ms); bridge.setStateValue('region_selection', {id: region.id, nonce: crypto.randomUUID()}); });
+      $('.hb-vocal-lane').appendChild(button);
+    }
+    if (data.selection) {
+      $('.hb-vocal-title').textContent = data.selection.label;
+      $('.hb-vocal-level').value = Math.round(data.selection.value * 100);
+      $('.hb-vocal-value').textContent = `${Math.round(data.selection.value * 100)}%`;
+    }
+    const signature = JSON.stringify(data);
+    if (mixSignature === signature) { $('.hb-vocal-level').disabled = !!state.pendingCommand; return; }
+    mixSignature = signature;
+    try {
+      const ready = await audio.configureMix(data);
+      if (!ready || signal.aborted) return;
+      root.dataset.mixRevision = String(data.revision); $('.hb-vocal-level').disabled = !!state.pendingCommand;
+      root.dataset.mixReady = 'true';
+      // Warm each saved audition source after references load. Switching a
+      // cached source then uses the current clock without a decode pause.
+      for (const source of state.sources)
+        if (source.available && source.src !== 'heartbeam:mix') void audio.decoded(source.src).catch(() => {});
+      const mixSource = state.sources.find(s => s.id === 'mix');
+      if (mixSource) { mixSource.available = true; const option = sourceSelect.querySelector('option[value="mix"]');
+        if (option) { option.disabled = false; option.textContent = mixSource.label; } }
+    } catch (e) { root.dataset.mixReady = 'false'; status(`Vocal audition: ${e.message}`, true); }
+  }
+  $('.hb-vocal-level').addEventListener('input', e => {
+    const value = Number(e.target.value) / 100;
+    $('.hb-vocal-value').textContent = `${Math.round(value * 100)}%`; audio.audition(value);
+    root.dataset.auditionValue = String(value);
+    if (state.sourceId !== 'mix') void switchSource('mix');
+  });
+  $('.hb-vocal-level').addEventListener('change', e => {
+    commit('vocal', {...state.mix.selection, value: Number(e.target.value) / 100});
+    e.target.disabled = true;
+  });
   function update(next) {
     bridge = next; const data = next.data;
+    // Streamlit can deliver the pre-command snapshot once before the handler
+    // reruns. Keep the optimistic gesture visible until its explicit ACK.
+    if (state.pendingCommand && data.command_ack !== state.pendingCommand.id && data.revision <= state.revision) return;
+    if (state.pendingCommand && data.command_ack === state.pendingCommand.id) {
+      root.dataset.commandAckMs = (performance.now() - state.pendingCommand.at).toFixed(1);
+      state.pendingCommand = null; root.dataset.commandState = 'ready';
+    }
+    state.revision = data.revision; root.dataset.revision = String(data.revision);
+    root.dataset.frontendVersion = data.frontend_version;
     state.words = data.words.map(word => ({...word})); state.sources = data.sources; state.durationMs = data.duration_ms;
+    if (audio.mix) { const source = state.sources.find(s => s.id === 'mix'); if (source) source.available = true; }
     const signature = JSON.stringify(state.sources.map(s => [s.id, s.label, s.available, s.reason]));
     if (sourceSelect.dataset.signature !== signature) {
       sourceSelect.replaceChildren(...state.sources.map(source => { const option = document.createElement('option'); option.value = source.id;
@@ -305,7 +417,8 @@ export default function (component) {
     if (!state.busy && (!source?.available || source.key !== state.sourceKey))
       void switchSource(source?.available ? source.id : state.sources.find(s => s.available)?.id);
     resize(); render();
+    updatePreview(data.preview); void updateMix(data.mix); syncLoop(); buttons();
   }
-  parent._hbTimeline = {projectId: component.data.project_id, root, update, destroy};
+  parent._hbTimeline = {projectId: component.data.project_id, version: component.data.frontend_version, root, update, destroy};
   status(); update(component); rafId = requestAnimationFrame(frame);
 }

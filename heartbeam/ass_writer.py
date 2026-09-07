@@ -88,17 +88,18 @@ def _build_events_block(timings: Timings) -> str:
         # Build karaoke text: {\k<centiseconds>}word with spaces between.
         # \k uses the duration of each syllable/word in centiseconds (1/100 sec).
         parts = []
-        prev_end = ln.start_s
+        prev_end_cs = int(round(ln.start_s * 100))
         for w in ln.words:
             # Insert silent gap before word if there's a gap from prev_end.
-            gap_cs = max(0, int(round((w.start_s - prev_end) * 100)))
+            start_cs, end_cs = int(round(w.start_s * 100)), int(round(w.end_s * 100))
+            gap_cs = max(0, start_cs - prev_end_cs)
             if gap_cs > 0:
                 parts.append(f"{{\\k{gap_cs}}}")
-            dur_cs = max(1, int(round((w.end_s - w.start_s) * 100)))
+            dur_cs = max(1, end_cs - start_cs)
             # Escape ASS-special chars sparingly (curly braces, backslash).
             text = w.text.replace("\\", "\\\\").replace("{", "(").replace("}", ")")
             parts.append(f"{{\\k{dur_cs}}}{text} ")
-            prev_end = w.end_s
+            prev_end_cs = max(prev_end_cs, start_cs) + dur_cs
         karaoke_text = "".join(parts).rstrip()
         start = _fmt_ass_time(ln.start_s)
         end = _fmt_ass_time(ln.end_s)

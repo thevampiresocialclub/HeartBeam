@@ -83,7 +83,7 @@ include = ["heartbeam*"]
 # editor_assets ships the timing editor's frontend. It is plain ES-module JS and
 # CSS with no build step, which is what keeps Node.js out of an ordinary user's
 # install; these files must be present in the installed package.
-heartbeam = ["styles/*.toml", "editor_assets/*.js", "editor_assets/*.css"]
+heartbeam = ["styles/*.toml", "editor_assets/*.js", "editor_assets/*.css", "editor_assets/vendor/*"]
 
 [tool.pytest.ini_options]
 markers = [
