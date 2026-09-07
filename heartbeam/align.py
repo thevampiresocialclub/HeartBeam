@@ -15,7 +15,9 @@ ML imports are deferred so the rest of the package stays importable without torc
 """
 from __future__ import annotations
 
+import difflib
 import logging
+import unicodedata
 
 import numpy as np
 
@@ -120,11 +122,51 @@ def _distribute_lyrics_to_segments(
     return new_segments
 
 
+def _normalise_token(token: str) -> str:
+    """Loose comparison key for matching aligner output back to source words."""
+    import re as _re
+
+    t = unicodedata.normalize("NFKC", str(token)).replace(chr(0x2019), "'")
+    t = _re.sub(r"[^\w']+", "", t)
+    return t.replace("'", "").casefold()
+
+
+def _remap_line_indices(
+    aligned_words: list[dict],
+    flat_line_idx: list[int],
+    expected_tokens: list[str] | None,
+) -> list[int | None]:
+    """Map each aligned word back to the source line it actually came from.
+
+    Returns one entry per aligned word: its source line index, or None when the
+    word cannot be matched to the source at all. Sequence alignment rather than
+    positional truncation is what keeps a dropped middle word from shifting
+    everything after it.
+    """
+    if not expected_tokens or len(expected_tokens) != len(flat_line_idx):
+        # No usable source tokens to match against; degrade to the old prefix
+        # behaviour rather than inventing associations.
+        return list(flat_line_idx[: len(aligned_words)]) +             [None] * max(0, len(aligned_words) - len(flat_line_idx))
+
+    got = [_normalise_token(w.get("word", "")) for w in aligned_words]
+    want = [_normalise_token(t) for t in expected_tokens]
+    matcher = difflib.SequenceMatcher(a=want, b=got, autojunk=False)
+
+    mapped: list[int | None] = [None] * len(aligned_words)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag != "equal":
+            continue
+        for offset in range(i2 - i1):
+            mapped[j1 + offset] = flat_line_idx[i1 + offset]
+    return mapped
+
+
 def _group_words_into_lines(
     aligned_words: list[dict],
     seg_line_indices: list[list[int]],
     user_lines: list[tuple[int, str]],
     score_threshold: float = 0.3,
+    expected_tokens: list[str] | None = None,
 ) -> tuple[list[Line], int]:
     """
     Re-attach each aligned word to its source line via the sidecar line_indices,
@@ -136,20 +178,30 @@ def _group_words_into_lines(
         flat_line_idx.extend(li)
 
     if len(flat_line_idx) != len(aligned_words):
-        # Length mismatch: WhisperX dropped some words it couldn't align.
-        # Fall back to best-effort: keep the prefix that matches.
+        # WhisperX dropped words it could not align. Truncating to a prefix (the
+        # old fallback) is wrong: a word missing from the MIDDLE shifts every
+        # later word onto its neighbour's line, so "charlie" silently lands in
+        # the line above. Align the two sequences instead, so each aligned word
+        # keeps its true source position and only the dropped words go missing.
         log.warning(
-            "alignment dropped %d words (got %d aligned, expected %d)",
+            "alignment dropped %d words (got %d aligned, expected %d); "
+            "re-matching by sequence so later words keep their own lines",
             len(flat_line_idx) - len(aligned_words),
             len(aligned_words),
             len(flat_line_idx),
         )
-        flat_line_idx = flat_line_idx[: len(aligned_words)]
+        flat_line_idx = _remap_line_indices(
+            aligned_words, flat_line_idx, expected_tokens
+        )
 
-    # Group aligned words by source line index.
+    # Group aligned words by source line index. A None index means the word
+    # could not be matched back to the source at all; drop it rather than
+    # guessing a line for it.
     by_line: dict[int, list[Word]] = {}
     low_conf = 0
     for w, li in zip(aligned_words, flat_line_idx):
+        if li is None:
+            continue
         if w.get("start") is None or w.get("end") is None:
             continue
         score = float(w.get("score", 0.5))
@@ -208,6 +260,10 @@ def align(
 
     new_segments = _distribute_lyrics_to_segments(user_lines, asr_result["segments"])
     seg_line_indices = [s.pop("_line_indices") for s in new_segments]
+    # The exact source tokens handed to the aligner, flattened in the same order
+    # as seg_line_indices. Needed to re-match the aligner's output when it drops
+    # words, so a missing word does not shift its successors onto other lines.
+    expected_tokens = [tok for seg in new_segments for tok in seg["text"].split()]
 
     log.info("loading whisperx alignment model (language=%s)", lang)
     align_model, metadata = whisperx.load_align_model(language_code=lang, device=device)
@@ -217,7 +273,8 @@ def align(
 
     word_segments = aligned.get("word_segments", [])
     lines, low_conf = _group_words_into_lines(
-        word_segments, seg_line_indices, user_lines
+        word_segments, seg_line_indices, user_lines,
+        expected_tokens=expected_tokens,
     )
     return AlignmentResult(
         lines=lines,

@@ -25,6 +25,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from heartbeam import lyrics as lyr
 from heartbeam import project as prj
 from heartbeam.models import PRESETS, PRIMARY_PRESETS, resolve_default
 from heartbeam.style import toml_string
@@ -422,6 +423,117 @@ def _project_controls() -> None:
             st.info(message)
 
 
+def _lyrics_input() -> str:
+    """Lyrics text area, with optional .txt import.
+
+    P02.1: typing or pasting must be enough. The file uploader stays as a
+    convenience for people who already keep .txt files, and only seeds the box.
+    The CLI still wants a path, but writing that temp file is our problem, not
+    the user's.
+    """
+    st.markdown("**Lyrics**")
+    imported = st.file_uploader(
+        "Import a .txt (optional)", type=["txt"], key="lyrics_import",
+        help="Optional. You can simply paste the lyrics below instead.",
+    )
+    if imported is not None and not st.session_state.get("lyrics_import_done"):
+        try:
+            st.session_state.lyrics_text = imported.getvalue().decode("utf-8")
+        except UnicodeDecodeError:
+            st.session_state.lyrics_text = imported.getvalue().decode(
+                "latin-1", errors="replace")
+        st.session_state.lyrics_import_done = True
+
+    text = st.text_area(
+        "One phrase per line", key="lyrics_text", height=220,
+        placeholder=(
+            "Paste the lyrics here, one sung phrase per line.\n\n"
+            "Lines starting with # are section labels and are never sung:\n"
+            "# Chorus"
+        ),
+    )
+    lines, words = lyr.count_lyrics(text or "")
+    if lines == 0:
+        st.caption("No lyrics yet. Paste or type them above to enable generation.")
+    else:
+        st.caption(f"{lines} sung lines, {words} words")
+    return text or ""
+
+
+def _lyrics_editor(project, project_dir: Path) -> None:
+    """Edit an open project's lyrics without losing timing (P02.2).
+
+    Kept separate from the creation-time box: this one reconciles against
+    existing word IDs and reports exactly what the edit cost.
+    """
+    st.divider()
+    st.subheader("Lyrics")
+
+    if "undo_stack" not in st.session_state:
+        st.session_state.undo_stack = lyr.UndoStack()
+    stack = st.session_state.undo_stack
+
+    current = lyr.to_text(project)
+    # Streamlit forbids writing st.session_state[key] once that widget exists,
+    # so undo/redo cannot simply overwrite the box. Version the key instead:
+    # bumping it retires the old widget and mounts a fresh one seeded from the
+    # project, which is the supported way to push new content into a text area.
+    version = st.session_state.setdefault("lyrics_editor_version", 0)
+    key = f"lyrics_edit_{project.id}_{version}"
+
+    edited = st.text_area(
+        "Edit lyrics", value=current, key=key, height=240,
+        help="Unchanged words keep their timing. New or replaced words are "
+             "listed below as needing timing.",
+    )
+    lines, words = lyr.count_lyrics(edited or "")
+    st.caption(f"{lines} sung lines, {words} words")
+
+    cols = st.columns(3)
+    with cols[0]:
+        if st.button("Apply edits", key="apply_lyrics",
+                     disabled=(edited or "") == current):
+            stack.commit(project)
+            result = lyr.apply_lyrics_edit(project, edited or "")
+            if result.changed:
+                st.success(
+                    f"{len(result.kept_word_ids)} words kept their timing; "
+                    f"{len(result.new_word_ids)} new, "
+                    f"{len(result.removed_word_ids)} removed."
+                )
+            else:
+                st.success("Text updated; all timing preserved.")
+            st.session_state.lyrics_editor_version = version + 1
+            st.rerun()
+    with cols[1]:
+        if st.button("Undo", key="undo_lyrics", disabled=not stack.can_undo):
+            stack.undo(project)
+            st.session_state.lyrics_editor_version = version + 1
+            st.rerun()
+    with cols[2]:
+        if st.button("Redo", key="redo_lyrics", disabled=not stack.can_redo):
+            stack.redo(project)
+            st.session_state.lyrics_editor_version = version + 1
+            st.rerun()
+
+    st.download_button(
+        "Export lyrics.txt", data=lyr.to_text(project),
+        file_name="lyrics.txt", mime="text/plain", key="export_lyrics",
+    )
+
+    unresolved = project.unresolved_words()
+    if unresolved:
+        with st.expander(f"Needs timing ({len(unresolved)})", expanded=False):
+            st.caption(
+                "These words have no timing yet. Nothing has been guessed for "
+                "them; the timing editor (P03) is where they get fixed."
+            )
+            for line, word, reason in unresolved[:50]:
+                st.markdown(f"- **{word.text}** in *{line.text}* - {reason}")
+            if len(unresolved) > 50:
+                st.caption(f"...and {len(unresolved) - 50} more.")
+
+
 def main() -> None:
     st.set_page_config(page_title="HeartBeam", page_icon=":microphone:", layout="centered")
     st.title("HeartBeam")
@@ -440,7 +552,7 @@ def main() -> None:
 
     # --- Inputs ---
     song_up = st.file_uploader("Song (mp3 / wav / flac / ogg)", type=["mp3", "wav", "flac", "ogg", "m4a"])
-    lyrics_up = st.file_uploader("Lyrics (txt, one phrase per line)", type=["txt"])
+    lyrics_text = _lyrics_input()
 
     primary = list(PRIMARY_PRESETS)
     genre = st.selectbox(
@@ -495,7 +607,8 @@ def main() -> None:
             extra_flags += ["--backing-boost", str(override_boost)]
 
     # --- Run ---
-    ready = song_up is not None and lyrics_up is not None
+    lyric_line_count, _ = lyr.count_lyrics(lyrics_text)
+    ready = song_up is not None and lyric_line_count > 0
     run_clicked = st.button(
         "Generate karaoke", type="primary", disabled=not ready or st.session_state.running,
     )
@@ -504,11 +617,13 @@ def main() -> None:
         # Drop uploads into a per-run dir under the system temp.
         run_root = Path(tempfile.mkdtemp(prefix="heartbeam_gui_"))
         song_path = run_root / song_up.name
-        lyrics_path = run_root / lyrics_up.name
+        # The CLI takes a path; materialising one is our problem, not the
+        # user's. P02.1: nobody should have to create a .txt to use HeartBeam.
+        lyrics_path = run_root / "lyrics.txt"
         out_dir = run_root / "out"
         out_dir.mkdir()
         song_path.write_bytes(song_up.getbuffer())
-        lyrics_path.write_bytes(lyrics_up.getbuffer())
+        lyrics_path.write_text(lyrics_text, encoding="utf-8")
 
         st.session_state.log_lines = []
         st.session_state.status = {"progress": 0.0, "label": "Starting", "done": False, "returncode": None}
@@ -551,6 +666,9 @@ def main() -> None:
     # --- Results (from this session's run, or from an opened project) ---
     # Resolving the media from either source is what fulfils P01.4: an existing
     # song reaches the video controls without rerunning separation.
+    if st.session_state.get("project") is not None:
+        _lyrics_editor(st.session_state.project, st.session_state.project_dir)
+
     karaoke_path: Path | None = None
     timings_path: Path | None = None
     work_dir: Path | None = None

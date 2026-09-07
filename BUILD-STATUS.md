@@ -11,11 +11,13 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | P01.3 Lossless artifacts | **Verified** |
 | P01.4 Visible project workflow | **Verified** |
 | **P01 overall** | **Complete** |
-| P02-P07 | Not started |
+| **P02 Lyrics editor** | **Verified** |
+| P03-P07 | Not started |
 
-**P01 is complete.** A song can be generated, saved, closed, reopened and
-restyled without rerunning separation, and the lossless audio needed by the later
-section mixer is retained with provenance.
+**P01 and P02 are complete.** A song can be generated, saved, closed, reopened
+and restyled without rerunning separation; lyrics can be pasted rather than
+uploaded and edited without losing timing work; and the lossless audio the
+section mixer will need is retained with provenance.
 
 **Phases were completed in the order P01.1, P01.2, P01.4, P01.3.** P01.4 was
 brought forward because its acceptance criterion -- reopen a song without
@@ -252,6 +254,90 @@ sample-for-sample.
 
 ---
 
+## P02 - Lyrics text editor and alignment preservation: VERIFIED
+
+### P02.1 direct text entry
+
+The mandatory `.txt` upload is gone. `gui.py` now offers a lyrics text area with
+live line/word counts and an empty-state message; the file uploader remains as an
+optional way to seed the box. The CLI still wants a path, so the GUI writes a
+temp `lyrics.txt` itself -- that is an implementation detail, not the user's
+problem.
+
+Section labels are explicit: a line starting with `#` is a label and is never
+sung. Bracketed text is deliberately NOT auto-detected as a heading, because
+`[...]` appears in real lyrics and guessing would silently eat them.
+
+### P02.2 edits preserve identity
+
+`heartbeam/lyrics.py` reconciles edited text against the existing document:
+
+1. Diff the sung lines. Equal runs keep their line and word IDs untouched.
+2. Around changed regions, flatten old and new words and diff *those*. Word IDs
+   therefore survive across line boundaries, which is what makes splitting and
+   merging non-destructive -- naive line pairing would orphan every word after a
+   split.
+3. Surviving words keep their timing. New words get fresh IDs and an explicit
+   unresolved entry with a reason, never an invented time.
+
+Matching is sequence-based, never text-keyed, so the second occurrence of a
+chorus matches the second occurrence. Words compare on a normalised form, so
+punctuation and capitalisation fixes keep their timing.
+
+One deliberate trade is recorded in `normalize_word`: apostrophes are stripped,
+so "dont" and "don't" compare equal. The cost is that "were" and "we're" also
+compare equal and keep the old timing rather than being flagged. That is the
+better failure -- they occupy the same slot in the line, and silently keeping
+correct-enough timing beats silently discarding the user's timing work over an
+apostrophe.
+
+Undo/redo is snapshot-based and in-memory, per contract section 4 (durable undo
+history is optional; saved content and recovery are not).
+
+### P02.3 all words survive alignment
+
+Fixed the positional regrouping bug the review reproduced. `align.py` used to
+truncate the line-index list to a prefix when the aligner dropped words, so one
+missing word shifted every later word onto its neighbour's line -- `charlie`
+landed on line 0. It now sequence-matches the aligner's output against the exact
+source tokens, so each word keeps its own line and dropped words simply go
+missing instead of corrupting their successors.
+
+`apply_alignment()` maps results onto project word IDs and **protects manual
+corrections by default**: it fills only words with no timing. `only_unresolved=False`
+is the explicit "realign everything" choice, and even then a manual edit still
+wins over the new proposal.
+
+### P02.4 persistence
+
+Text, sections, IDs, review flags and timing overrides all round-trip through
+save/reopen (covered by `test_edits_survive_save_and_reopen`). Export writes
+plain text with no internal IDs.
+
+### Validation
+
+```
+pytest -m "not slow"  -> 139 passed
+pytest -m media       -> 3 passed
+```
+
+New: `tests/test_lyrics_editor.py` (27), `tests/test_alignment_mapping.py` (10),
+plus 4 GUI tests. Every acceptance criterion in `02-LYRICS-EDITOR.md` has a test,
+including the review's exact case: with `bravo` dropped from `alpha bravo /
+charlie delta`, `charlie` stays on its own line and `bravo` remains visible as
+unresolved.
+
+### Not verified
+
+- No human has typed in the box in a real browser; coverage is AppTest.
+- `apply_alignment` is tested against synthesised aligner output. Nothing calls
+  it from the UI yet -- re-alignment of an existing project arrives with P03.
+- Section membership is rebuilt on each edit rather than diffed, so section IDs
+  are not stable across edits. Line and word IDs are, which is what timing and
+  vocal regions depend on. Worth revisiting when P04 attaches regions to sections.
+
+---
+
 ## Parked: model A/B sweep (belongs to P07)
 
 Tooling is ready and deliberately unused. `scripts/sweep.py` renders one song
@@ -282,22 +368,22 @@ first separation pass when comparing second-pass models.
 
 ---
 
-## Next: P02 - lyrics text editor and alignment preservation
+## Next: P03 - playback and timing editor
 
 
 
-All P01 prerequisites are met. Read `08-SHARED-CONTRACT.md` sections 3 and 8.
+Prerequisites met. Read `08-SHARED-CONTRACT.md` section 5 before starting.
 
-P02 delivers the lyrics text box: paste or type a whole song instead of uploading
-a .txt, preserve line structure, and keep unchanged word IDs and their timing
-through edits. The store already has what it needs -- stable IDs, an immutable
-original alignment separate from edits, and `unresolved_words()` for review --
-so P02 is mostly an editing surface plus a reconciliation rule for inserted and
-replaced words.
+P03 is the largest project in the programme and owns the shared transport: one
+playback clock that the waveform, lyric preview and (later) vocal mixer all
+subscribe to. It also carries the bounded integration proof for the browser
+component approach -- if that cannot meet the acceptance checks, the contract
+requires documenting the evidence and choosing the smallest viable alternative
+rather than pressing on.
 
-Two things to carry in from the review: never silently rerun alignment across
-manually corrected words after a small edit, and distinguish display-only changes
-(punctuation, capitalisation, re-wrapping) from changes to the sung words.
+What P02 hands it: stable word IDs, `unresolved_words()` with reasons,
+`apply_alignment(only_unresolved=True)` for filling gaps without touching manual
+work, and the P01.3 cache so auditioning original/lead/karaoke needs no rerun.
 
 Note for P01.3: `separate.py` currently discards stems into a `TemporaryDirectory`
 unless `--keep-stems` is passed, and the mix path normalizes and encodes to MP3

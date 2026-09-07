@@ -73,6 +73,11 @@ def _fresh_app() -> AppTest:
     return at
 
 
+def _lyrics_key(at) -> str:
+    """The project lyric box carries a version suffix; find it by prefix."""
+    return next(t.key for t in at.text_area if t.key.startswith("lyrics_edit_"))
+
+
 def test_new_session_starts_with_no_project():
     at = _fresh_app()
     assert not at.exception
@@ -207,3 +212,79 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
          "-of", "csv=p=0", str(out)],
         capture_output=True, text=True, check=True).stdout.strip())
     assert 3.5 < duration < 5.0
+
+
+# ---------------------------------------------------------------------------
+# P02: lyrics text box and in-project editing
+# ---------------------------------------------------------------------------
+
+
+def test_lyrics_can_be_pasted_without_choosing_a_file():
+    """P02.1 acceptance: no .txt required to prepare a song."""
+    at = _fresh_app()
+    assert not at.exception
+    box = at.text_area(key="lyrics_text")
+    assert box is not None, "there must be a lyrics text area"
+
+    # Nothing pasted: generation stays disabled and the empty state explains why.
+    generate = next(b for b in at.button if b.label == "Generate karaoke")
+    assert generate.disabled
+    assert any("No lyrics yet" in c.value for c in at.caption)
+
+    box.set_value("alpha bravo\ncharlie delta\n").run()
+    assert any("2 sung lines, 4 words" in c.value for c in at.caption)
+
+
+def test_editing_project_lyrics_preserves_timing(tmp_path):
+    """P02.2 acceptance, through the UI: a typo fix must not cost timing."""
+    project_dir = _existing_song_project(tmp_path)
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+
+    project = at.session_state["project"]
+    before_ids = project.word_ids()
+    first_id = before_ids[0]
+    before_start = project.effective_timing(first_id).start_ms
+
+    at.text_area(key=_lyrics_key(at)).set_value("Hello there!\n").run()
+    at.button(key="apply_lyrics").click().run()
+    assert not at.exception, at.exception
+
+    edited = at.session_state["project"]
+    assert edited.word_ids() == before_ids, "punctuation is not a new word"
+    assert edited.effective_timing(first_id).start_ms == before_start
+
+
+def test_adding_a_word_is_reported_as_needing_timing(tmp_path):
+    project_dir = _existing_song_project(tmp_path)
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+
+    project = at.session_state["project"]
+    at.text_area(key=_lyrics_key(at)).set_value("hello right there\n").run()
+    at.button(key="apply_lyrics").click().run()
+    assert not at.exception
+
+    edited = at.session_state["project"]
+    unresolved = {w.text for _, w, _ in edited.unresolved_words()}
+    assert unresolved == {"right"}
+    assert any("Needs timing" in e.label for e in at.expander)
+
+
+def test_undo_restores_the_previous_lyrics(tmp_path):
+    project_dir = _existing_song_project(tmp_path)
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+
+    project = at.session_state["project"]
+    before_ids = project.word_ids()
+    at.text_area(key=_lyrics_key(at)).set_value("hello\n").run()
+    at.button(key="apply_lyrics").click().run()
+    assert at.session_state["project"].word_ids() != before_ids
+
+    at.button(key="undo_lyrics").click().run()
+    assert not at.exception
+    assert at.session_state["project"].word_ids() == before_ids
