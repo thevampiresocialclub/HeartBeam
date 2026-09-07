@@ -66,6 +66,7 @@ def render(
     out_path: str | Path,
     style: Style,
     background_override: str | Path | None = None,
+    font_dir: str | Path | None = None,
 ) -> None:
     """
     audio_path: karaoke.mp3 (or any ffmpeg-readable audio)
@@ -74,9 +75,9 @@ def render(
     style:      Style (resolution, fps, codec, crf, audio_bitrate, background)
     background_override: optional path or hex (#RRGGBB) to override style.background
     """
-    audio_path = Path(audio_path)
-    ass_path = Path(ass_path)
-    out_path = Path(out_path)
+    audio_path = Path(audio_path).resolve()
+    ass_path = Path(ass_path).resolve()
+    out_path = Path(out_path).resolve()
 
     width, height = style.video.resolution.split("x")
     fps = style.video.fps
@@ -99,9 +100,20 @@ def render(
     else:
         bg_kind, bg_value = bg.kind, bg.value
 
-    ass_filter_path = _escape_path_for_ass_filter(ass_path.resolve())
+    # Generated project exports use safe basenames (lyrics.ass and fonts).
+    # Resolve the filter from that directory so apostrophes in a user's project
+    # folder never enter FFmpeg's nested filter-string grammar.
+    work_dir = ass_path.parent
+    ass_filter_path = _escape_path_for_ass_filter(Path(ass_path.name))
     vf = f"ass='{ass_filter_path}'"
-    if style.font.family == "Noto Sans":
+    if font_dir is not None:
+        font_path = Path(font_dir).resolve()
+        try:
+            font_path = Path(os.path.relpath(font_path, work_dir))
+        except ValueError:  # separate Windows drives
+            pass
+        vf += f":fontsdir='{_escape_path_for_ass_filter(font_path)}'"
+    elif style.font.family == "Noto Sans":
         from .project_preview import VENDOR
         vf += f":fontsdir='{_escape_path_for_ass_filter(VENDOR.resolve())}'"
 
@@ -115,13 +127,13 @@ def render(
         ]
     elif bg_kind == "image":
         cmd += [
-            "-loop", "1", "-r", str(fps), "-i", bg_value,
+            "-loop", "1", "-r", str(fps), "-i", str(Path(bg_value).resolve()),
             "-i", str(audio_path),
         ]
         vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},{vf}"
     elif bg_kind == "video":
         cmd += [
-            "-stream_loop", "-1", "-i", bg_value,
+            "-stream_loop", "-1", "-i", str(Path(bg_value).resolve()),
             "-i", str(audio_path),
         ]
         vf = f"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},{vf},fps={fps}"
@@ -148,7 +160,7 @@ def render(
         str(out_path),
     ]
     log.debug("ffmpeg cmd: %s", " ".join(cmd))
-    proc = subprocess.run(cmd, capture_output=True, check=False)
+    proc = subprocess.run(cmd, cwd=work_dir, capture_output=True, check=False)
     if proc.returncode != 0:
         raise RuntimeError(
             f"ffmpeg render failed:\n"

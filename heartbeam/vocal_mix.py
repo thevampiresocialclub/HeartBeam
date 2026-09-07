@@ -294,10 +294,14 @@ def master(samples, sr, *, target_lufs=-16., peak_db=-1.):
     return (out * gain).astype(np.float32)
 
 
+def mix_key(project, *, mastered=True):
+    spec = {"references": project.vocal_mix.references, "mix": asdict(project.vocal_mix), "mastered": mastered}
+    return hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:24]
+
+
 def render_mix(project, root, *, mastered=True):
     paths, (sr, _, _) = checked_references(project, root)
-    spec = {"references": project.vocal_mix.references, "mix": asdict(project.vocal_mix), "mastered": mastered}
-    key = hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:24]
+    key = mix_key(project, mastered=mastered)
     destination = root / P.CACHE_DIR / f"vocal-mix-{key}.wav"
     if not destination.exists():
         clean = sf.read(str(paths["clean_audio"]), dtype="float32", always_2d=True)[0]

@@ -206,6 +206,10 @@ class Presentation:
     #: consume either. Per-line overrides are keyed by line ID.
     song_style: dict[str, Any] = field(default_factory=dict)
     line_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Copied font faces: asset_id, family, bold, italic. Files use Asset IDs.
+    fonts: list[dict[str, Any]] = field(default_factory=list)
+    #: Named, portable defaults only. No timing, lyric IDs or media paths.
+    presets: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 @dataclass

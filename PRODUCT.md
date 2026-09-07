@@ -14,10 +14,10 @@ and the owner's request to continue HANDOFF.md.
 
 ## Current task
 
-Complete P03 timing/playback/review and P04 section vocal mixing, including
-rendered lyric preview, precise timing scopes, calibrated vocal regions and
-export integration. Preserve the existing Streamlit shell. P05 remains the
-full presentation editor; P06/P07 cover export jobs and later quality work.
+P03 timing/playback/review, P04 section vocals and P05 visual lyric placement
+and styling are implemented. Preserve the existing Streamlit shell, the single
+audio clock and shared command history. P06/P07 cover export jobs and later
+quality work. Read BUILD-STATUS.md for the current verification record.
 
 ## Product character and principles
 

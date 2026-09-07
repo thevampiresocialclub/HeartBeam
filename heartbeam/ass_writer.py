@@ -14,6 +14,17 @@ from .style import Style, ass_alignment, hex_to_ass_colour
 from .timings import Timings
 
 
+def escape_text(text: str) -> str:
+    """Literal text for libass. WORD JOINER disambiguates literal backslashes.
+
+    libass escapes braces but has no backslash escape. A zero-width character
+    prevents a following N/n/h becoming a tag, without changing visible text.
+    """
+    return "".join("\\\u2060" if c == "\\" else r"\{" if c == "{" else
+                   r"\}" if c == "}" else r"\N" if c == "\n" else
+                   " " if ord(c) < 32 else c for c in text)
+
+
 def _fmt_ass_time(t: float) -> str:
     """ASS H:MM:SS.cc with centiseconds.
 
@@ -97,7 +108,7 @@ def _build_events_block(timings: Timings) -> str:
                 parts.append(f"{{\\k{gap_cs}}}")
             dur_cs = max(1, end_cs - start_cs)
             # Escape ASS-special chars sparingly (curly braces, backslash).
-            text = w.text.replace("\\", "\\\\").replace("{", "(").replace("}", ")")
+            text = escape_text(w.text)
             parts.append(f"{{\\k{dur_cs}}}{text} ")
             prev_end_cs = max(prev_end_cs, start_cs) + dur_cs
         karaoke_text = "".join(parts).rstrip()

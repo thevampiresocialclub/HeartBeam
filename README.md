@@ -1,6 +1,6 @@
 # HeartBeam
 
-Lyrics-aware karaoke generator. Feed it an MP3 and a plain-text lyrics file. It strips **only the lead vocals being sung in the lyrics** — backing vocals, harmonies, ad-libs, and instrumental breaks all stay intact — then emits the timing data needed to render a karaoke video with synced on-screen lyrics.
+Lyrics-aware karaoke generator and video editor. Load a song and paste its lyrics, then edit timing, place and style the text, and adjust vocal levels by section. Separation aims to reduce the lead while retaining backing vocals; the result depends on the recording and model.
 
 Two phases, one engine:
 
@@ -361,6 +361,35 @@ and WAV download are available under **Audio references and final mix**; video
 export uses the edited mix and retains a revision-specific project snapshot.
 
 The renderer and fonts are bundled; ordinary users need no Node installation
-or browser CDN access. Full visual lyric placement/font editing is the next
-project (P05). See [BUILD-STATUS.md](BUILD-STATUS.md) for verified behavior and
-limits, and [HANDOFF.md](HANDOFF.md) for the continuation guide.
+or browser CDN access. See [BUILD-STATUS.md](BUILD-STATUS.md) for verified
+behavior and limits, and [HANDOFF.md](HANDOFF.md) for the continuation guide.
+
+## Lyric placement and styling
+
+In the saved project's **Appearance** tab, choose **Whole song** to edit the
+defaults, or **Selected lyric line / Lyric lines** for exceptions. Select a word
+or use **Preview line**, then drag the lyric box on the video. Exact X/Y,
+anchor, alignment, width and margin controls are available below it. Focused
+handles also accept arrow keys (1 design pixel, or 10 with Shift).
+
+Choose a font, size, bold/italic, unsung and sung colours, outline colour and
+thickness, and shadow. Whole-word highlighting changes at onset; sweep mode
+fills during the word. Sung words retain their colour. Zero removes the outline
+or shadow. The wrapping box inserts display breaks without changing timing.
+
+**Fonts in this project** imports static TTF/OTF files or copies an installed
+family. The browser and export use the same files. Missing faces are reported
+and use Noto Sans; characters absent from the chosen font block final export.
+Solid, image and video backgrounds persist with the project. Images/videos
+fill the canvas with a centered crop; background video audio is excluded.
+
+Save a named style preset and download it to reuse in another song. Presets
+contain appearance defaults, with no audio, timing or media paths. Applying one
+preserves line exceptions; **Reset selected lines to song style** removes them.
+Legacy TOML styles can be imported into song defaults.
+
+**Render video** uses the current project's timing, vocal mix and appearance.
+Positions, font sizes and outlines scale together from a 1920 × 1080 design
+canvas to 720p, 1080p or 4K. Visual changes make older videos stale while keeping
+prepared audio. Save the project to keep edits across sessions. The presentation
+schema and compiler contract are in [docs/PRESENTATION.md](docs/PRESENTATION.md).

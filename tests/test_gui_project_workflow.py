@@ -273,6 +273,62 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
     assert 3.5 < duration < 5.0
 
 
+def test_p05_appearance_preset_override_save_reopen(tmp_path, monkeypatch):
+    from heartbeam import editor as ED, presentation as S
+    from heartbeam.vocal_mix import mix_key
+    project_dir = _existing_song_project(tmp_path)
+    result = {}
+    monkeypatch.setattr(ED, "timeline_component", lambda: lambda **kw: result)
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+    p = at.session_state["project"]
+    original = p.original_alignment.copy(); audio_key = mix_key(p)
+    result["selection"] = {"word_id": p.word_ids()[0], "nonce": "p05-select"}
+    at.run()
+    next(n for n in at.number_input if n.label == "Lyric font size").set_value(90.)
+    next(t for t in at.text_input if t.label == "Sung colour code").set_value("#55CCAA")
+    next(b for b in at.button if b.label == "Apply lyric appearance").click().run()
+    assert not at.exception and not at.error
+    p = at.session_state["project"]
+    assert S.resolved_style(p)["font"]["size_px"] == 90
+    assert S.resolved_style(p)["colour"]["highlight"] == "#55CCAA"
+    next(t for t in at.text_input if t.label == "Preset name").set_value("Mint song")
+    next(b for b in at.button if b.label == "Save named style preset").click().run()
+    next(s for s in at.selectbox if s.label == "Style scope").select("Selected lyric line").run()
+    next(n for n in at.number_input if n.label == "Outline thickness").set_value(0.)
+    next(b for b in at.button if b.label == "Apply lyric appearance").click().run()
+    assert not at.exception and not at.error
+    p = at.session_state["project"]
+    assert p.original_alignment == original and mix_key(p) == audio_key
+    assert p.presentation.line_overrides[p.lines[0].id] == {"box": {"outline_px": 0.}}
+    appearance = p.presentation
+    at.button(key="save_project").click().run()
+    at.button(key="close_project").click().run()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+    assert not at.exception
+    p = at.session_state["project"]
+    assert p.presentation == appearance
+    assert S.resolved_style(p, p.lines[0].id)["box"]["outline_px"] == 0
+    assert "Mint song" in p.presentation.presets
+    at.button(key="close_project").click().run()
+
+
+def test_p05_invalid_colour_does_not_change_project(tmp_path):
+    project_dir = _existing_song_project(tmp_path)
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+    before = at.session_state["project"].to_dict()
+    next(t for t in at.text_input if t.label == "Unsung colour code").set_value("bad")
+    next(b for b in at.button if b.label == "Apply lyric appearance").click().run()
+    assert not at.exception
+    assert any("#RRGGBB" in e.value for e in at.error)
+    assert at.session_state["project"].to_dict() == before
+    at.button(key="close_project").click().run()
+
+
 # ---------------------------------------------------------------------------
 # P02: lyrics text box and in-project editing
 # ---------------------------------------------------------------------------
@@ -378,8 +434,9 @@ def test_vocal_commands_save_reopen_and_export_current_mix(tmp_path, monkeypatch
     assert [r.value for r in p.vocal_mix.regions] == [.2,0.,1.]
     next(b for b in at.button if b.label=='Prepare final mix for audition and download').click().run()
     assert not at.exception and not at.error
-    revision, path = at.session_state[f'final_mix_{p.id}']
-    assert revision == p.revision and Path(path).exists()
+    from heartbeam.vocal_mix import mix_key
+    audio_key, path = at.session_state[f'final_mix_{p.id}']
+    assert audio_key == mix_key(p) and Path(path).exists()
 
 
 def test_second_gui_opens_readonly_and_does_not_steal_the_writer(tmp_path):

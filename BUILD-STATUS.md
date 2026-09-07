@@ -17,9 +17,10 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | P03.3-P03.4 Timing and review | **Complete; verification below** |
 | **P03 overall** | **Complete** |
 | **P04 Section vocals** | **Complete; verification and limits below** |
-| P05-P07 | Not started |
+| **P05 Visual lyric placement and styling** | **Complete; verification and limits below** |
+| P06-P07 | Not started |
 
-**P01 through P04 are implemented.** See the P03/P04 continuation section below for current verification; earlier sections are historical snapshots.
+**P01 through P05 are implemented.** See the P05 section below for current verification; earlier sections are historical snapshots.
 
 **P01 and P02 foundation:** A song can be generated, saved, closed, reopened
 and restyled without rerunning separation; lyrics can be pasted rather than
@@ -734,3 +735,124 @@ it is not claimed to reproduce the historical normalized karaoke MP3 exactly.
   read-only / Save a copy prevents data loss meanwhile.
 - Undo history is session-local. Content and recovery snapshots are durable
   after Save; closing without saving intentionally does not publish unsaved edits.
+
+
+---
+
+## P05 - Visual lyric placement and styling: COMPLETE
+
+Completed 7 September 2026 on top of `2876706` (P03/P04).
+
+### Delivered
+
+- One project presentation compiler resolves song defaults and sparse line
+  overrides into ASS for browser preview and native export. The separate GUI
+  video-style state is removed. Legacy TOML imports into project defaults,
+  converting its canvas-sized metrics once.
+- Whole-song scope is the default; selected-line and multiple-line scopes create
+  exceptions. Direct dragging, exact X/Y, nine anchors, independent alignment,
+  box width, margins and keyboard movement are available. One gesture commits
+  one shared command and one Undo. Guides and handles never enter the export.
+- Font family/size, bold/italic, unsung/sung colours, outline colour/thickness,
+  and shadow controls. Colour codes provide keyboard access alongside swatches.
+  Zero outline/shadow and false font flags remain valid overrides.
+- Explicit display wrapping and optional box-width wrapping, without changing
+  sung timing. Display spelling remains separate. Whole-word onset and word
+  sweep both retain the sung colour after a word finishes. Literal braces and
+  backslashes survive ASS output; Unicode uses the chosen font.
+- Font files are copied into project assets, with actual family/face metadata.
+  Installed font browsing and static TTF/OTF import are wired. The compiler
+  supplies the same concrete font files to both renderers, including all four
+  bundled Noto faces. Missing/changed faces warn and use Noto; absent glyphs
+  warn in preview and block final export.
+- Persistent solid/image/video backgrounds. Image/video use a centered cover
+  crop; video preview samples the existing audio clock and loops silently.
+  Missing/changed background assets block final export.
+- Named, saved/downloadable/uploadable style presets contain defaults only.
+  Applying them is undoable and preserves line exceptions. Reset paths are
+  available. Presets do not contain timings, vocals, media paths or font files.
+- Appearance, Timing and Vocals tabs share one editor/history. Visual changes
+  stale older video snapshots while leaving content-addressed final audio and
+  prepared stems intact. Browser audio preparation ignores style-only revisions.
+- Line IDs now follow surviving membership through text edits; split children
+  inherit source appearance. Conflicting merges report that the largest source
+  style was kept. Rewrapping for display uses word IDs and changes no timing.
+- Native exports freeze project, presentation, ASS, fonts, background, warnings
+  and effective timing artifacts. Safe filter basenames handle quoted/punctuated
+  Windows project directories. P06 retains responsibility for export job UX.
+
+### Verification
+
+Final commands:
+
+```powershell
+.venv\Scripts\python.exe -m pytest -q -m "not slow"
+node --test tests/audio_transport.test.mjs tests/presentation.test.mjs
+```
+
+**249 Python tests passed** (15.75 s for the final run), plus **9 JavaScript
+tests passed**. The Python suite includes real FFmpeg/native-frame tests and
+Streamlit AppTest. The JS suite exercises the actual transport and placement
+methods with controlled clocks/DOM doubles; it is not a substitute for the
+real-browser observations below.
+
+New checks cover inheritance/zero/reset, colour-only exceptions, atomic invalid
+commands, stale/duplicate drags, cancel/keyboard behavior, explicit breaks and
+Unicode/ASS literals, display windows, font copying/relinking/fallback/coverage,
+imported Noto precedence, preset portability, audio-cache independence, styles
+through lyric split/merge, and GUI appearance/preset save/reopen. Native pixel
+checks verify word-onset colour changes, mid-word sweep, retained sung colour,
+and normalized placement bounds at 720p/1080p/4K. A real export succeeds in an
+`Artist's [live], mix` folder.
+
+Real browser (in-app browser, original eight-word/eight-second fixture):
+
+- libass worker loaded and rendered literal `{stars}`, literal `\N`, accented
+  Latin, Greek and Cyrillic. Explicit wrapping and bold italic sweep were
+  compared visually with native proof frames. This is not a pixel-identity claim.
+- A drag over a 599 × 336.9375 CSS-pixel preview moved X/Y from 960/850 to
+  **1088/706**, exactly the expected design-coordinate rounding for a +40/-45
+  CSS-pixel delta. Revision advanced once. One Undo restored 960/850.
+- Observed optimistic paint: **3.8 ms**; command acknowledgement **247.3 ms**.
+  Undo acknowledgement was 269.6 ms. These measure different stages and are
+  local observations, not a general latency guarantee.
+- Font-size and zero-outline changes applied through the form without changing
+  the paused 5500 ms song position. Installed-font browsing copied four Arial
+  faces through the UI. Font persistence/resolution is also covered by tests.
+- At song position **5500 ms**, ASS read 5500 ms and the two-second background
+  video read **1500 ms**. The browser crop matched the native proof's composition.
+- A selected-line override was set through the UI to Y=700, outline=0 and
+  sung colour `#F2AAC8`. Save, Close, Open and reselecting line scope restored
+  those exact values at revision 3. Song defaults remained Y=850/outline=4/gold.
+- The reopened project rendered through the actual **Render video** button,
+  producing `rev-3-video_71be3043b421/karaoke.mp4` with no presentation warnings.
+
+Reproducible media: `scripts/p05_proof.py <new-folder> --render [--background]`
+creates original lyrics and synthesized tones, with no separation/alignment or
+downloaded song. Solid-background and video-background proofs were each rendered
+at 1280×720, 1920×1080 and 3840×2160, with lead-in/word/sweep frame extractions.
+
+Local proof folders:
+- `C:\Users\young\Documents\Codex\2026-09-06\run\work\p05-verification`
+- `C:\Users\young\Documents\Codex\2026-09-06\run\work\p05-background-proof-2`
+
+The final offline wheel was built and its bundled JS/font/renderer/license files
+compared byte-for-byte with source. It declares the added fontTools dependency.
+Wheel: `work/p05-wheel/heartbeam-0.1.0-py3-none-any.whl` under the task folder.
+SHA-256: `0d680e1c8b806d237d29f2f451a76486bfd68e607b56fe6b78e996992a64571f`.
+
+### Practical limits and continuation
+
+- Guides and overflow detection use font-metric estimates. Actual text is always
+  rendered by libass; the editor does not silently shrink it.
+- Browser/native rasterization, decode and colour management are not claimed
+  pixel-identical. H.264 MP4 video backgrounds were verified; browser-unsupported
+  codecs need conversion. Static TTF/OTF faces are supported, not variable-font
+  axes or font collections.
+- Missing faces produce an explicit fallback warning. Missing required glyphs
+  need a font with those characters before final export.
+- Streamlit still stores served media in RAM, and audio audition uses full decoded
+  buffers. Undo is session-local; Save persists content. Export is synchronous.
+- P06 preview/export jobs and P07 quality/model work remain. Use the compiler
+  described in `docs/PRESENTATION.md`; do not introduce a second saved style or
+  subtitle implementation.

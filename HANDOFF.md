@@ -1,27 +1,29 @@
 # HeartBeam handoff
 
-**Updated:** 6 September 2026 by Codex, continuing Claude's handoff.
+**Updated:** 7 September 2026 by Codex, completing P05.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
-**Continuation base:** `2ae7ab1` (P03.2); use `git log -1` for the new commit.
+**Continuation base:** `2876706` (P03/P04); use `git log -1` for the P05 commit.
 
 Read **BUILD-STATUS.md first**. It is the authoritative record of completion,
 tests, measured performance and remaining validation limits. This handoff
 explains how to continue without breaking the working editor.
 
-P03 and P04 are implemented. Next is **P05, the visual lyric editor**, followed
-by P06 export jobs and P07 quality/release work. The original program is in
+P03, P04 and **P05, the visual lyric editor**, are implemented. Next is P06
+preview/export jobs, followed by P07 quality/release work. The original program is in
 `C:\Users\young\Documents\Codex\2026-09-06\run\outputs\heartbeam-claude-handoff`.
-Read `05-PLACEMENT-STYLING.md`,
+Read `06-PREVIEW-EXPORT.md`, `docs/PRESENTATION.md`,
 `08-SHARED-CONTRACT.md` and `09-RELEASE-CHECKLIST.md` before continuing.
 
 ## Run and verify
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q -m "not slow"
-node --test tests/audio_transport.test.mjs
+node --test tests/audio_transport.test.mjs tests/presentation.test.mjs
 .venv\Scripts\heartbeam-gui.exe
 # Or use an explicit local port:
-.venv\Scripts\python.exe -m streamlit run heartbeam/gui.py --server.address=127.0.0.1 --server.port=8503 --server.headless=true
+.venv\Scripts\python.exe -m streamlit run heartbeam/gui.py --server.address=127.0.0.1 --server.port=8504 --server.headless=true
+# Original eight-second fixture, no ML or downloaded song:
+.venv\Scripts\python.exe scripts/p05_proof.py C:/temp/heartbeam-p05-proof --render --background
 ```
 
 The Node command is optional development verification, not an application build
@@ -32,8 +34,8 @@ or downgrade torch on that evidence alone. Verified environment and warnings
 are recorded in BUILD-STATUS. RTX 5070 requires the existing cu128 build;
 cu121 does not support its sm_120 kernels. Keep the model sweep parked.
 
-Claude's server may still exist on 8501. The continuation used a separate server
-on 8503. Do not kill a server without establishing which task owns it.
+Claude's server may still exist on 8501; P03/P04 used 8503. P05 used a separate
+server on 8504. Do not kill a server without establishing which task owns it.
 
 ## Code map and contracts
 
@@ -49,14 +51,18 @@ on 8503. Do not kill a server without establishing which task owns it.
 - `project_lock.py`: OS writer lease, released by Close or process exit. The
   second GUI opens read-only and can save an independent copy. `save_project`
   separately checks the loaded manifest hash while holding a short save lock.
-- `lyrics.py`: sequence-aware reconciliation, now preserving section identity
+- `lyrics.py`: sequence-aware reconciliation, preserving line and section identity
   from surviving word membership. Renaming a heading is not a new identity;
-  repeated heading text is not an identity key. Regions retain explicit times.
+  repeated heading text is not an identity key. Split children inherit source
+  appearance; one retains the original line ID. Merges keep the largest source
+  style and report conflicting styles. Regions retain explicit times.
 - `editor.py`: integer timing validation, word/line/song shifts, conflict
   reporting, review navigation and component payload. Imported conflicts remain
   visible; edits may repair them but must not introduce/worsen conflicts.
 - `editor_ui.py`: project-aware controls and the shared command dispatch path.
-  Consumes selection before timing actions. P05 should use this same history.
+  Consumes selection before timing actions. Appearance, Timing and Vocals tabs
+  use the same history. Keep a stable placeholder for command feedback: inserting
+  it conditionally left stale numeric widgets during a selection/nudge rerun.
 - `editor_media.py`: the isolated adapter to Streamlit's served media manager.
   Re-register media each rerun; references are cleared between script runs.
   Returned URLs are not base64, but the server still holds media in RAM.
@@ -65,10 +71,26 @@ on 8503. Do not kill a server without establishing which task owns it.
   The waveform, active words and ASS preview read this clock. Do not add a
   separate audio player to the editing view. Final mix audition is another
   source on the same transport.
-- `editor_assets/timeline.js`: local drag/selection/zoom, ASS canvas, live vocal
+- `editor_assets/timeline.js`: local timing drag/selection/zoom, live vocal
   slider, optimistic feedback and command acknowledgements. A gesture sends
   one command with a unique ID and base revision. Late pre-command snapshots
   cannot snap the display back while waiting for its acknowledgement.
+- `editor_assets/presentation.js`: browser libass, fonts, background frames,
+  placement handles and safe-area guides. Dragging stays local until release;
+  numeric controls and handle keys give alternative access. Video backgrounds
+  remain paused and sample the AudioContext clock. Do not add a playback clock.
+- `presentation.py`: the one project presentation compiler. Resolves song
+  defaults and sparse line overrides, anchors/alignment/wrapping, colours,
+  fonts, word/sweep tags, presets and export snapshots. `compile_project` drives
+  preview and native export; `render_project` freezes actual fonts/backgrounds.
+- `presentation_fonts.py`: actual font metadata/coverage, explicit installed-font
+  copying and content-addressed assets. A missing face warns and uses Noto in both
+  renderers. A missing glyph blocks final export. Imported Noto faces override
+  bundled faces, including the fallback, without loading duplicate versions.
+- `presentation_ui.py`: scope, appearance form, wrapping, display spelling,
+  margins, fonts, backgrounds and presets. It writes only changed fields so a
+  colour exception does not freeze an inherited font. Colour code inputs provide
+  keyboard access alongside Streamlit's mouse-oriented swatches.
 - `vocal_mix.py`: the only region/transition compiler. Inserting a region splits
   overlapping regions in one lane. `compile_envelope` yields sample-position
   knots; browser slider templates and `mix_arrays` use these same knots.
@@ -76,18 +98,19 @@ on 8503. Do not kill a server without establishing which task owns it.
 - `reference_prepare.py`: explicit legacy migration from original audio and
   saved stems. This uses the chosen recipe; it does not infer calibration from
   normalized MP3. Content-addressed files are retained for undo and recovery.
-- `project_preview.py`: current project -> effective timings -> existing ASS
-  compiler, shared by preview/export. Unresolved timing blocks final export;
-  the labelled draft preview can omit untimed words. Bundled Noto Sans is used
-  by browser libass and native FFmpeg. Do not duplicate ASS event compilation
-  in a new presentation editor.
+- `project_preview.py`: common effective timing validation plus the browser
+  media adapter for `presentation.compile_project`. Unresolved timing blocks
+  final export; labelled drafts omit untimed words. Do not reintroduce a second
+  project ASS compiler or use legacy timing JSON to render edited projects.
 - `project_align.py`: explicit CUDA alignment of the saved lead track. It is
   imported only by that action, writes a new result artifact and preserves
   manual corrections when applying proposals. Transport edits load no models.
-- `gui.py`: revision-specific video output folders retain the exact project,
-  timing and style snapshot. P06 can replace the synchronous job UX while
-  keeping the current export inputs. `render.py` explicitly bounds video by
-  audio duration; `-shortest` alone produced an observed encoder tail.
+- `project_video_ui.py`: synchronous export adapter, with no separate GUI style
+  state. Revision folders retain exact project/presentation/ASS/timing, font files,
+  background and warnings. P06 can replace the job UX while retaining these inputs.
+  `render.py` explicitly bounds video by audio duration; `-shortest` alone produced
+  an encoder tail. P05 exports resolve safe filter basenames from the export
+  directory so quoted/punctuated Windows project folder names work.
 
 ## Traps and decisions worth preserving
 
@@ -124,14 +147,25 @@ on 8503. Do not kill a server without establishing which task owns it.
 12. Ignore revision, modified time and command-ID bookkeeping when deciding
     whether content is dirty. Undo back to saved content should show saved.
 
-## Next: P05
+## Next: P06
 
-The owner wants screen placement, font choices, highlight colours and font
-outlining. Existing basic style controls and the real ASS preview give P05 a
-working starting point, not a finished presentation editor. Add visual handles,
-font selection/availability, outline controls and presentation persistence
-through the shared history/compiler. Browser image/video background preview is
-still future work; it currently previews lyrics on a solid canvas.
+The owner now has direct placement, font/colour/outline controls, explicit
+wrapping, named presets, saved backgrounds and the same ASS in preview/export.
+P06 should build preview/export jobs around immutable snapshots, cancellation,
+progress, actionable failures and stale results. Read its roadmap for the full
+acceptance criteria. Keep the synchronous adapter usable while jobs are added.
+
+Visual revisions must not invalidate audio. `vocal_mix.mix_key()` identifies
+final audio by content; the browser ignores revision-only changes when audio
+inputs/templates match. Safe-area guides and selection never enter exports.
+Preset JSON contains defaults only; it is not a project or a portable media
+bundle. Font/background relinking and Save a copy remain available.
+
+Deliberate limits: static TTF/OTF faces only; missing glyphs block final output;
+box/overflow guides are metric estimates, with libass providing actual text;
+no pixel identity claim across rasterizers/colour management. Browser video
+preview needs a supported codec. Media still occupies RAM, and undo history
+remains session-local. P06 job controls and the P07 model sweep are not done.
 
 Keep P04's first version labelled **Vocal level**: 0% is the saved processed mix,
 100% restores its original reference. Avoid claims of perfect lead separation or

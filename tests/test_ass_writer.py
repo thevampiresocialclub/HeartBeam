@@ -66,7 +66,7 @@ def test_ass_dialogue_escapes_braces():
     out = render_ass_to_string(t, Style())
     # Curly braces in lyrics text should not appear unescaped (would be parsed as ASS override tags).
     assert "{weird}" not in out.split("[Events]")[1]
-    assert "(weird)" in out
+    assert r"\{weird\}" in out  # preserve literal braces, never replace wording
 
 
 def test_karaoke_colours_are_mapped_by_meaning_not_by_name():

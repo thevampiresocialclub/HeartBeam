@@ -1,8 +1,6 @@
 """One effective-timing and ASS compilation path for browser and native export."""
 from pathlib import Path
 from . import timings as T
-from .ass_writer import render_ass_to_string
-from .style import Style
 from .project import ProjectError
 
 VENDOR = Path(__file__).parent / "editor_assets" / "vendor"
@@ -25,7 +23,7 @@ def current_timings(project, duration_ms, *, draft=False):
                 if draft:
                     continue
                 raise ProjectError(f"‘{word.text}’ is outside the audio or has an invalid duration.")
-            words.append(T.Word(word.display_text or word.text, t.start_ms / 1000,
+            words.append(T.Word(word.text if word.display_text is None else word.display_text, t.start_ms / 1000,
                                 t.end_ms / 1000, t.score if t.score is not None else 1))
         if words:
             lines.append(T.Line(len(lines), " ".join(w.text for w in words),
@@ -35,27 +33,25 @@ def current_timings(project, duration_ms, *, draft=False):
 
 
 def preview_style(project):
-    style = Style()
-    style.font.family = "Noto Sans"
-    for group in ("font", "colour", "box", "background", "video"):
-        for key, value in project.presentation.song_style.get(group, {}).items():
-            if hasattr(getattr(style, group), key):
-                setattr(getattr(style, group), key, value)
-    return style
+    from .presentation import resolved_style, as_legacy_style
+    return as_legacy_style(resolved_style(project))
 
 
-def preview_payload(project, duration_ms, register):
+def preview_payload(project, duration_ms, register, root=None):
     from .editor import timing_conflicts
-    style = preview_style(project)
-    fonts = [register(VENDOR / name, f"preview/{name}")
-             for name in ("NotoSans-Regular.ttf", "NotoSans-Bold.ttf")]
+    from .presentation import compile_project
+    compiled = compile_project(project, duration_ms, root, draft=True)
+    fonts = [register(path, f"preview/fonts/{path.name}") for path in compiled.pop("fonts")]
+    fallback = register(compiled.pop("fallback_font"), "preview/fallback")
+    bg = compiled.pop("background")
+    if bg["kind"] != "solid":
+        bg["src"] = register(Path(bg["value"]), f"preview/background/{project.id}")
     # Worker uses a relative WASM filename. Serve a tiny bootstrap with an
     # explicit locateFile mapping because Streamlit media URLs are hashed.
-    return {"ass": render_ass_to_string(current_timings(project, duration_ms, draft=True), style),
+    return {**compiled,
             "worker": register(VENDOR / "subtitles-octopus-worker.js", "preview/worker"),
             "wasm": register(VENDOR / "subtitles-octopus-worker.wasm", "preview/wasm"),
-            "fonts": fonts, "width": int(style.video.resolution.split("x")[0]),
-            "height": int(style.video.resolution.split("x")[1]),
-            "background": style.background.value if style.background.kind == "solid" else "#101820",
+            "fonts": fonts, "background": bg,
+            "fallback_font": fallback,
             "draft": bool(project.unresolved_words()),
             "conflicts": len(timing_conflicts(project))}

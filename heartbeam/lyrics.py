@@ -34,6 +34,7 @@ brackets also appear in real lyrics, so guessing is not safe.
 from __future__ import annotations
 
 import difflib
+import copy
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -115,6 +116,7 @@ class ReconcileResult:
     kept_word_ids: set[str] = field(default_factory=set)
     new_word_ids: set[str] = field(default_factory=set)
     removed_word_ids: set[str] = field(default_factory=set)
+    presentation_notices: list[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
@@ -212,6 +214,27 @@ def reconcile(old_lines: list[Line], new_text: str,
 
     lines = [ln for ln in new_lines if ln is not None]
 
+    # Keep line identity through edits using surviving membership. For a split,
+    # one child retains the ID; for a merge, the largest surviving source wins.
+    # Equal lines already claimed their identities and cannot be reassigned.
+    old_line_ids = {line.id for line in old_lines}
+    assigned_lines = {line.id for line in lines if line.id in old_line_ids}
+    candidates = []
+    for ni, line in enumerate(lines):
+        if line.id in old_line_ids:
+            continue
+        members = {word.id for word in line.words}
+        for oi, old in enumerate(old_lines):
+            overlap = len(members & {word.id for word in old.words})
+            if overlap and old.id not in assigned_lines:
+                candidates.append((-overlap, oi, ni))
+    claimed_new = set()
+    for _, oi, ni in sorted(candidates):
+        old = old_lines[oi]
+        if old.id not in assigned_lines and ni not in claimed_new:
+            lines[ni].id = old.id
+            assigned_lines.add(old.id); claimed_new.add(ni)
+
     # Match membership, never the heading text: repeated choruses are distinct.
     old_members = {s.id: {w.id for ln in old_lines if ln.id in s.line_ids
                           for w in ln.words} for s in (old_sections or [])}
@@ -264,7 +287,26 @@ def apply_lyrics_edit(project: Project, new_text: str) -> ReconcileResult:
     with them. New words get an explicit unresolved entry with a reason rather
     than a plausible-looking guess.
     """
-    result = reconcile(project.lines, new_text, project.sections)
+    old_lines, old_styles = project.lines, project.presentation.line_overrides
+    result = reconcile(old_lines, new_text, project.sections)
+    inherited = {}
+    for index, line in enumerate(result.lines):
+        members = {word.id for word in line.words}
+        sources = sorted([(len(members & {w.id for w in old.words}), i, old)
+                          for i, old in enumerate(old_lines)], key=lambda item: (-item[0], item[1]))
+        sources = [old for overlap, _, old in sources if overlap]
+        if not sources:
+            continue
+        primary = next((old for old in sources if old.id == line.id), sources[0])
+        style = copy.deepcopy(old_styles.get(primary.id, {}))
+        different = [old for old in sources if old_styles.get(old.id, {}) != old_styles.get(primary.id, {})]
+        if different:
+            result.presentation_notices.append(f"Line {index + 1} merged different styles. Kept the largest source line's style; review its appearance or Undo.")
+        if "break_before" in style:
+            style["break_before"] = [wid for wid in style["break_before"] if wid in members and wid != line.words[0].id]
+        if style:
+            inherited[line.id] = style
+    project.presentation.line_overrides = inherited
     project.lines = result.lines
     project.sections = result.sections
 

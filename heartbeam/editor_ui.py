@@ -31,7 +31,7 @@ def change(project, action, *, command=None, save_root=None):
             saved.pop("modified_at", None); saved.pop("revision", None)
             saved.pop("command_ids", None)
             st.session_state.project_saved_snapshot = json.dumps(saved, sort_keys=True)
-    except (P.ProjectError, ValueError, OSError) as exc:
+    except (P.ProjectError, ValueError, OSError, TypeError) as exc:
         st.session_state.timing_message = ("err", str(exc))
     if command:
         st.session_state[f"command_ack_{project.id}"] = command["id"]
@@ -207,7 +207,7 @@ def _audio_tools(project, root):
                 try:
                     with st.spinner("Rendering and mastering the current vocal mix…"):
                         path = V.render_mix(copy.deepcopy(project), root)
-                    st.session_state[f"final_mix_{project.id}"] = (project.revision, str(path))
+                    st.session_state[f"final_mix_{project.id}"] = (V.mix_key(project), str(path))
                 except (P.ProjectError, OSError, ValueError) as exc:
                     st.error(str(exc))
         else:
@@ -254,7 +254,7 @@ def _alignment_tools(project, root):
 
 def render(project, root, karaoke_path):
     st.divider()
-    st.subheader("Timing and vocal editor")
+    st.subheader("Lyric and vocal editor")
     h = history(project)
     _audio_tools(project, root)
     sources = media.build_sources(project, root, karaoke_path)
@@ -263,9 +263,16 @@ def render(project, root, karaoke_path):
         st.error("Relink the missing audio in the project sidebar before editing timing.")
         return
     duration = available[0]["duration_ms"]
+    from . import presentation_ui, presentation
+    appearance_selection = presentation_ui.scope_controls(project)
     selection = st.session_state.get(f"vocal_template_{project.id}")
     payload = E.build_payload(project, sources, duration, st.session_state.get("selected_word_id"))
-    payload.update(preview=preview_payload(project, duration, media.register_media),
+    try:
+        preview = preview_payload(project, duration, media.register_media, root)
+    except (P.ProjectError, ValueError, OSError) as exc:
+        preview = None
+        st.error(f"Lyric preview could not load: {exc}")
+    payload.update(preview=preview, presentation_selection=appearance_selection,
                     can_undo=h.can_undo, can_redo=h.can_redo,
                     command_ack=st.session_state.get(f"command_ack_{project.id}"))
     try:
@@ -276,7 +283,7 @@ def render(project, root, karaoke_path):
     except (P.ProjectError, OSError, ValueError):
         payload["mix"] = None
     final = st.session_state.get(f"final_mix_{project.id}")
-    if final and final[0] == project.revision and Path(final[1]).is_file():
+    if final and final[0] == V.mix_key(project) and Path(final[1]).is_file():
         path = Path(final[1])
         sources.append({**available[0], "id": "final", "label": "Final mix (mastered)",
                          "key": str(path), "src": media.register_media(path, f"final/{project.id}")})
@@ -310,13 +317,28 @@ def render(project, root, karaoke_path):
             change(project, lambda p: E.apply_timing_edit(p, data, duration), command=command)
         elif kind == "vocal":
             change(project, lambda p: vocal_action(p, data, duration), command=command)
+        elif kind == "placement":
+            change(project, lambda p: presentation.placement_command(p, data), command=command)
     message = st.session_state.pop("timing_message", None)
+    message_slot = st.empty()
     if message:
-        (st.success if message[0] == "ok" else st.error)(message[1])
-    _timing_controls(project, duration)
-    selection = _vocal_controls(project, root, duration)
+        (message_slot.success if message[0] == "ok" else message_slot.error)(message[1])
+    if preview and preview["warnings"]:
+        for warning in preview["warnings"][:8]:
+            st.warning(warning)
+        if len(preview["warnings"]) > 8:
+            with st.expander("All presentation warnings"):
+                for warning in preview["warnings"]:
+                    st.write(warning)
+    appearance_tab, timing_tab, vocals_tab = st.tabs(["Appearance", "Timing", "Vocals"])
+    with timing_tab:
+        _timing_controls(project, duration)
+        _alignment_tools(project, root)
+    with vocals_tab:
+        selection = _vocal_controls(project, root, duration)
     template_changed = selection != st.session_state.get(f"vocal_template_{project.id}")
     st.session_state[f"vocal_template_{project.id}"] = selection
-    _alignment_tools(project, root)
     if selection_changed or template_changed:
         st.rerun()
+    with appearance_tab:
+        presentation_ui.controls(project, root, appearance_selection)

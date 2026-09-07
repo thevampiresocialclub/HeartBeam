@@ -51,7 +51,7 @@ export default function (component) {
     zoom: 1, looping: false, drag: null, sourceId: null, sourceKey: null,
     peaks: {mins: [], maxs: []}, busy: false, pending: null, switchEpoch: 0,
     peakEpoch: 0, peakKey: null, lastServerSelection: null, revision: 0, pendingCommand: null, mix: null };
-  let ass = null, assText = null, workerBlob = null, mixSignature = null;
+  let mixSignature = null;
   const wordButtons = new Map(), peaksCache = new Map();
   let sourceAbort = null, peakAbort = null, rafId = 0, lastTick = 0, selectionSequence = 0;
   const fmt = ms => { const s = Math.max(0, ms || 0) / 1000;
@@ -62,6 +62,11 @@ export default function (component) {
   const msToX = ms => ms / (state.durationMs || 1) * width();
   const xToMs = x => x / width() * state.durationMs;
   const wordAt = ms => state.words.find(w => w.start_ms != null && w.end_ms != null && ms >= w.start_ms && ms < w.end_ms);
+  const presentation = new HBPresentation(root, audio, {
+    commit, select: (id, notify, shouldSeek) => select(state.words.find(w => w.id === id), notify, shouldSeek),
+    pending: () => !!state.pendingCommand, selected: () => state.selectedId,
+    selectedLine: () => currentWord()?.line_id,
+  }, signal);
   function commit(kind, payload = {}) {
     if (state.pendingCommand) return;
     const id = crypto.randomUUID(); state.pendingCommand = {id, at: performance.now()};
@@ -309,7 +314,7 @@ export default function (component) {
   audio.addEventListener('error', () => { if (!state.busy) status(`Audio failed (code ${audio.error?.code || '?'})`, true); });
   function render() {
     let ms = audio.currentTime * 1000;
-    if (ass) { ass.setCurrentTime(ms / 1000); root.dataset.assClockMs = String(Math.round(ms)); }
+    presentation.render(ms);
     $('.hb-cur').textContent = fmt(ms); $('.hb-position').value = String(Math.round(ms));
     const singing = wordAt(ms)?.id;
     for (const [id, button] of wordButtons) button.classList.toggle('singing', id === singing);
@@ -324,21 +329,7 @@ export default function (component) {
   function frame() { if (signal.aborted) return; tick(); rafId = requestAnimationFrame(frame); }
   const interval = setInterval(tick, 60); // rAF can stop while audio continues
   const observer = new ResizeObserver(resize); observer.observe(scroll);
-  function destroy() { controller.abort(); sourceAbort?.abort(); peakAbort?.abort(); clearInterval(interval); cancelAnimationFrame(rafId); observer.disconnect(); audio.dispose(); ass?.dispose(); if (workerBlob) URL.revokeObjectURL(workerBlob); root.remove(); }
-  function updatePreview(preview) {
-    if (!preview) return;
-    $('.hb-preview').style.background = preview.background;
-    const message = preview.draft || preview.conflicts ? 'Draft lyric preview — untimed words are omitted; resolve timing conflicts before export.' : 'Rendered lyric preview · same ASS and bundled font as export';
-    if (!ass) {
-      const absolute = path => new URL(path, location.href).href;
-      workerBlob = URL.createObjectURL(new Blob([`var Module={locateFile:function(){return ${JSON.stringify(absolute(preview.wasm))}}};importScripts(${JSON.stringify(absolute(preview.worker))});`], {type: 'application/javascript'}));
-      ass = new SubtitlesOctopus({canvas: $('.hb-ass'), subContent: preview.ass,
-        workerUrl: workerBlob, fonts: preview.fonts.map(absolute), fallbackFont: absolute(preview.fonts[0]),
-        targetFps: 30, onReady: () => { root.dataset.assReady = 'true'; $('.hb-preview-status').textContent = message; },
-        onError: error => { root.dataset.assReady = 'false'; $('.hb-preview-status').textContent = `Lyric preview failed: ${String(error.message || error)}`; }});
-      assText = preview.ass;
-    } else if (assText !== preview.ass) { assText = preview.ass; ass.setTrack(preview.ass); $('.hb-preview-status').textContent = message; }
-  }
+  function destroy() { controller.abort(); sourceAbort?.abort(); peakAbort?.abort(); clearInterval(interval); cancelAnimationFrame(rafId); observer.disconnect(); audio.dispose(); root.remove(); }
   async function updateMix(data) {
     state.mix = data;
     $('.hb-vocal').hidden = !data?.selection;
@@ -358,8 +349,9 @@ export default function (component) {
       $('.hb-vocal-level').value = Math.round(data.selection.value * 100);
       $('.hb-vocal-value').textContent = `${Math.round(data.selection.value * 100)}%`;
     }
-    const signature = JSON.stringify(data);
-    if (mixSignature === signature) { $('.hb-vocal-level').disabled = !!state.pendingCommand; return; }
+    const signature = JSON.stringify({...data, revision: undefined});
+    if (mixSignature === signature) { $('.hb-vocal-level').disabled = !!state.pendingCommand;
+      root.dataset.mixRevision = String(data.revision); return; }
     mixSignature = signature;
     try {
       const ready = await audio.configureMix(data);
@@ -417,7 +409,8 @@ export default function (component) {
     if (!state.busy && (!source?.available || source.key !== state.sourceKey))
       void switchSource(source?.available ? source.id : state.sources.find(s => s.available)?.id);
     resize(); render();
-    updatePreview(data.preview); void updateMix(data.mix); syncLoop(); buttons();
+    presentation.draft = null;
+    presentation.update(data.preview, data.presentation_selection); void updateMix(data.mix); syncLoop(); buttons();
   }
   parent._hbTimeline = {projectId: component.data.project_id, version: component.data.frontend_version, root, update, destroy};
   status(); update(component); rafId = requestAnimationFrame(frame);

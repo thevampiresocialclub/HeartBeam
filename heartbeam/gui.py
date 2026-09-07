@@ -554,6 +554,8 @@ def _lyrics_editor(project, project_dir: Path) -> None:
         if st.button("Apply edits", key="apply_lyrics",
                      disabled=(edited or "") == current):
             result = stack.execute(project, lambda p: lyr.apply_lyrics_edit(p, edited or ""))
+            if result.presentation_notices:
+                st.session_state.project_message = " ".join(result.presentation_notices)
             if result.changed:
                 st.success(
                     f"{len(result.kept_word_ids)} words kept their timing; "
@@ -792,116 +794,13 @@ def main() -> None:
                         )
 
 
-        # --- Step 2: karaoke video ---
-        st.divider()
-        st.subheader("Karaoke video")
-        st.caption(
-            "Renders in seconds — the slow ML work is already done, so you can "
-            "restyle as often as you like without re-running the separation."
-        )
-
-        vcols = st.columns(2)
-        with vcols[0]:
-            bg_kind = st.selectbox("Background", ["solid", "image", "video"], index=0)
-            bg_value = ""
-            if bg_kind == "solid":
-                bg_value = st.color_picker("Background colour", "#101820")
-            else:
-                bg_up = st.file_uploader(
-                    f"Background {bg_kind}",
-                    type=["png", "jpg", "jpeg"] if bg_kind == "image"
-                    else ["mp4", "mov", "mkv", "webm"],
-                    key="bg_upload",
-                )
-                if bg_up is not None:
-                    bg_path = out_dir / f"background_{bg_up.name}"
-                    bg_path.write_bytes(bg_up.getbuffer())
-                    bg_value = str(bg_path)
-            resolution = st.selectbox(
-                "Resolution", ["1920x1080", "1280x720", "3840x2160"], index=0
-            )
-        with vcols[1]:
-            text_colour = st.color_picker("Text (not yet sung)", "#FFFFFF")
-            highlight_colour = st.color_picker("Highlight (being sung)", "#FFD700")
-            font_size = st.slider("Font size (px)", 32, 140, 72, step=4)
-            position = st.selectbox("Position", ["bottom", "center", "top"], index=0)
-
-        video_path = out_dir / "karaoke.mp4"
+        # P05: one project presentation drives both preview and export.
         current_project = st.session_state.get("project")
-        last_video = st.session_state.get(f"last_video_{current_project.id}") if current_project else None
-        if last_video:
-            video_path = Path(last_video[1])
-        can_render = bg_kind == "solid" or bool(bg_value)
-        if not can_render:
-            st.info(f"Upload a background {bg_kind}, or switch back to a solid colour.")
-
-        if current_project and not st.session_state.get("project_readonly"):
-            if st.button("Apply style to lyric preview"):
-                style_data = {"font": {"family": "Noto Sans", "size_px": font_size, "bold": True},
-                              "colour": {"primary": text_colour, "highlight": highlight_colour},
-                              "box": {"position": position},
-                              "background": {"kind": bg_kind, "value": bg_value or "#101820"},
-                              "video": {"resolution": resolution}}
-                ui.change(current_project, lambda p: setattr(p.presentation, "song_style", style_data))
-        if st.button("Render video", type="primary", disabled=not can_render or st.session_state.get("project_readonly", False)):
-            out_dir.mkdir(parents=True, exist_ok=True)
-            style_path = out_dir / "style.toml"
-            _write_style_toml(
-                style_path,
-                font_size=font_size,
-                text_colour=text_colour,
-                highlight_colour=highlight_colour,
-                position=position,
-                resolution=resolution,
-                background_kind=bg_kind,
-                background_value=bg_value or "#101820",
-            )
-            rc = 0
-            try:
-                render_audio, render_timings, render_dir = karaoke_path, timings_path, out_dir
-                if current_project:
-                    import copy
-                    import soundfile as sf
-                    from heartbeam.project_preview import current_timings
-                    from heartbeam import timings as timing_io, vocal_mix
-                    snapshot = copy.deepcopy(current_project)
-                    duration = prj.seconds_to_ms(sf.info(str(karaoke_path)).duration)
-                    # Export the edited manifest, never the immutable import.
-                    compiled = current_timings(snapshot, duration)
-                    render_dir = st.session_state.project_dir / prj.EXPORTS_DIR / f"rev-{snapshot.revision}-{prj.new_id('video')}"
-                    render_dir.mkdir(parents=True, exist_ok=True)
-                    render_timings = render_dir / "timings.json"
-                    timing_io.to_json(compiled, render_timings)
-                    if snapshot.vocal_mix.references:
-                        render_audio = vocal_mix.render_mix(snapshot, st.session_state.project_dir)
-                    elif snapshot.vocal_mix.regions or snapshot.vocal_mix.default_value:
-                        raise prj.ProjectError("Restore calibrated audio references before exporting the vocal mix.")
-                    (render_dir / "project-snapshot.json").write_text(json.dumps(snapshot.to_dict(), indent=2), encoding="utf-8")
-                    shutil.copyfile(style_path, render_dir / "style.toml")
-                    style_path = render_dir / "style.toml"
-                with st.spinner("Rendering with ffmpeg + libass…"):
-                    rc, video_path = _render_video(render_audio, render_timings, render_dir,
-                                                   style_path, st.session_state.log_lines)
-                if current_project and rc == 0:
-                    st.session_state[f"last_video_{current_project.id}"] = (current_project.revision, str(video_path))
-            except (prj.ProjectError, OSError, ValueError) as exc:
-                st.error(str(exc))
-            if rc != 0:
-                st.error(f"heartbeam-video exited with code {rc}.")
-                st.code("".join(st.session_state.log_lines[-40:]), language="text")
-
-        if video_path.exists():
-            if last_video and current_project and last_video[0] != current_project.revision:
-                st.caption(f"This video was rendered from revision {last_video[0]}. Render again to include newer edits.")
-            st.video(str(video_path))
-            with open(video_path, "rb") as f:
-                st.download_button(
-                    "Download karaoke.mp4",
-                    data=f.read(),
-                    file_name="karaoke.mp4",
-                    mime="video/mp4",
-                    key="dl_video",
-                )
+        if current_project:
+            from heartbeam.project_video_ui import render_controls
+            render_controls(current_project, st.session_state.project_dir, karaoke_path)
+        else:
+            st.info("Save or open this song as a project to edit its video appearance.")
 
 
 def cli_entry() -> None:
