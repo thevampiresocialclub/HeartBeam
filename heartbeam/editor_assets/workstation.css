@@ -1,0 +1,23 @@
+/* The desktop monitor and inspector scroll independently inside one workspace. */
+[data-testid="stMainBlockContainer"] { padding: 3.6rem 1.8rem 1rem; max-width: none; }
+[data-testid="stMainBlockContainer"] h1 { font-size: 1.8rem; padding-top: 0; }
+[data-testid="stMainBlockContainer"] h3 { font-size: 1.15rem; padding-top: 0; }
+.st-key-hb_workflow { margin-bottom: .3rem; }
+.st-key-hb_monitor, .st-key-hb_inspector { min-width: 0; }
+.st-key-hb_inspector { padding: 0 .6rem 1rem; }
+.st-key-hb_inspector [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: 1rem; }
+.st-key-hb_separation { max-width: 900px; margin-inline: auto; }
+@media (min-width: 1000px) {
+  .st-key-hb_monitor, .st-key-hb_inspector {
+    height: calc(100dvh - 184px) !important;
+    max-height: calc(100dvh - 184px); min-height: 0 !important;
+    overflow-y: auto; overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+}
+@media (max-width: 999px) {
+  [data-testid="stHorizontalBlock"]:has(.st-key-hb_monitor) { flex-wrap: wrap; }
+  [data-testid="stColumn"]:has(.st-key-hb_monitor),
+  [data-testid="stColumn"]:has(.st-key-hb_inspector) { width: 100%; flex: 1 1 100%; }
+  [data-testid="stMainBlockContainer"] { padding-inline: 1rem; }
+}

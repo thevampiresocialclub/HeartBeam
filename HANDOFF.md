@@ -1,6 +1,6 @@
 # HeartBeam handoff
 
-**Updated:** 7 September 2026 by Codex, completing P06.
+**Updated:** 7 September 2026 by Codex, adding the two-step editing workstation.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
@@ -18,7 +18,7 @@ Read `06-PREVIEW-EXPORT.md`, `docs/PRESENTATION.md`,
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q -m "not slow"
-node --test tests/audio_transport.test.mjs tests/presentation.test.mjs
+node --test tests/audio_transport.test.mjs tests/presentation.test.mjs tests/timeline_navigation.test.mjs tests/workstation.test.mjs
 .venv\Scripts\heartbeam-gui.exe
 # Or use an explicit local port:
 .venv\Scripts\python.exe -m streamlit run heartbeam/gui.py --server.address=127.0.0.1 --server.port=8504 --server.headless=true
@@ -155,6 +155,15 @@ server on 8504. Do not kill a server without establishing which task owns it.
     whether content is dirty. Undo back to saved content should show saved.
 
 ## Current continuation point
+
+The GUI now has separate separation and video-editing pages, with a save-folder
+transition after generation. Opening a saved project enters video editing.
+The desktop monitor and inspector are separate scroll containers. The right-pane
+component hosts the existing live lyric/vocal DOM controls through
+`editor_assets/workstation.js`; it never creates another transport. Preserve
+Streamlit's style nodes when mounting hosts. `scripts/workstation_browser_proof.cjs`
+checks this against an eight-second synthetic project, using development-only
+Playwright and installed Chrome. It creates its own disposable project copy.
 
 P06 is complete. The editor now also saves 2–4 visible lyric rows and provides a
 prominent playback preview with Play/Pause, Restart and previous/next lyric jumps.

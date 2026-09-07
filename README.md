@@ -172,12 +172,19 @@ This sidesteps two real traps:
 Opens a local Streamlit app at <http://localhost:8501>. It covers **both
 phases**:
 
-1. Drop in a song and a lyrics file, pick a genre profile, watch a progress bar,
-   then play and download `karaoke.mp3`. Advanced mask/mix knobs sit behind an
-   expander.
-2. Then, in **Karaoke video**, choose a background (solid colour, image, or
-   video), resolution, font size, position, and the two karaoke colours — hit
-   **Render video** and the MP4 plays inline, ready to download.
+1. **Separate audio:** choose a song, paste its lyrics and pick a genre profile.
+   When separation finishes, audition the result, choose a project folder and
+   select **Save project and edit video**.
+2. **Edit video:** the desktop workstation keeps Play/Pause, video preview and
+   waveform together on the left. The right pane has live lyric selection and
+   **Appearance**, **Lyrics**, **Timing**, **Vocals** and **Export** tabs. Each
+   pane scrolls independently. A single Play button drives audio, highlighting,
+   video backgrounds and the waveform. Use **Save project** in the top bar to
+   keep edits, then **Render video** in Export to create the MP4.
+
+Opening a saved project goes straight to video editing. The two step buttons
+let you return to separation without losing the loaded project. On narrow screens
+the panes stack to keep the controls usable.
 
 Because Phase 2 is only ffmpeg, restyling takes seconds and never re-runs the
 slow ML. The Windows installer creates Start Menu and desktop shortcuts pointing

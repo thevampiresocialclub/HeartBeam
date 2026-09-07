@@ -21,8 +21,8 @@
   cursor: pointer;
 }
 .hb-btn:hover { background: rgba(130, 160, 210, 0.26); }
-.hb-btn.hb-primary { background: rgba(80, 130, 220, 0.32); border-color: rgba(115, 160, 235, 0.8); font-weight: 650; }
-.hb-btn.hb-primary:hover { background: rgba(80, 130, 220, 0.46); }
+.hb-btn.hb-primary { background: oklch(48% .13 255); color: oklch(98% .006 255); border-color: oklch(62% .13 255); font-size: 16px; padding: 9px 24px; min-width: 110px; font-weight: 650; }
+.hb-btn.hb-primary:hover { background: oklch(42% .13 255); }
 .hb-btn.on {
   background: rgba(255, 215, 0, 0.22);
   border-color: rgba(255, 215, 0, 0.7);
@@ -66,11 +66,14 @@
 .hb-hint.err { color: rgb(240, 140, 120); opacity: 1; }
 .hb-audio { display: none; }
 .hb-preview { aspect-ratio: 16/9; width: 100%; position: relative; border-radius: 8px; overflow: hidden; margin: 12px 0 6px; }
-.hb-preview-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.hb-preview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
 .hb-preview-copy { display: grid; gap: 2px; }
 .hb-preview-copy strong { font-size: 15px; }
 .hb-preview-copy span { font-size: 12px; opacity: .72; }
-.hb-preview-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.hb-preview-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.hb-live-controls .hb-lines { max-height: 210px; }
+.hb-live-controls .hb-lyrics { margin-top: 0; }
+.hb-live-controls .hb-vocal { margin-top: 12px; }
 .hb-ass { width: 100%; height: 100%; display: block; }
 .hb-ass { position: absolute; inset: 0; }
 .hb-background { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
@@ -86,6 +89,9 @@
 .hb-preview-line { max-width: min(500px, 70vw); }
 .hb-placement-scope { font-size: 12px; }
 .hb-preview-status { font-size: 12px; margin-bottom: 10px; }
+@media (min-width: 1000px) {
+  .hb-preview { width: min(100%, calc(max(210px, 100dvh - 610px) * 16 / 9)); margin-inline: auto; }
+}
 .hb-before, .hb-after { width: 70px; }
 .hb-vocal-lane { height: 34px; position: relative; margin: 8px 0; background: rgba(130,160,210,.12); border-radius: 4px; }
 .hb-region { position: absolute; height: 32px; overflow: hidden; border: 1px solid #cbaf55; background: #66562b; color: white; min-width: 3px; padding: 0; cursor: pointer; }

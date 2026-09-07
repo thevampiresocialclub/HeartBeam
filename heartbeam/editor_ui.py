@@ -252,11 +252,8 @@ def _alignment_tools(project, root):
                 st.error(f"Alignment could not finish: {exc}")
 
 
-def render(project, root, karaoke_path):
-    st.divider()
-    st.subheader("Lyric and vocal editor")
+def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=None):
     h = history(project)
-    _audio_tools(project, root)
     sources = media.build_sources(project, root, karaoke_path)
     available = [s for s in sources if s["available"]]
     if not available:
@@ -264,8 +261,17 @@ def render(project, root, karaoke_path):
         return
     duration = available[0]["duration_ms"]
     from . import presentation_ui, presentation
-    appearance_selection = presentation_ui.scope_controls(project)
-    presentation_ui.display_controls(project)
+    left, right = st.columns([1.55, 1], gap="large")
+    monitor = left.container(key="hb_monitor")
+    inspector = right.container(key="hb_inspector")
+    with inspector:
+        st.subheader("Lyric controls")
+        E.inspector_component()(data={"project_id": project.id}, key=f"hb_inspector_{project.id}")
+        appearance_tab, lyrics_tab, timing_tab, vocals_tab, export_tab = st.tabs(
+            ["Appearance", "Lyrics", "Timing", "Vocals", "Export"])
+        with appearance_tab:
+            appearance_selection = presentation_ui.scope_controls(project)
+            presentation_ui.display_controls(project)
     selection = st.session_state.get(f"vocal_template_{project.id}")
     payload = E.build_payload(project, sources, duration, st.session_state.get("selected_word_id"))
     try:
@@ -288,8 +294,11 @@ def render(project, root, karaoke_path):
         path = Path(final[1])
         sources.append({**available[0], "id": "final", "label": "Final mix (mastered)",
                          "key": str(path), "src": media.register_media(path, f"final/{project.id}")})
-        st.download_button("Download final vocal mix.wav", path.read_bytes(), "vocal-mix.wav", mime="audio/wav")
-    result = E.timeline_component()(data=payload, key=f"hb_timeline_{project.id}")
+        with export_tab:
+            st.download_button("Download final vocal mix.wav", path.read_bytes(), "vocal-mix.wav", mime="audio/wav")
+    with monitor:
+        st.subheader("Video preview")
+        result = E.timeline_component()(data=payload, key=f"hb_timeline_{project.id}")
     selection_event = result.get("selection") if result else None
     if selection_event and selection_event.get("nonce") != st.session_state.get(f"selection_nonce_{project.id}"):
         st.session_state[f"selection_nonce_{project.id}"] = selection_event["nonce"]
@@ -321,25 +330,28 @@ def render(project, root, karaoke_path):
         elif kind == "placement":
             change(project, lambda p: presentation.placement_command(p, data), command=command)
     message = st.session_state.pop("timing_message", None)
-    message_slot = st.empty()
+    message_slot = inspector.empty()
     if message:
         (message_slot.success if message[0] == "ok" else message_slot.error)(message[1])
     if preview and preview["warnings"]:
-        for warning in preview["warnings"][:8]:
-            st.warning(warning)
-        if len(preview["warnings"]) > 8:
-            with st.expander("All presentation warnings"):
-                for warning in preview["warnings"]:
-                    st.write(warning)
-    appearance_tab, timing_tab, vocals_tab = st.tabs(["Appearance", "Timing", "Vocals"])
+        with inspector.expander(f"Preview notes ({len(preview['warnings'])})"):
+            for warning in preview["warnings"]:
+                st.write(warning)
+    with lyrics_tab:
+        if lyrics_editor:
+            lyrics_editor(project, root)
     with timing_tab:
         _timing_controls(project, duration)
         _alignment_tools(project, root)
     with vocals_tab:
         selection = _vocal_controls(project, root, duration)
+        _audio_tools(project, root)
     template_changed = selection != st.session_state.get(f"vocal_template_{project.id}")
     st.session_state[f"vocal_template_{project.id}"] = selection
     if selection_changed or template_changed:
         st.rerun()
     with appearance_tab:
         presentation_ui.controls(project, root, appearance_selection)
+    with export_tab:
+        if export_controls:
+            export_controls(project, root, karaoke_path)

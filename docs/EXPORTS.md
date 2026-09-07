@@ -6,6 +6,10 @@ font files, background, vocal levels, selected audio hash and source asset hashe
 
 ## Recommended workflow
 
+After separation, choose **Save project and edit video**. Opened projects go
+straight to this workstation. Playback and the waveform remain in the left pane;
+the **Export** tab in the right pane contains the following rendering controls.
+
 1. Save the project after editing lyrics, timing, placement and vocal levels.
 2. Under **Lyric reading timing**, enable automatic scheduling and choose how
    early a phrase appears, the final hold, 2–4 visible lyric lines, and their

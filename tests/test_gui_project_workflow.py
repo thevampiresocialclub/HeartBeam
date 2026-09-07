@@ -84,6 +84,8 @@ def test_new_session_starts_with_no_project():
     assert at.session_state["project"] is None
     labels = [s.value for s in at.subheader]
     assert "Karaoke video" not in labels, "video controls need a song first"
+    assert at.session_state["workflow_step"] == "separation"
+    assert at.button(key="step_video").disabled
 
 
 def test_opening_a_project_resumes_the_song_without_a_run(tmp_path):
@@ -174,6 +176,64 @@ def test_link_cached_audition_tracks_through_the_gui(tmp_path):
                for role in ("original_audio", "lead_stem", "clean_audio"))
     assert len(at.get("audio")) == 0, "the timing editor owns the only song transport"
     assert at.session_state["out_dir"] is None
+    assert at.session_state["workflow_step"] == "video"
+    assert not any(t.key == "lyrics_text" for t in at.text_area)
+    assert not any(b.label == "Generate karaoke" for b in at.button)
+
+
+def test_finished_separation_saves_to_chosen_folder_and_enters_workstation(tmp_path):
+    _existing_song_project(tmp_path)
+    at = _fresh_app()
+    at.session_state["out_dir"] = tmp_path / "yesterday"
+    at.session_state["song_name"] = "Completed song"
+    at.session_state["running"] = True
+    at.session_state["status"] = {"progress": 1., "label": "Done", "done": True, "returncode": 0}
+    at.run()
+    assert not at.exception
+    assert at.session_state["workflow_step"] == "separation"
+    project = at.session_state["project"]
+    original_ids = project.word_ids()
+    original_timing = project.original_alignment.copy()
+    assert at.button(key="save_and_edit")
+    destination = tmp_path / "keep-my-song"
+    next(t for t in at.text_input if t.label == "Save project folder").set_value(str(destination))
+    at.button(key="save_and_edit").click().run()
+    assert not at.exception
+    assert at.session_state["workflow_step"] == "video"
+    saved = P.load_project(destination)
+    assert saved.word_ids() == original_ids
+    assert saved.original_alignment == original_timing
+    assert saved.asset_by_role("karaoke_audio").resolve(destination).is_file()
+    assert any(s.value == "Video preview" for s in at.subheader)
+    assert any(s.value == "Lyric controls" for s in at.subheader)
+    assert not any(b.label == "Generate karaoke" for b in at.button)
+    assert len(at.get("audio")) == 0
+    at.button(key="step_separation").click().run()
+    assert at.session_state["workflow_step"] == "separation"
+    assert at.session_state["project"].word_ids() == original_ids
+    at.button(key="step_video").click().run()
+    assert at.session_state["workflow_step"] == "video"
+    at.button(key="close_project").click().run()
+
+
+def test_failed_save_keeps_separation_result_and_does_not_enter_editor(tmp_path):
+    root = _existing_song_project(tmp_path)
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(root))
+    at.button(key="open_project_btn").click().run()
+    at.button(key="step_separation").click().run()
+    occupied = tmp_path / "occupied"
+    occupied.mkdir()
+    (occupied / "keep.txt").write_text("keep")
+    shutil.copy2(root / P.MANIFEST_NAME, occupied / P.MANIFEST_NAME)
+    next(t for t in at.text_input if t.label == "Save project folder").set_value(str(occupied))
+    at.button(key="save_and_edit").click().run()
+    assert not at.exception
+    assert at.session_state["workflow_step"] == "separation"
+    assert at.session_state["project_dir"] == root
+    assert any("Could not save" in e.value for e in at.error)
+    assert (occupied / "keep.txt").read_text() == "keep"
+    at.button(key="close_project").click().run()
 
 
 def test_opening_a_corrupt_project_recovers_from_autosave(tmp_path):
@@ -216,7 +276,8 @@ def test_import_existing_timings_and_audio_enters_editing(tmp_path):
     assert "Karaoke video" in [s.value for s in at.subheader]
 
 
-def test_saving_marks_the_project_clean(tmp_path):
+@pytest.mark.parametrize("save_key", ["save_project", "workstation_save"])
+def test_saving_marks_the_project_clean(tmp_path, save_key):
     project_dir = _existing_song_project(tmp_path)
     at = _fresh_app()
     at.text_input(key="open_project_path").set_value(str(project_dir))
@@ -226,7 +287,7 @@ def test_saving_marks_the_project_clean(tmp_path):
     at.run()
     assert any("unsaved changes" in c.value for c in at.caption)
 
-    at.button(key="save_project").click().run()
+    at.button(key=save_key).click().run()
     assert not at.exception
     assert any("saved" in c.value and "unsaved" not in c.value for c in at.caption)
     assert P.load_project(project_dir).name == "Edited"

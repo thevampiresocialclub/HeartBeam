@@ -25,30 +25,30 @@ export default function (component) {
   root.className = 'hb-editor'; root.tabIndex = 0;
   root.setAttribute('aria-label', 'Timing editor');
   root.innerHTML = `
-    <div class="hb-toolbar">
-      <button class="hb-btn" data-act="loop" aria-pressed="false">Loop selection</button>
-      <label>Listen to <select class="hb-source"></select></label>
+    <div class="hb-preview-head">
+      <div class="hb-preview-actions">
+        <button class="hb-btn hb-primary" data-act="play" aria-label="Play">▶ Play</button>
+        <button class="hb-btn" data-act="restart">Restart</button>
+        <button class="hb-btn" data-act="previous-line">Previous lyric</button>
+        <button class="hb-btn" data-act="next-line">Next lyric</button>
+      </div>
       <span class="hb-time"><span class="hb-cur">0:00.00</span> / <span class="hb-dur"></span></span>
+    </div>
+    <div class="hb-toolbar">
+      <label>Listen to <select class="hb-source"></select></label>
       <label>Speed <select class="hb-rate"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option></select></label>
+    </div>
+    <div class="hb-preview"><canvas class="hb-ass" width="960" height="540" aria-label="Rendered lyric preview"></canvas></div>
+    <div class="hb-preview-status" role="status">Loading lyric preview…</div>
+    <div class="hb-toolbar">
       <label>Zoom <input class="hb-zoom" type="range" min="1" max="20" step="1" value="1"></label>
       <label>Seek seconds <input class="hb-seek" type="number" min="0" step="0.01" value="0"></label>
       <button class="hb-btn" data-act="seek">Seek</button>
       <span class="hb-sel"></span>
     </div>
-    <div class="hb-toolbar"><label>Before (ms) <input class="hb-before" type="number" min="0" max="5000" step="50" value="250"></label>
+    <div class="hb-toolbar"><button class="hb-btn" data-act="loop" aria-pressed="false">Loop selection</button><label>Before (ms) <input class="hb-before" type="number" min="0" max="5000" step="50" value="250"></label>
       <label>After (ms) <input class="hb-after" type="number" min="0" max="5000" step="50" value="250"></label>
       <button class="hb-btn" data-act="undo">Undo</button><button class="hb-btn" data-act="redo">Redo</button></div>
-    <div class="hb-preview-head">
-      <div class="hb-preview-copy"><strong>Playback preview</strong><span>Check lyric timing, highlighting, font and placement.</span></div>
-      <div class="hb-preview-actions">
-        <button class="hb-btn" data-act="previous-line">Previous lyric</button>
-        <button class="hb-btn hb-primary" data-act="play">Play</button>
-        <button class="hb-btn" data-act="next-line">Next lyric</button>
-        <button class="hb-btn" data-act="restart">Restart</button>
-      </div>
-    </div>
-    <div class="hb-preview"><canvas class="hb-ass" width="960" height="540" aria-label="Rendered lyric preview"></canvas></div>
-    <div class="hb-preview-status" role="status">Loading lyric preview…</div>
     <input class="hb-position" aria-label="Song position" type="range" min="0" step="1" value="0">
     <div class="hb-scroll"><div class="hb-track"><canvas class="hb-canvas" aria-label="Waveform and word timing"></canvas></div></div>
     <div class="hb-vocal-lane" aria-label="Vocal regions"></div>
@@ -58,7 +58,11 @@ export default function (component) {
     <div class="hb-hint" role="status" aria-live="polite"></div>
     <details class="hb-lyrics" open><summary>Lyrics — select a word to seek</summary><div class="hb-lines"></div></details>`;
   parent.appendChild(root);
-  const $ = selector => root.querySelector(selector);
+  const controls = document.createElement('div');
+  controls.className = 'hb-editor hb-live-controls'; controls.tabIndex = 0;
+  controls.append(root.querySelector('.hb-lyrics'), root.querySelector('.hb-vocal'));
+  const releaseControls = hbAttachControls(component.data.project_id, controls);
+  const $ = selector => root.querySelector(selector) || controls.querySelector(selector);
   const audio = new HBTransport();
   const canvas = $('.hb-canvas'), ctx = canvas.getContext('2d'), scroll = $('.hb-scroll');
   const sourceSelect = $('.hb-source'), playButton = $('[data-act="play"]');
@@ -100,7 +104,9 @@ export default function (component) {
   function syncLoop() { audio.setLoop(state.looping ? loopBounds() : null); }
   function status(message = hint, error = false) { $('.hb-hint').textContent = message; $('.hb-hint').classList.toggle('err', error); }
   function buttons() {
-    playButton.textContent = audio.paused ? 'Play' : 'Pause';
+    playButton.textContent = audio.paused ? '▶ Play' : 'Ⅱ Pause';
+    playButton.setAttribute('aria-label', audio.paused ? 'Play' : 'Pause');
+    playButton.setAttribute('aria-pressed', String(!audio.paused));
     playButton.disabled = state.busy || !state.sourceId;
     $('[data-act="loop"]').classList.toggle('on', state.looping);
     $('[data-act="loop"]').setAttribute('aria-pressed', String(state.looping));
@@ -136,7 +142,7 @@ export default function (component) {
     });
   }
   function rebuildLyrics() {
-    const focusedId = root.getRootNode().activeElement?.dataset?.wordId;
+    const focusedId = controls.getRootNode().activeElement?.dataset?.wordId;
     const scrollTop = $('.hb-lines').scrollTop;
     const lines = new Map(), fragment = document.createDocumentFragment(); wordButtons.clear();
     for (const word of state.words) {
@@ -325,7 +331,7 @@ export default function (component) {
   $('.hb-rate').addEventListener('change', e => { audio.playbackRate = Number(e.target.value); if (state.pending) state.pending.rate = audio.playbackRate; });
   $('.hb-zoom').addEventListener('input', e => { const start = xToMs(scroll.scrollLeft); state.zoom = Number(e.target.value); resize(); scroll.scrollLeft = msToX(start); draw(); });
   scroll.addEventListener('scroll', draw);
-  root.addEventListener('keydown', e => {
+  function shortcuts(e) {
     if (e.target.closest('input, textarea, select, summary, [contenteditable="true"]')) return;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); commit(e.shiftKey ? 'redo' : 'undo'); return; }
     if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
@@ -336,7 +342,9 @@ export default function (component) {
     }
     if (e.target.closest('button')) return;
     if (e.code === 'Space') { e.preventDefault(); void togglePlay(); }
-  });
+  }
+  root.addEventListener('keydown', shortcuts);
+  controls.addEventListener('keydown', shortcuts);
   audio.addEventListener('play', buttons); audio.addEventListener('pause', buttons);
   audio.addEventListener('ended', () => { if (state.looping && currentWord()?.start_ms != null) { seek(Math.max(0, currentWord().start_ms - 250)); void togglePlay(); } else buttons(); });
   audio.addEventListener('error', () => { if (!state.busy) status(`Audio failed (code ${audio.error?.code || '?'})`, true); });
@@ -357,7 +365,7 @@ export default function (component) {
   function frame() { if (signal.aborted) return; tick(); rafId = requestAnimationFrame(frame); }
   const interval = setInterval(tick, 60); // rAF can stop while audio continues
   const observer = new ResizeObserver(resize); observer.observe(scroll);
-  function destroy() { controller.abort(); sourceAbort?.abort(); peakAbort?.abort(); clearInterval(interval); cancelAnimationFrame(rafId); observer.disconnect(); audio.dispose(); root.remove(); }
+  function destroy() { controller.abort(); sourceAbort?.abort(); peakAbort?.abort(); clearInterval(interval); cancelAnimationFrame(rafId); observer.disconnect(); audio.dispose(); releaseControls(); root.remove(); }
   async function updateMix(data) {
     state.mix = data;
     $('.hb-vocal').hidden = !data?.selection;

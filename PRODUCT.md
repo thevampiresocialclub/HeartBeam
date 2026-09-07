@@ -19,6 +19,11 @@ styling, and P06 dependable preview/export are implemented. Preserve the existin
 Streamlit shell, single audio clock, shared command history, presentation compiler
 and immutable export-job path. The current editor supports 2–4 visible lyric lines
 and playback controls for reviewing timing, highlighting, font and placement.
+Separation and editing are separate pages. Completed separation offers a named
+project save followed by video editing. The desktop editor is a workstation with
+playback, video and waveform on the left and independently scrolling lyric,
+appearance, timing, vocal and export controls on the right. Play must be visible
+at the top and all preview surfaces must follow the same audio clock.
 P07 covers controlled audio-quality/model work.
 Read BUILD-STATUS.md for the current verification record.
 

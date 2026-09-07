@@ -35,7 +35,7 @@ class HBPresentation {
     this.preview = preview; this.selection = selection || {scope: 'song', guides: true, line_ids: []};
     this.frame.style.aspectRatio = `${preview.width} / ${preview.height}`;
     this.$('.hb-safe').hidden = !this.selection.guides;
-    this.$('.hb-placement-scope').textContent = `Placement: ${this.selection.label || 'Whole song'} · drag text or use X/Y below`;
+    this.$('.hb-placement-scope').textContent = `Placement: ${this.selection.label || 'Whole song'} · drag text or use Appearance controls`;
     const chooser = this.$('.hb-preview-line'), selected = chooser.value;
     chooser.replaceChildren(...preview.lines.map((line, index) => {
       const option = document.createElement('option'); option.value = line.line_id;

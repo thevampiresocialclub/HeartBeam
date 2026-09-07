@@ -78,7 +78,7 @@ def build_payload(project: Project, sources: list[dict], duration_ms: int,
                   selected_id: str | None = None) -> dict[str, Any]:
     return {
         "project_id": project.id,
-        "frontend_version": hashlib.sha256((_read_asset("timeline.js") + _read_asset("audio_transport.js") + _read_asset("presentation.js") + _read_asset("timeline.css")).encode()).hexdigest()[:12],
+        "frontend_version": hashlib.sha256((_read_asset("timeline.js") + _read_asset("audio_transport.js") + _read_asset("presentation.js") + _read_asset("timeline.css") + _read_asset("workstation.js")).encode()).hexdigest()[:12],
         "revision": project.revision,
         "words": words_payload(project),
         "sources": sources,
@@ -205,7 +205,16 @@ def timeline_component():
         "heartbeam_timeline",
         css=_read_asset("timeline.css"),
         js=_read_asset("vendor/subtitles-octopus.js") + "\n" +
-           _read_asset("audio_transport.js") + "\n" + _read_asset("presentation.js") + "\n" + _read_asset("timeline.js"),
+           _read_asset("audio_transport.js") + "\n" + _read_asset("presentation.js") + "\n" + _read_asset("workstation.js") + "\n" + _read_asset("timeline.js"),
+    )
+
+
+def inspector_component():
+    """Right-pane host for live lyric/vocal controls, with no second player."""
+    import streamlit as st
+    return st.components.v2.component(
+        "heartbeam_inspector", css=_read_asset("timeline.css"),
+        js=_read_asset("workstation.js") + "\nexport default hbMountInspector;",
     )
 
 

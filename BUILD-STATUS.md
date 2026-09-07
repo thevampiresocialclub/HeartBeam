@@ -969,3 +969,45 @@ four rows with only the sung portion highlighted. Evidence is under
 The offline wheel under `work\multiline-preview-wheel` contains the updated JS and
 CSS byte-for-byte. SHA-256:
 `12d748282c63057043143f4f1a9e21d020dc9c11f11382b462f48e29a7da06c5`.
+
+---
+
+## Two-step workflow and editing workstation: COMPLETE
+
+Completed 7 September 2026 on top of `4c8383b`.
+
+- Separation inputs live on step 1. A completed run offers an audio audition,
+  a durable destination folder and **Save project and edit video**. The temporary
+  recovery project still exists as soon as generation completes. A failed save
+  stays on step 1 and does not replace an existing project.
+- Opening or importing a project enters step 2 directly. The editor resolves
+  media from that project, even if the session contains an earlier generation run.
+- A wide desktop workstation puts the prominent Play/Pause, source/speed,
+  preview, seek/loop and waveform on the left. Live lyric selection and the
+  Appearance, Lyrics, Timing, Vocals and Export tabs occupy a separately scrolling
+  right pane. Save and step navigation are available in the top bar. Below 1000px
+  viewport width the panes stack for usable controls.
+- The inspector hosts the same lyric/vocal controls and event handlers. Only
+  the monitor owns an AudioContext. Leaving the editor disposes that context;
+  returning mounts one fresh player and one inspector without duplicated roots.
+
+Verification: 264 Python tests and 14 JavaScript tests pass. New application
+tests simulate a completed separation, save and reopen its audio/timing/IDs from
+a chosen folder, exercise both page transitions, and reject saving over another
+project. Separation itself was not rerun for this UI change.
+
+The real Chrome proof ran on both the development server and the normal launcher
+address, `http://localhost:8501/`. At 1500×1000 it verified adjacent panes and
+independent inspector scrolling. Play advanced to 1504ms while the background
+sampled 1.504s; waveform and lyric canvases changed on navigation. Applying font
+settings while playing retained the same monitor and AudioContext and advanced
+to 4760ms. Right-pane lyric selection sought the shared player to 500ms, and the
+live vocal slider applied 100% through the same transport. Narrow layout, pause,
+page disposal/remount and absence of browser errors also passed.
+
+Browser evidence and screenshots:
+`C:\Users\young\Documents\Codex\2026-09-06\run\work\workstation-proof\launcher-evidence`.
+
+The offline wheel in `work\workstation-wheel` includes both workstation assets
+and the updated timeline assets, checked against source. SHA-256:
+`da124d4112c6c50098f0d70c3a8e6a129153c01d5d8ad5cd9f6374edd453f9e5`.
