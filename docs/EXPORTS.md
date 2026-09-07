@@ -8,15 +8,17 @@ font files, background, vocal levels, selected audio hash and source asset hashe
 
 1. Save the project after editing lyrics, timing, placement and vocal levels.
 2. Under **Lyric reading timing**, enable automatic scheduling and choose how
-   early a phrase appears and how long it remains after its last word. The optional
-   next-line slot uses the configured vertical offset. Adjacent non-overlapping
-   phrases share a clean boundary when the requested lead and hold do not both
-   fit in the gap. Actual overlapping vocals keep both highlights and are reported.
-3. Use **Render a short passage first** to encode up to 60 seconds with the final
+   early a phrase appears, the final hold, 2–4 visible lyric lines, and their
+   vertical spacing. The current stack stays visible between non-overlapping
+   phrases and hands off at one exact boundary. Actual overlapping vocals keep
+   both highlights and are reported.
+3. Use **Playback preview** to play/pause, restart, or jump between lyric display
+   boundaries while checking the final timing, font, highlighting and placement.
+4. Use **Render a short passage first** to encode up to 60 seconds with the final
    font, background, audio mix and encoder.
-4. Choose **Render video**. Use **Refresh export status** to read encoded-media
+5. Choose **Render video**. Use **Refresh export status** to read encoded-media
    progress. **Cancel export** stops the current encode.
-5. Download the completed MP4. If its revision is older than the editor, HeartBeam
+6. Download the completed MP4. If its revision is older than the editor, HeartBeam
    labels it as stale rather than implying it contains later edits.
 
 ## Files and recovery

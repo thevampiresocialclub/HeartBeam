@@ -22,7 +22,8 @@ def main():
     project = P.import_legacy_timings(args.project_dir, args.timings, args.audio,
                                       name="P06 full-song proof")
     S.set_display_settings(project, {"automatic": True, "advance_ms": 1500,
-                                     "hold_ms": 500, "show_upcoming": True,
+                                     "hold_ms": 500, "visible_lines": 4,
+                                     "show_upcoming": True,
                                      "upcoming_offset_y": -180})
     S.apply_style(project, {"video": {"resolution": args.resolution}})
     P.save_project(project, args.project_dir)

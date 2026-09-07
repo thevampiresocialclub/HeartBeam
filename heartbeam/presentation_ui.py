@@ -134,13 +134,16 @@ def display_controls(project):
             automatic = st.checkbox("Automatically schedule lyric lines", value["automatic"])
             c = st.columns(2)
             advance = c[0].number_input("Show before singing (ms)", 0, 10000, value["advance_ms"], step=100)
-            hold = c[1].number_input("Keep after singing (ms)", 0, 10000, value["hold_ms"], step=100)
-            upcoming = st.checkbox("Show the next lyric in a second slot", value["show_upcoming"])
-            offset = st.number_input("Next-line vertical offset", -1080, 1080, value["upcoming_offset_y"], step=10,
-                                     help="Negative places the upcoming line above its normal position; positive places it below.")
+            hold = c[1].number_input("Final-line hold (ms)", 0, 10000, value["hold_ms"], step=100,
+                                     help="Between phrases, the current line stack stays visible until the next stack takes over.")
+            lines = st.selectbox("Lines on screen", [2, 3, 4], index=[2, 3, 4].index(value["visible_lines"]),
+                                 help="Includes the current lyric plus the next one, two or three lines.")
+            offset = st.number_input("Vertical spacing between lines", -1080, 1080, value["upcoming_offset_y"], step=10,
+                                     help="Negative stacks upcoming lines above the current line; positive stacks them below.")
             if st.form_submit_button("Apply lyric reading timing"):
                 change(project, lambda p: S.set_display_settings(p, {"automatic": automatic,
-                    "advance_ms": advance, "hold_ms": hold, "show_upcoming": upcoming,
+                    "advance_ms": advance, "hold_ms": hold, "visible_lines": lines,
+                    "show_upcoming": True,
                     "upcoming_offset_y": offset}))
 
 

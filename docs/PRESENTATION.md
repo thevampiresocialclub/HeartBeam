@@ -77,6 +77,13 @@ Absolute millisecond boundaries are rounded once to ASS centiseconds (10 ms).
 `\k` switches a word at onset; `\kf` sweeps during its duration. Completed words
 retain the sung colour. A third active-word colour is outside P05.
 
+Automatic display scheduling accepts 2, 3 or 4 visible lines. The current lyric
+uses its resolved karaoke style; upcoming rows use the same resolved font, box,
+outline and unsung colour at successive vertical offsets. A stack remains visible
+through an inter-phrase gap and every non-overlapping phrase transition shares one
+boundary, so an upcoming row becomes current without a blank or duplicate frame.
+The editor's previous/next lyric controls seek to these compiled display starts.
+
 Literal braces use libass's brace escapes. Literal backslashes receive a
 zero-width WORD JOINER so `\N`, `\n`, and `\h` in authored text remain visible
 text. Authored words never become ASS override instructions.

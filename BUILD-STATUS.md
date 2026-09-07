@@ -18,9 +18,10 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | **P03 overall** | **Complete** |
 | **P04 Section vocals** | **Complete; verification and limits below** |
 | **P05 Visual lyric placement and styling** | **Complete; verification and limits below** |
-| P06-P07 | Not started |
+| **P06 Preview and export** | **Complete; verification and limits below** |
+| P07 Quality/model work | Not started |
 
-**P01 through P05 are implemented.** See the P05 section below for current verification; earlier sections are historical snapshots.
+**P01 through P06 are implemented.** See the latest sections below for current verification; earlier sections are historical snapshots.
 
 **P01 and P02 foundation:** A song can be generated, saved, closed, reopened
 and restyled without rerunning separation; lyrics can be pasted rather than
@@ -941,3 +942,30 @@ fonts, WASM renderer and licenses. SHA-256:
 - P07 owns controlled vocal-removal model comparisons and subjective listening.
   Keep existing project defaults stable until reproducible A/B evidence supports
   a preset change.
+
+---
+
+## Post-P06 multi-line playback refinement: COMPLETE
+
+Completed 7 September 2026 on top of `0baecf8`.
+
+- **Lines on screen** is saved with the project and accepts 2, 3 or 4. The current
+  lyric plus upcoming rows use one continuous stack; future rows move down at the
+  exact current-line boundary and retain their resolved unsung colour.
+- Long gaps no longer blank the stack. Competing lead/hold windows still shorten
+  at a shared boundary without changing any sung word, vocal region or audio time.
+- A prominent **Playback preview** group provides Play/Pause, Restart, Previous
+  lyric and Next lyric. Navigation seeks to the compiler's display starts and the
+  existing AudioContext remains the only song clock.
+
+Verification passed all 261 non-ML Python tests and 11 JavaScript transport,
+placement and navigation tests. A real browser check on the 204.745-second,
+245-word project selected four rows, confirmed white upcoming lyrics, gold active
+highlighting, Restart at zero, and exact next-lyric display navigation without an
+application error. A fresh native full-song export produced H.264 960×540 plus AAC
+stereo at the exact 204.745011-second audio duration; its 6-second frame contains
+four rows with only the sung portion highlighted. Evidence is under
+`C:\Users\young\Documents\Codex\2026-09-06\run\work\p06-multiline-preview`.
+The offline wheel under `work\multiline-preview-wheel` contains the updated JS and
+CSS byte-for-byte. SHA-256:
+`12d748282c63057043143f4f1a9e21d020dc9c11f11382b462f48e29a7da06c5`.

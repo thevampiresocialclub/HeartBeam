@@ -124,15 +124,16 @@ def test_automatic_display_lead_hold_and_upcoming_slot_do_not_shift_audio_timing
                                "upcoming_offset_y": -160})
     compiled = S.compile_project(p, 8000)
     # First sung word is 500ms, so the first line appears at 200ms. The first
-    # line's final word ends at 3200ms and remains until 3600ms.
-    assert "Dialogue: 0,0:00:00.20,0:00:03.60,Line0" in compiled["ass"]
+    # line's final word ends at 3200ms. The stack remains until the next line's
+    # 4200ms reading boundary, avoiding a blank gap between lyric groups.
+    assert "Dialogue: 0,0:00:00.20,0:00:04.20,Line0" in compiled["ass"]
     # The next line appears in its second slot only until its current event
     # starts at 4.2s, so a line never occupies both roles simultaneously.
     assert r"\pos(960,840)" in compiled["ass"]
     upcoming = [row for row in compiled["ass"].splitlines()
                 if row.startswith("Dialogue") and "Café" in row]
     assert len(upcoming) == 2
-    assert any("0:00:00.20,0:00:03.60" in row for row in upcoming)
+    assert any("0:00:00.20,0:00:04.20" in row for row in upcoming)
     assert any("0:00:04.20,0:00:07.60" in row for row in upcoming)
     assert p.original_alignment == before
 
@@ -160,6 +161,34 @@ def test_adjacent_automatic_windows_share_a_boundary_without_cutting_words():
     assert any("shortened" in warning for warning in compiled["warnings"])
     assert p.effective_timing("w0-3").end_ms == 3200
     assert p.effective_timing("w1-0").start_ms == 4500
+
+
+@pytest.mark.parametrize("visible", [2, 3, 4])
+def test_two_to_four_line_stack_has_exact_slots_and_no_boundary_duplicates(visible):
+    p = P.Project(id="stack", name="Line stack")
+    for index in range(5):
+        word = P.Word(f"stack-{index}", f"Row{index + 1}")
+        p.lines.append(P.Line(f"stack-line-{index}", [word]))
+        p.original_alignment[word.id] = P.WordTiming(1000 + index * 2000, 1600 + index * 2000)
+    S.set_display_settings(p, {"automatic": True, "advance_ms": 500,
+        "hold_ms": 200, "visible_lines": visible, "upcoming_offset_y": -150})
+    compiled = S.compile_project(p, 10000)
+    first_window = [row for row in compiled["ass"].splitlines()
+                    if row.startswith("Dialogue") and "0:00:00.50,0:00:02.50" in row]
+    assert len(first_window) == visible
+    for distance in range(1, visible):
+        assert f"\\pos(960,{1000 - 150 * distance})" in first_window[distance]
+        assert r"\1c&H00FFFFFF&" in first_window[distance]
+    # At the next current boundary Row2 has one event ending and one beginning.
+    row2 = [row for row in compiled["ass"].splitlines() if row.startswith("Dialogue") and "Row2" in row]
+    assert sum("0:00:02.50" in row for row in row2) == 2
+
+
+def test_line_stack_rejects_values_outside_two_to_four():
+    p = song()
+    for value in (1, 5, 2.5, True):
+        with pytest.raises(P.ProjectError, match="2, 3 or 4"):
+            S.set_display_settings(p, {"visible_lines": value})
 
 
 def test_alignment_independent_of_box_anchor_and_scale():

@@ -17,7 +17,9 @@ and the owner's request to continue HANDOFF.md.
 P03 timing/playback/review, P04 section vocals, P05 visual lyric placement and
 styling, and P06 dependable preview/export are implemented. Preserve the existing
 Streamlit shell, single audio clock, shared command history, presentation compiler
-and immutable export-job path. P07 covers controlled audio-quality/model work.
+and immutable export-job path. The current editor supports 2–4 visible lyric lines
+and playback controls for reviewing timing, highlighting, font and placement.
+P07 covers controlled audio-quality/model work.
 Read BUILD-STATUS.md for the current verification record.
 
 ## Product character and principles

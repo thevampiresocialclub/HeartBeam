@@ -21,6 +21,8 @@
   cursor: pointer;
 }
 .hb-btn:hover { background: rgba(130, 160, 210, 0.26); }
+.hb-btn.hb-primary { background: rgba(80, 130, 220, 0.32); border-color: rgba(115, 160, 235, 0.8); font-weight: 650; }
+.hb-btn.hb-primary:hover { background: rgba(80, 130, 220, 0.46); }
 .hb-btn.on {
   background: rgba(255, 215, 0, 0.22);
   border-color: rgba(255, 215, 0, 0.7);
@@ -64,6 +66,11 @@
 .hb-hint.err { color: rgb(240, 140, 120); opacity: 1; }
 .hb-audio { display: none; }
 .hb-preview { aspect-ratio: 16/9; width: 100%; position: relative; border-radius: 8px; overflow: hidden; margin: 12px 0 6px; }
+.hb-preview-head { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.hb-preview-copy { display: grid; gap: 2px; }
+.hb-preview-copy strong { font-size: 15px; }
+.hb-preview-copy span { font-size: 12px; opacity: .72; }
+.hb-preview-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .hb-ass { width: 100%; height: 100%; display: block; }
 .hb-ass { position: absolute; inset: 0; }
 .hb-background { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
@@ -86,3 +93,8 @@
 .hb-vocal label { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
 .hb-vocal-level { flex: 1; min-width: 70px; }
 .hb-vocal p { margin: 8px 0 0; font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 640px) {
+  .hb-preview-head { align-items: stretch; flex-direction: column; }
+  .hb-preview-actions { justify-content: flex-start; }
+}

@@ -151,6 +151,7 @@ DISPLAY_DEFAULTS = {
     "automatic": False,
     "advance_ms": 1500,
     "hold_ms": 600,
+    "visible_lines": 2,
     "show_upcoming": False,
     "upcoming_offset_y": -180,
 }
@@ -163,6 +164,8 @@ def display_settings(project):
     value = {**DISPLAY_DEFAULTS, **saved}
     if not isinstance(value["automatic"], bool) or not isinstance(value["show_upcoming"], bool):
         raise P.ProjectError("Automatic and upcoming lyric display settings must be on or off.")
+    if isinstance(value["visible_lines"], bool) or not isinstance(value["visible_lines"], int) or value["visible_lines"] not in (2, 3, 4):
+        raise P.ProjectError("Choose 2, 3 or 4 lyric lines on screen.")
     for key, low, high in (("advance_ms", 0, 10000), ("hold_ms", 0, 10000),
                            ("upcoming_offset_y", -1080, 1080)):
         item = value[key]
@@ -336,16 +339,16 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
         windows = [scheduled[line.id] for line in project.lines if line.id in scheduled]
         shortened = False
         for left, right in zip(windows, windows[1:]):
-            if left["end"] <= right["start"]:
-                continue
             if left["last"] <= right["first"]:
                 # One shared boundary avoids two current lines in the same slot.
                 # Prefer the requested lead where the real inter-phrase gap fits;
                 # otherwise the earlier phrase remains through its final word.
+                # Extend a shorter hold through long gaps so a multi-line stack
+                # does not blink off before the next phrase is ready to read.
                 boundary = max(left["last"], right["start"])
+                shortened = shortened or left["end"] > boundary or right["start"] < left["last"]
                 left["end"] = boundary
                 right["start"] = boundary
-                shortened = True
             else:
                 warnings.append("Adjacent sung phrases overlap in time. Both highlights remain visible; place those lines in separate screen positions if they collide.")
         if shortened:
@@ -415,18 +418,24 @@ def compile_project(project, duration_ms, root=None, *, draft=False):
         events.append(f"Dialogue: 0,{A._fmt_ass_time(start / 1000)},{A._fmt_ass_time(end / 1000)},{name},,0,0,0,,{tags}{''.join(parts)}")
         compiled_lines.append({"line": line, "name": name, "start": start, "end": end,
                                "first_sung": first_sung, "spec": spec, "layout": layout})
-    if schedule["show_upcoming"]:
-        # A line is upcoming only until its own current-line event begins. This
-        # gives a deterministic two-slot policy without double-displaying it.
-        for current, upcoming in zip(compiled_lines, compiled_lines[1:]):
-            begin, finish = current["start"], min(current["end"], upcoming["start"])
+    # Upcoming rows form a stable scrolling stack. Each row ends at the next
+    # current-line boundary, then moves down one slot. Events meet at the exact
+    # boundary, so the same lyric is never drawn twice in one frame.
+    for current_index, current in enumerate(compiled_lines):
+        for distance in range(1, schedule["visible_lines"]):
+            if current_index + distance >= len(compiled_lines):
+                break
+            upcoming = compiled_lines[current_index + distance]
+            begin, finish = current["start"], min(current["end"],
+                                                   compiled_lines[current_index + 1]["start"])
             if finish <= begin:
                 continue
             box = upcoming["spec"]["box"]
-            y = max(0, min(height, box["y"] + schedule["upcoming_offset_y"]))
+            y = max(0, min(height, box["y"] + schedule["upcoming_offset_y"] * distance))
             text_x = upcoming["layout"]["left"] + {"left": 0, "center": .5, "right": 1}[box["alignment"]] * box["width_px"]
             text = A.escape_text(wrapped_text(project, upcoming["line"])).replace("\n", r"\N")
-            tags = f"{{\\pos({text_x:g},{y:g})\\q{1 if box['wrap'] == 'auto' else 2}}}"
+            unsung = A.hex_to_ass_colour(upcoming["spec"]["colour"]["primary"])
+            tags = f"{{\\pos({text_x:g},{y:g})\\q{1 if box['wrap'] == 'auto' else 2}\\1c{unsung}}}"
             events.append(f"Dialogue: 0,{A._fmt_ass_time(begin / 1000)},{A._fmt_ass_time(finish / 1000)},{upcoming['name']},,0,0,0,,{tags}{text}")
     # Always register a known fallback, including empty/untimed projects.
     fallback, _, messages = F.resolve_face(project, root, {"family": "Noto Sans", "bold": False, "italic": False})

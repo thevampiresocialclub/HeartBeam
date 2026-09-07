@@ -1,3 +1,11 @@
+function hbLineTarget(lines, currentLineId, timeMs, direction) {
+  if (!lines?.length) return null;
+  let index = lines.findIndex(line => line.line_id === currentLineId);
+  if (index < 0) index = lines.findLastIndex(line => line.start_ms <= timeMs);
+  if (index < 0) return lines[0];
+  return lines[Math.max(0, Math.min(lines.length - 1, index + direction))];
+}
+
 // The AudioContext is the only playback clock. Browser-only audition state
 // survives Streamlit reruns; only selections and committed edits cross the bridge.
 export default function (component) {
@@ -18,7 +26,6 @@ export default function (component) {
   root.setAttribute('aria-label', 'Timing editor');
   root.innerHTML = `
     <div class="hb-toolbar">
-      <button class="hb-btn" data-act="play">Play</button>
       <button class="hb-btn" data-act="loop" aria-pressed="false">Loop selection</button>
       <label>Listen to <select class="hb-source"></select></label>
       <span class="hb-time"><span class="hb-cur">0:00.00</span> / <span class="hb-dur"></span></span>
@@ -31,6 +38,15 @@ export default function (component) {
     <div class="hb-toolbar"><label>Before (ms) <input class="hb-before" type="number" min="0" max="5000" step="50" value="250"></label>
       <label>After (ms) <input class="hb-after" type="number" min="0" max="5000" step="50" value="250"></label>
       <button class="hb-btn" data-act="undo">Undo</button><button class="hb-btn" data-act="redo">Redo</button></div>
+    <div class="hb-preview-head">
+      <div class="hb-preview-copy"><strong>Playback preview</strong><span>Check lyric timing, highlighting, font and placement.</span></div>
+      <div class="hb-preview-actions">
+        <button class="hb-btn" data-act="previous-line">Previous lyric</button>
+        <button class="hb-btn hb-primary" data-act="play">Play</button>
+        <button class="hb-btn" data-act="next-line">Next lyric</button>
+        <button class="hb-btn" data-act="restart">Restart</button>
+      </div>
+    </div>
     <div class="hb-preview"><canvas class="hb-ass" width="960" height="540" aria-label="Rendered lyric preview"></canvas></div>
     <div class="hb-preview-status" role="status">Loading lyric preview…</div>
     <input class="hb-position" aria-label="Song position" type="range" min="0" step="1" value="0">
@@ -92,6 +108,8 @@ export default function (component) {
     $('[data-act="undo"]').disabled = !bridge.data.can_undo || !!state.pendingCommand;
     $('[data-act="redo"]').disabled = !bridge.data.can_redo || !!state.pendingCommand;
     $('[data-act="seek"]').disabled = state.busy;
+    for (const action of ['previous-line', 'next-line', 'restart'])
+      $(`[data-act="${action}"]`).disabled = state.busy || !presentation.preview?.lines?.length;
     $('.hb-position').disabled = state.busy;
   }
   function seek(ms) {
@@ -285,6 +303,16 @@ export default function (component) {
     buttons();
   }
   playButton.addEventListener('click', togglePlay);
+  function navigateLine(direction) {
+    const target = hbLineTarget(presentation.preview?.lines, currentWord()?.line_id,
+                                audio.currentTime * 1000, direction);
+    if (!target) return;
+    select(state.words.find(word => word.id === target.word_id), true, false);
+    seek(target.start_ms);
+  }
+  $('[data-act="previous-line"]').addEventListener('click', () => navigateLine(-1));
+  $('[data-act="next-line"]').addEventListener('click', () => navigateLine(1));
+  $('[data-act="restart"]').addEventListener('click', () => seek(0));
   $('[data-act="loop"]').addEventListener('click', () => { state.looping = !state.looping; syncLoop(); if (state.looping && loopBounds()) seek(loopBounds()[0] * 1000); buttons(); });
   for (const selector of ['.hb-before', '.hb-after']) $(selector).addEventListener('change', e => {
     e.target.value = String(Math.max(0, Math.min(5000, Math.round(Number(e.target.value) || 0)))); syncLoop(); });

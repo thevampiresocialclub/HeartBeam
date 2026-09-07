@@ -346,6 +346,10 @@ review flags, undo/redo, configurable selection loops, and a rendered lyric
 preview. Save keeps corrected timing and review state. Export uses those current
 timings; unresolved words or timing conflicts must be fixed first.
 
+The **Playback preview** controls play or pause the shared song clock, restart at
+the beginning, and jump to the previous or next lyric display boundary. Use them
+to review timing, highlighting, font and placement together before rendering.
+
 Under **Section vocals**, target a lyric line, multiple lines, a named section,
 or a time range. **Vocal level** ranges from 0% (processed karaoke reference) to
 100% (original reference). Drag the live slider or enter an exact percentage.
@@ -392,8 +396,9 @@ Legacy TOML styles can be imported into song defaults.
 Positions, font sizes and outlines scale together from a 1920 × 1080 design
 canvas to 720p, 1080p or 4K. Visual changes make older videos stale while keeping
 prepared audio. **Lyric reading timing** can show each phrase before its first
-word, hold it afterward, and optionally show the next phrase in a second slot;
-word highlighting and vocal regions keep their musical timing.
+word, hold the stack between phrases, and show 2, 3 or 4 lyric lines at once.
+Vertical spacing controls where the upcoming rows sit. Word highlighting and
+vocal regions keep their musical timing.
 
 Rendering runs as a revision-labeled job, so the editor remains available.
 Progress and cancellation are shown in the app. A video is published only after

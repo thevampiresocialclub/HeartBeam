@@ -154,13 +154,13 @@ server on 8504. Do not kill a server without establishing which task owns it.
 12. Ignore revision, modified time and command-ID bookkeeping when deciding
     whether content is dirty. Undo back to saved content should show saved.
 
-## Next: P06
+## Current continuation point
 
-The owner now has direct placement, font/colour/outline controls, explicit
-wrapping, named presets, saved backgrounds and the same ASS in preview/export.
-P06 should build preview/export jobs around immutable snapshots, cancellation,
-progress, actionable failures and stale results. Read its roadmap for the full
-acceptance criteria. Keep the synchronous adapter usable while jobs are added.
+P06 is complete. The editor now also saves 2–4 visible lyric rows and provides a
+prominent playback preview with Play/Pause, Restart and previous/next lyric jumps.
+Those jumps use compiled display starts; the same ASS and concrete fonts still
+drive browser preview and native export. Upcoming rows explicitly use their
+resolved unsung colour and shift at one shared boundary.
 
 Visual revisions must not invalidate audio. `vocal_mix.mix_key()` identifies
 final audio by content; the browser ignores revision-only changes when audio
@@ -172,7 +172,7 @@ Deliberate limits: static TTF/OTF faces only; missing glyphs block final output;
 box/overflow guides are metric estimates, with libass providing actual text;
 no pixel identity claim across rasterizers/colour management. Browser video
 preview needs a supported codec. Media still occupies RAM, and undo history
-remains session-local. P06 job controls and the P07 model sweep are not done.
+remains session-local. P07's controlled model sweep and listening work are next.
 
 Keep P04's first version labelled **Vocal level**: 0% is the saved processed mix,
 100% restores its original reference. Avoid claims of perfect lead separation or
