@@ -17,6 +17,7 @@ def mix(
     vocal_gain: float = 1.0,
     backing_stem: np.ndarray | None = None,
     backing_boost: float = 0.0,
+    clip: bool = True,
 ) -> np.ndarray:
     """Subtract strategy: out = original - vocal_gain·mask·lead + backing_boost·mask·backing.
 
@@ -52,7 +53,12 @@ def mix(
                 f"backing_stem shape {backing_stem.shape} doesn't match original {original.shape}"
             )
         out = out + backing_boost * m * backing_stem
-    return np.clip(out, -1.0, 1.0).astype(np.float32, copy=False)
+    # clip=False is for the cached clean reference: the section mixer later
+    # blends clean -> original, and clipping here would bake in distortion that
+    # no downstream gain change can undo.
+    if clip:
+        out = np.clip(out, -1.0, 1.0)
+    return out.astype(np.float32, copy=False)
 
 
 def mix_replace(
@@ -60,6 +66,7 @@ def mix_replace(
     instrumental: np.ndarray,
     backing: np.ndarray,
     mask: np.ndarray,
+    clip: bool = True,
 ) -> np.ndarray:
     """Replace strategy: crossfade between original and (instrumental + backing).
 
@@ -96,4 +103,6 @@ def mix_replace(
 
     m = mask[:, None] if original.ndim == 2 else mask
     out = (1.0 - m) * original + m * karaoke
-    return np.clip(out, -1.0, 1.0).astype(np.float32, copy=False)
+    if clip:
+        out = np.clip(out, -1.0, 1.0)
+    return out.astype(np.float32, copy=False)

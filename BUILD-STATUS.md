@@ -8,14 +8,14 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 |---|---|
 | P01.1 Baseline repair | **Verified** |
 | P01.2 Project store | **Verified** |
-| P01.3 Lossless artifacts | Not started |
+| P01.3 Lossless artifacts | **Verified** |
 | P01.4 Visible project workflow | **Verified** |
+| **P01 overall** | **Complete** |
 | P02-P07 | Not started |
 
-**P01 is NOT complete: P01.3 remains.** The project format and the visible
-Open/Save workflow are done, so the GUI can now reopen yesterday's song and
-restyle it without rerunning separation. The lossless audio cache is still
-missing, which is what P04's section vocal mixer will need.
+**P01 is complete.** A song can be generated, saved, closed, reopened and
+restyled without rerunning separation, and the lossless audio needed by the later
+section mixer is retained with provenance.
 
 **Phases were completed in the order P01.1, P01.2, P01.4, P01.3.** P01.4 was
 brought forward because its acceptance criterion -- reopen a song without
@@ -183,16 +183,91 @@ test renders an MP4 from that opened project and probes its duration.
 
 ---
 
-## Next: P01.3 - retain lossless processing artifacts
+## P01.3 - Lossless processing artifacts: VERIFIED
+
+`heartbeam/audio_cache.py` persists five roles on a common sample basis:
+`original`, `lead`, `backing`, `instrumental`, and `clean` -- the processed
+karaoke mix **before** loudness normalisation and **before** clipping.
+
+`clean` is the one the old pipeline threw away and the one P04 depends on. The
+section mixer blends `clean + restore * (original - clean)`, which only reaches
+the original at restore=1 if `clean` sits at the same gain reference as
+`original`. Reconstructing it from the normalised MP3 would make the scale
+inconsistent and add encoding loss.
+
+To capture it, `mix()` and `mix_replace()` gained `clip=False`. The pipeline now
+mixes once unclipped, caches that, and clips a copy for the MP3 deliverable.
+Default behaviour is unchanged: `clip=True` is exactly the previous code path.
+
+Validity is two-part: the source audio hash and a fingerprint of the settings
+that determine the audio. Style, placement and export settings are deliberately
+excluded from that fingerprint, so restyling never invalidates the stems. The
+manifest is written last and a stale manifest is removed first, so an interrupted
+or failed write reads as *absent* rather than as valid-but-wrong.
+
+### Validation
+
+16 unit tests in `tests/test_audio_cache.py`, plus a real pipeline run on the
+3:27 fixture:
+
+```
+heartbeam tests/fixtures/Helena.mp3 tests/fixtures/lyrics.txt -o <tmp> --separator pop
+-> 2m14s, cache written (344 MB, wav)
+-> mask coverage lyric=77.9% energy=89.5% combined=91.1%   (identical to the
+   pre-change run, confirming the clip refactor changed no output)
+-> loudness normalize -11.1 -> -14.0 LUFS  (identical)
+```
+
+Cache checks against that real run:
+
+| Check | Result |
+|---|---|
+| same source + same settings | `(True, 'valid')` |
+| changed `vocal_gain` | rejected: processing settings changed |
+| changed separator preset | rejected: processing settings changed |
+| changed source audio | rejected: source audio changed |
+| `clean` peak | 1.103 -- confirmed unclipped |
+| `clean + 1.0*(original-clean) == original` | exact |
+
+That last row is the P04 identity: at restore=1 the blend returns the original
+sample-for-sample.
+
+### Known limitations
+
+- **Size.** 344 MB per song at wav/float32, roughly 100 MB per minute. `--cache-format
+  flac` is about 40% of that but is 24-bit rather than bit-exact float.
+  `--no-audio-cache` disables it. No pruning policy exists yet.
+- A cache write failure is logged and swallowed rather than failing the run: a
+  completed separation must not be lost to a full disk. The consequence is that
+  later remixing would need a rerun, which the warning says.
+- The GUI does not yet read from the cache. Nothing consumes it until P04; P01.3
+  only requires that it exists, is valid and is readable.
+- `read_role` loads a whole stem into memory. Streaming/windowed reads are a P03
+  or P04 concern.
+
+### Changed files
+
+`heartbeam/audio_cache.py` (new), `heartbeam/cli.py` (cache wiring, two flags),
+`heartbeam/mix.py` (optional clipping), `tests/test_audio_cache.py` (new).
+
+---
+
+## Next: P02 - lyrics text editor and alignment preservation
 
 
-Prerequisites met. Read `08-SHARED-CONTRACT.md` sections 6 and 8 before starting.
 
-The only phase left in P01: persist original PCM, separated stems and an
-unnormalized/unclipped processed reference on a common sample basis, with audio
-hashes, sample rate, channels, sample count, model identities and settings
-recorded. A mismatch must invalidate dependent caches rather than silently
-reusing them, and interrupted jobs must not masquerade as valid caches.
+All P01 prerequisites are met. Read `08-SHARED-CONTRACT.md` sections 3 and 8.
+
+P02 delivers the lyrics text box: paste or type a whole song instead of uploading
+a .txt, preserve line structure, and keep unchanged word IDs and their timing
+through edits. The store already has what it needs -- stable IDs, an immutable
+original alignment separate from edits, and `unresolved_words()` for review --
+so P02 is mostly an editing surface plus a reconciliation rule for inserted and
+replaced words.
+
+Two things to carry in from the review: never silently rerun alignment across
+manually corrected words after a small edit, and distinguish display-only changes
+(punctuation, capitalisation, re-wrapping) from changes to the sung words.
 
 Note for P01.3: `separate.py` currently discards stems into a `TemporaryDirectory`
 unless `--keep-stems` is passed, and the mix path normalizes and encodes to MP3

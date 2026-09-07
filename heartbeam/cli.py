@@ -70,6 +70,13 @@ def _build_parser() -> argparse.ArgumentParser:
                         "a preset that enables it. (preset default)")
     p.add_argument("--no-lufs", action="store_true",
                    help="disable LUFS normalization even if the preset enables it")
+    p.add_argument("--no-audio-cache", action="store_true",
+                   help="skip writing the lossless audio cache (original/stems/clean "
+                        "reference). The cache is what lets later edits remix without "
+                        "rerunning separation; it costs roughly 100 MB per minute of song.")
+    p.add_argument("--cache-format", choices=["wav", "flac"], default="wav",
+                   help="lossless cache format. wav is float32 and bit-exact; flac is "
+                        "24-bit and about 40%% of the size (default: wav)")
     p.add_argument("--keep-stems", action="store_true", help="also write stems/lead.wav, backing.wav, instrumental.wav")
     p.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto", help="(default: auto)")
     p.add_argument(
@@ -331,20 +338,73 @@ def main(argv: list[str] | None = None) -> int:
     else:
         m = m_lyric
 
+    # Mix once WITHOUT clipping. That unclipped, un-normalised result is the
+    # "clean reference" the section mixer later blends towards the original, so
+    # it has to be captured at the same gain reference as the source. The
+    # clipped copy below is only for the MP3 deliverable.
     if args.mix_strategy == "replace":
         log.info("mixing karaoke output (replace: (1-m)·original + m·(instrumental+backing))…")
-        karaoke = mix_mod.mix_replace(original, instrumental, backing, m)
+        clean_reference = mix_mod.mix_replace(original, instrumental, backing, m, clip=False)
     else:
         log.info(
             "mixing karaoke output (subtract: original − %.2f·m·lead + %.2f·m·backing)…",
             args.vocal_gain, args.backing_boost,
         )
-        karaoke = mix_mod.mix(
+        clean_reference = mix_mod.mix(
             original, lead, m,
             vocal_gain=args.vocal_gain,
             backing_stem=backing if args.backing_boost != 0.0 else None,
             backing_boost=args.backing_boost,
+            clip=False,
         )
+    import numpy as _np
+    karaoke = _np.clip(clean_reference, -1.0, 1.0).astype(_np.float32, copy=False)
+
+    if not args.no_audio_cache:
+        from . import audio_cache as cache_mod
+        cache_dir = args.out / "cache"
+        cache_settings = {
+            "separator": args.separator,
+            "aligner": aligner_id,
+            "whisper_model": args.whisper_model,
+            "mix_strategy": args.mix_strategy,
+            "vocal_gain": args.vocal_gain,
+            "backing_boost": args.backing_boost,
+            "pad_ms": args.pad_ms,
+            "crossfade_ms": args.crossfade_ms,
+            "merge_gap_ms": args.merge_gap_ms,
+            "energy_threshold": args.energy_threshold,
+            "energy_window_ms": args.energy_window_ms,
+            "sample_rate": sr,
+        }
+        try:
+            manifest = cache_mod.write_cache(
+                cache_dir,
+                {
+                    "original": original,
+                    "lead": lead,
+                    "backing": backing,
+                    "instrumental": instrumental,
+                    "clean": clean_reference,
+                },
+                sample_rate=sr,
+                source_sha256=cache_mod.file_sha256(args.song),
+                settings=cache_settings,
+                provenance={
+                    "separator_preset": args.separator,
+                    "aligner": aligner_id,
+                    "whisper_model": args.whisper_model,
+                },
+                audio_format=args.cache_format,
+            )
+            size_mb = cache_mod.cache_size_bytes(cache_dir, manifest) / (1024 * 1024)
+            log.info("wrote lossless audio cache: %s (%.0f MB, format=%s)",
+                     cache_dir, size_mb, args.cache_format)
+        except Exception as exc:  # noqa: BLE001 - the cache is an optimisation
+            # A cache failure must not lose the user a completed separation.
+            log.warning("could not write the audio cache (%s: %s). The karaoke "
+                        "output is unaffected; later remixing will need a rerun.",
+                        type(exc).__name__, exc)
 
     if args.target_lufs is not None:
         from . import lufs as lufs_mod
