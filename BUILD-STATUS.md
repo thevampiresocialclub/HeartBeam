@@ -252,6 +252,36 @@ sample-for-sample.
 
 ---
 
+## Parked: model A/B sweep (belongs to P07)
+
+Tooling is ready and deliberately unused. `scripts/sweep.py` renders one song
+through six configurations and prints a mask-coverage table; `models.py` carries
+`rock-becruily` and `rock-gabox2`, which differ from `rock` only in the Pass-2
+karaoke splitter, so a comparison changes one variable. All five separator models
+plus faster-whisper large-v3 are downloaded (9.3 GB under ~/.heartbeam/models).
+
+Deferred on purpose:
+
+- The build program schedules model evaluation as P07 and states it must not
+  delay a usable editor.
+- P04's section vocal mixer changes what "good separation" has to mean. Once a
+  verse can be dialled to 20% lead by hand, a mediocre separation is a two-slider
+  fix rather than a model-choice problem. Tuning defaults now would optimise
+  against a problem the editor is about to reshape.
+- One six-way listen on one song is not evidence enough to move a default. The
+  review is explicit that neither "rock is always best" nor "more subtraction
+  gain removes more vocal" holds as a rule, and that mask coverage and checkpoint
+  filenames are not sound-quality scores.
+
+Interim guidance for a bad-sounding song: switch the genre dropdown from pop to
+rock and regenerate. Rock's models are on disk.
+
+When P07 arrives: compare short passages at matched loudness, listen separately
+for lead residue, lost backing vocals and instrument damage, and reuse a common
+first separation pass when comparing second-pass models.
+
+---
+
 ## Next: P02 - lyrics text editor and alignment preservation
 
 
