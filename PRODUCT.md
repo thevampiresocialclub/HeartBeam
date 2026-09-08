@@ -26,6 +26,9 @@ review. Lyric, timing or linked-source changes invalidate approval. The desktop 
 playback, video and waveform on the left and independently scrolling lyric,
 appearance, timing, vocal and export controls on the right. Play must be visible
 at the top and all preview surfaces must follow the same audio clock.
+The waveform is the song-position control: click or drag to seek without
+changing lyric timing. Its playhead follows playback, including when zoomed,
+and ordinary timing edits and undo preserve the player's position and state.
 Lyric timing has two sources: optional LRCLIB lookup, checked against the actual
 recording, and local matching against complete vocals. Match sung phrases before
 words. Missing or ambiguous words stay visible for review. A user can bound and

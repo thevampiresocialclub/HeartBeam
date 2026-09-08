@@ -6,6 +6,58 @@ function hbLineTarget(lines, currentLineId, timeMs, direction) {
   return lines[Math.max(0, Math.min(lines.length - 1, index + direction))];
 }
 
+// Playback gestures have no access to lyric commands. Coordinates are converted
+// through the visible viewport, including horizontal zoom and CSS scaling.
+class HBWaveformSeek {
+  constructor(surface, options) { this.surface = surface; this.options = options; this.pointer = null; }
+  get active() { return this.pointer !== null; }
+  position(event) {
+    const rect = this.surface.getBoundingClientRect(), view = this.options.geometry();
+    const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / Math.max(1, rect.width)));
+    return Math.round(Math.max(0, Math.min(view.durationMs,
+      (view.scrollLeft + fraction * view.viewport) / Math.max(1, view.width) * view.durationMs)));
+  }
+  down(event) {
+    if (event.button !== 0 || event.isPrimary === false || this.active || !this.options.enabled()) return;
+    event.preventDefault(); this.surface.focus({preventScroll: true});
+    this.pointer = event.pointerId; this.lastMs = null;
+    this.surface.setPointerCapture(event.pointerId); this.move(event);
+  }
+  move(event) {
+    if (event.pointerId !== this.pointer) return;
+    if (!this.options.enabled()) { this.cancel(); return; }
+    const ms = this.position(event);
+    if (ms !== this.lastMs) { this.lastMs = ms; this.options.seek(ms); }
+  }
+  up(event) { if (event.pointerId === this.pointer) { this.move(event); this.cancel(); } }
+  cancel() {
+    const pointer = this.pointer; this.pointer = null;
+    if (pointer !== null && this.surface.hasPointerCapture(pointer)) this.surface.releasePointerCapture(pointer);
+  }
+  keyDown(event) {
+    if (!this.options.enabled()) return;
+    const view = this.options.geometry(), step = event.shiftKey ? 100 : 1000;
+    const moves = {ArrowLeft:-step, ArrowDown:-step, ArrowRight:step, ArrowUp:step, PageDown:-10000, PageUp:10000};
+    if (event.key === ' ' || event.code === 'Space') {
+      event.preventDefault(); event.stopPropagation(); this.options.play(); return;
+    }
+    let ms;
+    if (event.key === 'Home') ms = 0;
+    else if (event.key === 'End') ms = view.durationMs;
+    else if (event.key in moves) ms = this.options.currentMs() + moves[event.key];
+    else return;
+    event.preventDefault(); event.stopPropagation();
+    this.options.seek(Math.max(0, Math.min(view.durationMs, ms)));
+  }
+}
+
+function hbFollowPosition(ms, duration, width, viewport, left) {
+  const x = ms / Math.max(1, duration) * width;
+  if (x < left || x > left + viewport - 16)
+    return Math.max(0, Math.min(width - viewport, x - viewport * .2));
+  return left;
+}
+
 // The AudioContext is the only playback clock. Browser-only audition state
 // survives Streamlit reruns; only selections and committed edits cross the bridge.
 export default function (component) {
@@ -40,8 +92,13 @@ export default function (component) {
     </div>
     <div class="hb-preview"><canvas class="hb-ass" width="960" height="540" aria-label="Rendered lyric preview"></canvas></div>
     <div class="hb-preview-status" role="status">Loading lyric preview…</div>
-    <div class="hb-toolbar">
+    <div class="hb-toolbar hb-waveform-tools">
+      <strong>Waveform · click or drag to seek</strong>
       <label>Zoom <input class="hb-zoom" type="range" min="1" max="20" step="1" value="1"></label>
+      <label><input class="hb-follow" type="checkbox" checked> Follow playback</label>
+    </div>
+    <div class="hb-scroll"><div class="hb-track"><canvas class="hb-canvas" tabindex="0" role="slider" aria-label="Waveform song position" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0" aria-orientation="horizontal" aria-description="Click or drag the waveform to seek. Arrow keys seek one second, Shift seeks a tenth of a second. Home and End go to the start and end. Space plays or pauses. Lyric timing blocks are below the waveform."></canvas></div></div>
+    <div class="hb-toolbar hb-seek-tools">
       <label>Seek seconds <input class="hb-seek" type="number" min="0" step="0.01" value="0"></label>
       <button class="hb-btn" data-act="seek">Seek</button>
       <span class="hb-sel"></span>
@@ -49,8 +106,6 @@ export default function (component) {
     <div class="hb-toolbar"><button class="hb-btn" data-act="loop" aria-pressed="false">Loop selection</button><label>Before (ms) <input class="hb-before" type="number" min="0" max="5000" step="50" value="250"></label>
       <label>After (ms) <input class="hb-after" type="number" min="0" max="5000" step="50" value="250"></label>
       <button class="hb-btn" data-act="undo">Undo</button><button class="hb-btn" data-act="redo">Redo</button></div>
-    <input class="hb-position" aria-label="Song position" type="range" min="0" step="1" value="0">
-    <div class="hb-scroll"><div class="hb-track"><canvas class="hb-canvas" aria-label="Waveform and word timing"></canvas></div></div>
     <div class="hb-vocal-lane" aria-label="Vocal regions"></div>
     <div class="hb-vocal" hidden><strong class="hb-vocal-title"></strong>
       <label>Vocal level <input class="hb-vocal-level" type="range" min="0" max="100" step="1" value="0"><output class="hb-vocal-value">0%</output></label>
@@ -66,7 +121,7 @@ export default function (component) {
   const audio = new HBTransport();
   const canvas = $('.hb-canvas'), ctx = canvas.getContext('2d'), scroll = $('.hb-scroll');
   const sourceSelect = $('.hb-source'), playButton = $('[data-act="play"]');
-  const hint = 'Drag a word or its edges. Arrow keys nudge 10 ms (Shift: 100 ms). Space plays. Ctrl+Z undoes. Text fields keep their normal keys.';
+  const hint = 'Click or drag the waveform to seek. Drag lyric blocks below it to edit timing. With the waveform focused, arrows seek; with a word selected, arrows nudge timing. Space plays. Ctrl+Z undoes.';
   const state = { words: [], sources: [], durationMs: 0, selectedId: null,
     zoom: 1, looping: false, drag: null, sourceId: null, sourceKey: null,
     peaks: {mins: [], maxs: []}, busy: false, pending: null, switchEpoch: 0,
@@ -82,6 +137,12 @@ export default function (component) {
   const msToX = ms => ms / (state.durationMs || 1) * width();
   const xToMs = x => x / width() * state.durationMs;
   const wordAt = ms => state.words.find(w => w.start_ms != null && w.end_ms != null && ms >= w.start_ms && ms < w.end_ms);
+  const waveformSeek = new HBWaveformSeek(canvas, {
+    geometry: () => ({durationMs: state.durationMs, width: width(), viewport: scroll.clientWidth, scrollLeft: scroll.scrollLeft}),
+    enabled: () => !state.busy && !!state.sourceId,
+    currentMs: () => audio.currentTime * 1000,
+    seek: ms => seek(ms, true), play: togglePlay,
+  });
   const presentation = new HBPresentation(root, audio, {
     commit, select: (id, notify, shouldSeek) => select(state.words.find(w => w.id === id), notify, shouldSeek),
     pending: () => !!state.pendingCommand, selected: () => state.selectedId,
@@ -117,14 +178,21 @@ export default function (component) {
     $('[data-act="seek"]').disabled = state.busy;
     for (const action of ['previous-line', 'next-line', 'restart'])
       $(`[data-act="${action}"]`).disabled = state.busy || !presentation.preview?.lines?.length;
-    $('.hb-position').disabled = state.busy;
+    canvas.setAttribute('aria-disabled', String(state.busy || !state.sourceId));
   }
-  function seek(ms) {
+  function seek(ms, explicit = false) {
+    if (!Number.isFinite(ms)) return;
     const seconds = Math.max(0, Math.min(state.durationMs, ms)) / 1000;
+    if (explicit) { $('.hb-seek').dataset.editing = ''; $('.hb-seek').value = seconds.toFixed(2); }
+    // An explicit seek outside a loop must land where the user points, rather
+    // than wrapping straight back to the old lyric selection.
+    if (explicit && audio.loopRange && (seconds < audio.loopRange[0] || seconds >= audio.loopRange[1])) {
+      state.looping = false; syncLoop(); buttons();
+    }
     if (state.busy && state.pending) state.pending.time = seconds;
     else if (audio.readyState) audio.currentTime = seconds;
     const x = msToX(ms);
-    if (x < scroll.scrollLeft || x > scroll.scrollLeft + scroll.clientWidth)
+    if (!waveformSeek.active && (x < scroll.scrollLeft || x > scroll.scrollLeft + scroll.clientWidth))
       scroll.scrollLeft = Math.max(0, x - scroll.clientWidth / 3);
     render();
   }
@@ -134,9 +202,9 @@ export default function (component) {
     if (word?.start_ms == null && !state.phraseLoop) state.looping = false;
     $('.hb-sel').textContent = word ? `Selected: ${word.text}${word.start_ms == null ? ' (needs timing)' : ''}` : '';
     for (const [id, button] of wordButtons) button.setAttribute('aria-pressed', String(id === state.selectedId));
+    syncLoop();
     if (shouldSeek && word?.start_ms != null) seek(word.start_ms);
     buttons(); draw();
-    syncLoop();
     // Selection is persistent component state. A one-shot trigger can be lost
     // when a nearby Python button causes another rerun before it is consumed.
     if (notify && word) bridge.setStateValue('selection', {
@@ -238,9 +306,12 @@ export default function (component) {
     canvas.width = Math.round(viewport * dpr); canvas.height = Math.round(150 * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw(); void loadPeaks();
   }
-  function draw() {
+  function draw(ms = audio.currentTime * 1000) {
     const viewport = scroll.clientWidth, fullWidth = width(), offset = scroll.scrollLeft;
+    const playhead = msToX(ms) - offset;
     ctx.clearRect(0, 0, viewport, 150);
+    ctx.fillStyle = 'oklch(65% .11 255 / .16)';
+    ctx.fillRect(0, 0, Math.max(0, Math.min(viewport, playhead)), 96);
     const {mins, maxs} = state.peaks, n = mins.length;
     if (n) {
       ctx.strokeStyle = 'rgba(130,150,180,0.85)'; ctx.lineWidth = 1; ctx.beginPath();
@@ -249,10 +320,14 @@ export default function (component) {
         const end = Math.min(n, Math.max(start + 1, Math.ceil((x + offset + 1) / fullWidth * n)));
         let lo = mins[start], hi = maxs[start];
         for (let i = start + 1; i < end; i++) { lo = Math.min(lo, mins[i]); hi = Math.max(hi, maxs[i]); }
-        ctx.moveTo(x + .5, 46 - hi / 127 * 45); ctx.lineTo(x + .5, 46 - lo / 127 * 45);
+        ctx.moveTo(x + .5, 59 - hi / 127 * 35); ctx.lineTo(x + .5, 59 - lo / 127 * 35);
       } ctx.stroke();
     }
     ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'oklch(88% .02 255)';
+    ctx.textAlign = 'left'; ctx.fillText(fmt(xToMs(offset)), 6, 12);
+    ctx.textAlign = 'right'; ctx.fillText(fmt(xToMs(offset + viewport)), viewport - 6, 12);
+    ctx.textAlign = 'left';
     for (const word of state.words) {
       if (word.start_ms == null || word.end_ms == null) continue;
       const left = msToX(word.start_ms) - offset, right = Math.max(left + 2, msToX(word.end_ms) - offset);
@@ -265,8 +340,10 @@ export default function (component) {
       ctx.save(); ctx.beginPath(); ctx.rect(left + 2, 99, Math.max(0, right - left - 4), 47); ctx.clip();
       ctx.fillStyle = 'rgba(235,240,250,.95)'; ctx.fillText(word.text, left + 4, 122); ctx.restore();
     }
-    const x = msToX(audio.currentTime * 1000) - offset;
+    const x = Math.max(1, Math.min(viewport - 1, playhead));
+    if (playhead < 0 || playhead > viewport) return;
     ctx.strokeStyle = 'rgba(255,90,120,.95)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 150); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,90,120,.95)'; ctx.beginPath(); ctx.moveTo(x-5, 0); ctx.lineTo(x+5, 0); ctx.lineTo(x, 8); ctx.fill();
   }
   function hitTest(x) {
     for (const word of state.words) {
@@ -276,20 +353,25 @@ export default function (component) {
     }
     const word = wordAt(xToMs(x)); return word ? {word, edge: null} : null;
   }
-  const localX = event => event.clientX - canvas.getBoundingClientRect().left + scroll.scrollLeft;
-  canvas.addEventListener('mousedown', event => {
-    if (state.busy || state.pendingCommand) return;
-    if (event.clientY - canvas.getBoundingClientRect().top < 99) { seek(xToMs(localX(event))); return; }
+  const localX = event => (event.clientX - canvas.getBoundingClientRect().left) / Math.max(1, canvas.getBoundingClientRect().width) * scroll.clientWidth + scroll.scrollLeft;
+  const wordLane = event => (event.clientY - canvas.getBoundingClientRect().top) / Math.max(1, canvas.getBoundingClientRect().height) * 150 >= 99;
+  canvas.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || event.isPrimary === false || state.busy || waveformSeek.active || state.drag) return;
+    if (!wordLane(event)) { waveformSeek.down(event); return; }
+    if (state.pendingCommand) return;
     event.preventDefault(); root.focus({preventScroll: true});
     const x = localX(event), hit = hitTest(x);
-    if (!hit) { seek(xToMs(x)); return; }
+    if (!hit) { waveformSeek.down(event); return; }
     if (event.shiftKey) { state.looping = true; select(hit.word, true, true); return; }
     select(hit.word, false, false);
-    state.drag = {wordId: hit.word.id, edge: hit.edge || 'both', startX: x, origStart: hit.word.start_ms, origEnd: hit.word.end_ms};
+    state.drag = {wordId: hit.word.id, edge: hit.edge || 'both', startX: x, origStart: hit.word.start_ms, origEnd: hit.word.end_ms, pointer: event.pointerId};
+    canvas.setPointerCapture(event.pointerId);
   });
-  window.addEventListener('mousemove', event => {
+  window.addEventListener('pointermove', event => {
+    if (waveformSeek.active) { waveformSeek.move(event); return; }
     const x = localX(event), drag = state.drag;
-    if (!drag) { if (event.target === canvas) canvas.style.cursor = hitTest(x)?.edge ? 'ew-resize' : 'pointer'; return; }
+    if (!drag) { if (event.composedPath().includes(canvas)) canvas.style.cursor = wordLane(event) && hitTest(x)?.edge ? 'ew-resize' : 'pointer'; return; }
+    if (event.pointerId !== drag.pointer) return;
     const word = state.words.find(w => w.id === drag.wordId); if (!word) return;
     const delta = xToMs(x) - xToMs(drag.startX);
     if (drag.edge === 'start') word.start_ms = Math.round(Math.max(0, Math.min(drag.origStart + delta, word.end_ms - 10)));
@@ -298,12 +380,27 @@ export default function (component) {
       word.start_ms = drag.origStart + shift; word.end_ms = drag.origEnd + shift; }
     draw();
   }, {signal});
-  window.addEventListener('mouseup', () => {
-    const drag = state.drag; if (!drag) return; state.drag = null;
+  window.addEventListener('pointerup', event => {
+    waveformSeek.up(event);
+    const drag = state.drag; if (!drag || event.pointerId !== drag.pointer) return; state.drag = null;
+    if (canvas.hasPointerCapture(drag.pointer)) canvas.releasePointerCapture(drag.pointer);
     const word = state.words.find(w => w.id === drag.wordId); if (!word) return;
     if (word.start_ms === drag.origStart && word.end_ms === drag.origEnd) { select(word, true, true); return; }
     commit('timing', {word_id: word.id, start_ms: word.start_ms, end_ms: word.end_ms});
   }, {signal});
+  function cancelGesture() {
+    waveformSeek.cancel();
+    const drag = state.drag; state.drag = null;
+    if (!drag) return;
+    const word = state.words.find(w => w.id === drag.wordId);
+    if (word) { word.start_ms = drag.origStart; word.end_ms = drag.origEnd; }
+    if (canvas.hasPointerCapture(drag.pointer)) canvas.releasePointerCapture(drag.pointer);
+    draw();
+  }
+  canvas.addEventListener('lostpointercapture', cancelGesture);
+  window.addEventListener('pointercancel', cancelGesture, {signal});
+  window.addEventListener('blur', cancelGesture, {signal});
+  canvas.addEventListener('keydown', event => waveformSeek.keyDown(event));
   async function togglePlay() {
     if (state.busy || !state.sourceId) return;
     if (!audio.paused) audio.pause();
@@ -320,19 +417,20 @@ export default function (component) {
   }
   $('[data-act="previous-line"]').addEventListener('click', () => navigateLine(-1));
   $('[data-act="next-line"]').addEventListener('click', () => navigateLine(1));
-  $('[data-act="restart"]').addEventListener('click', () => seek(0));
+  $('[data-act="restart"]').addEventListener('click', () => seek(0, true));
   $('[data-act="loop"]').addEventListener('click', () => { state.looping = !state.looping; syncLoop(); if (state.looping && loopBounds()) seek(loopBounds()[0] * 1000); buttons(); });
   for (const selector of ['.hb-before', '.hb-after']) $(selector).addEventListener('change', e => {
     e.target.value = String(Math.max(0, Math.min(5000, Math.round(Number(e.target.value) || 0)))); syncLoop(); });
   $('[data-act="undo"]').addEventListener('click', () => commit('undo'));
   $('[data-act="redo"]').addEventListener('click', () => commit('redo'));
-  $('[data-act="seek"]').addEventListener('click', () => seek(Number($('.hb-seek').value) * 1000));
-  $('.hb-seek').addEventListener('keydown', e => { if (e.key === 'Enter') seek(Number(e.target.value) * 1000); });
-  $('.hb-position').addEventListener('input', e => seek(Number(e.target.value)));
+  $('[data-act="seek"]').addEventListener('click', () => { seek(Number($('.hb-seek').value) * 1000, true); $('.hb-seek').dataset.editing = ''; });
+  $('.hb-seek').addEventListener('input', e => { e.target.dataset.editing = 'true'; });
+  $('.hb-seek').addEventListener('keydown', e => { if (e.key === 'Enter') { seek(Number(e.target.value) * 1000, true); e.target.dataset.editing = ''; } });
+  $('.hb-seek').addEventListener('blur', e => { if (!e.target.dataset.editing) render(); });
   sourceSelect.addEventListener('change', e => { void switchSource(e.target.value); });
   $('.hb-rate').addEventListener('change', e => { audio.playbackRate = Number(e.target.value); if (state.pending) state.pending.rate = audio.playbackRate; });
   $('.hb-zoom').addEventListener('input', e => { const start = xToMs(scroll.scrollLeft); state.zoom = Number(e.target.value); resize(); scroll.scrollLeft = msToX(start); draw(); });
-  scroll.addEventListener('scroll', draw);
+  scroll.addEventListener('scroll', () => draw());
   function shortcuts(e) {
     if (e.target.closest('input, textarea, select, summary, [contenteditable="true"]')) return;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); commit(e.shiftKey ? 'redo' : 'undo'); return; }
@@ -352,13 +450,20 @@ export default function (component) {
   audio.addEventListener('error', () => { if (!state.busy) status(`Audio failed (code ${audio.error?.code || '?'})`, true); });
   function render() {
     let ms = audio.currentTime * 1000;
+    if (!audio.paused && $('.hb-follow').checked && !waveformSeek.active && !state.drag)
+      scroll.scrollLeft = hbFollowPosition(ms, state.durationMs, width(), scroll.clientWidth, scroll.scrollLeft);
     presentation.render(ms);
-    $('.hb-cur').textContent = fmt(ms); $('.hb-position').value = String(Math.round(ms));
+    $('.hb-cur').textContent = fmt(ms);
+    if (!$('.hb-seek').dataset.editing && $('.hb-seek').getRootNode().activeElement !== $('.hb-seek'))
+      $('.hb-seek').value = (ms / 1000).toFixed(2);
+    canvas.setAttribute('aria-valuenow', String(Math.round(ms)));
+    canvas.setAttribute('aria-valuetext', `${fmt(ms)} of ${fmt(state.durationMs)}`);
+    canvas.dataset.clockMs = String(Math.round(ms));
     const singing = wordAt(ms)?.id;
     for (const [id, button] of wordButtons) button.classList.toggle('singing', id === singing);
     root.dataset.clockMs = String(Math.round(ms)); root.dataset.sourceId = state.sourceId || '';
     root.dataset.selectedId = state.selectedId || ''; root.dataset.zoom = String(state.zoom);
-    draw();
+    draw(ms);
   }
   function tick() {
     if (!root.isConnected) { destroy(); return; }
@@ -367,7 +472,7 @@ export default function (component) {
   function frame() { if (signal.aborted) return; tick(); rafId = requestAnimationFrame(frame); }
   const interval = setInterval(tick, 60); // rAF can stop while audio continues
   const observer = new ResizeObserver(resize); observer.observe(scroll);
-  function destroy() { controller.abort(); sourceAbort?.abort(); peakAbort?.abort(); clearInterval(interval); cancelAnimationFrame(rafId); observer.disconnect(); audio.dispose(); releaseControls(); root.remove(); }
+  function destroy() { cancelGesture(); controller.abort(); sourceAbort?.abort(); peakAbort?.abort(); clearInterval(interval); cancelAnimationFrame(rafId); observer.disconnect(); audio.dispose(); releaseControls(); root.remove(); }
   async function updateMix(data) {
     state.mix = data;
     $('.hb-vocal').hidden = !data?.selection;
@@ -435,7 +540,7 @@ export default function (component) {
       sourceSelect.dataset.signature = signature;
     }
     if (state.sourceId) sourceSelect.value = state.sourceId;
-    $('.hb-dur').textContent = fmt(state.durationMs); $('.hb-position').max = String(state.durationMs); $('.hb-seek').max = String(state.durationMs / 1000);
+    $('.hb-dur').textContent = fmt(state.durationMs); canvas.setAttribute('aria-valuemax', String(state.durationMs)); $('.hb-seek').max = String(state.durationMs / 1000);
     rebuildLyrics();
     // Ignore the stale echo immediately after a local selection; Python's next
     // explicit navigation changes this value and seeks using the same clock.

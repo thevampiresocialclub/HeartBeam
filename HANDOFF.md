@@ -28,7 +28,7 @@ Read `06-PREVIEW-EXPORT.md`, `docs/PRESENTATION.md`,
 
 ```powershell
 .venv\Scripts\python.exe -m pytest -q -m "not slow"
-node --test tests/audio_transport.test.mjs tests/presentation.test.mjs tests/timeline_navigation.test.mjs tests/workstation.test.mjs
+node --test tests/audio_transport.test.mjs tests/presentation.test.mjs tests/timeline_navigation.test.mjs tests/workstation.test.mjs tests/waveform_seek.test.mjs
 .venv\Scripts\heartbeam-gui.exe
 # Or use an explicit local port:
 .venv\Scripts\python.exe -m streamlit run heartbeam/gui.py --server.address=127.0.0.1 --server.port=8504 --server.headless=true
@@ -40,6 +40,18 @@ node --test tests/audio_transport.test.mjs tests/presentation.test.mjs tests/tim
 
 The Node command is optional development verification, not an application build
 step or an end-user dependency. The WASM renderer and fonts ship in the wheel.
+The waveform now replaces the separate song-position slider. Pointer scrubbing,
+keyboard seeking, auto-follow and the time field share HBTransport's clock.
+Do not wrap the workstation in `st.empty().container()`: clearing that container
+recreates the audio player on ordinary timing edits and undo. Page approval is
+already handled before rendering, and tabs have separate stable keys for each
+editing mode. The full GUI workflow tests cover those transitions.
+`scripts/waveform_browser_proof.mjs` is an optional Playwright proof against a
+disposable MP3/video project named `Waveform playback test`. It verifies both
+editing pages, dragging, synchronization, timing edits/undo while playing, loops,
+and source switching. `HEARTBEAM_PLAYWRIGHT` can select a bundled installation;
+Playwright is not an end-user dependency. The script closes its project to release
+the writer lease before disconnecting the test browser.
 The Windows venv uses Store Python; an automation sandbox may fail to launch it
 even when it works outside that sandbox. Do not rebuild a healthy environment
 or downgrade torch on that evidence alone. Verified environment and warnings

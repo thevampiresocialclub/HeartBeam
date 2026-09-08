@@ -34,6 +34,13 @@
 .hb-speed, .hb-zoomwrap { display: flex; align-items: center; gap: 6px; opacity: 0.85; }
 .hb-rate { font: inherit; }
 .hb-zoom { width: 120px; }
+.hb-waveform-tools { gap: 8px 14px; margin-top: 8px; }
+.hb-waveform-tools strong { font-weight: 500; }
+.hb-waveform-tools label { display: inline-flex; align-items: center; gap: 5px; }
+.hb-seek-tools { margin-top: 8px; }
+.hb-canvas { touch-action: none; cursor: pointer; }
+.hb-canvas:focus-visible { outline: 2px solid oklch(76% .12 255); outline-offset: -3px; }
+.hb-canvas[aria-disabled="true"] { cursor: wait; opacity: .65; }
 
 /* The track grows with zoom; the sticky canvas only draws the visible span. */
 .hb-scroll {
@@ -49,7 +56,6 @@
 .hb-toolbar label { display: flex; align-items: center; gap: 6px; }
 .hb-toolbar select, .hb-toolbar input { font: inherit; }
 .hb-seek { width: 85px; }
-.hb-position { display: block; width: 100%; margin-bottom: 8px; }
 .hb-btn:disabled { opacity: 0.5; cursor: default; }
 .hb-lyrics { margin-top: 12px; }
 .hb-lines { max-height: 240px; overflow: auto; padding: 8px; }
@@ -71,6 +77,7 @@
 .hb-preview-copy strong { font-size: 15px; }
 .hb-preview-copy span { font-size: 12px; opacity: .72; }
 .hb-preview-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.hb-preview-head { position: sticky; top: 0; z-index: 5; padding-block: 6px; background: var(--st-background-color, Canvas); }
 .hb-live-controls .hb-lines { max-height: 210px; }
 .hb-live-controls .hb-lyrics { margin-top: 0; }
 .hb-live-controls .hb-vocal { margin-top: 12px; }

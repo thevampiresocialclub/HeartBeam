@@ -25,7 +25,7 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**312 Python tests and 14 JavaScript tests pass.** See
+**312 Python tests and 21 JavaScript tests pass.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -1147,3 +1147,41 @@ Verification:
 The test server on 8505 was restarted to load all modules together. Older
 running servers may need a restart for this cross-module workflow change.
 No new ML separation or broad model-quality benchmark was performed.
+
+### Waveform seeking and editing continuity (7 September)
+
+The waveform replaces the separate song-position slider in both review and
+video editing. Click or drag its upper lane to seek, with pointer capture for
+continuous scrubbing and cancellation handling. The lower lyric blocks retain
+their timing gestures. The playhead, played-region shading, numeric time field,
+ASS preview and background video use one sampled HBTransport time. Paused seeks
+remain paused; playing seeks continue. Zoomed playback follows the playhead by
+default, with a Follow playback toggle for inspecting elsewhere. Seeking outside
+the current loop exits that loop. Keyboard seeking is isolated from word nudges.
+Play/Pause and the clock remain visible when scrolling down to the waveform;
+the browser proof verifies their position inside the monitor viewport.
+
+Removed the transient `st.empty()` workstation wrapper introduced with timing
+approval. It recreated the player after timing edits and undo. Approval callbacks
+and distinct tab keys already handle the page transitions; the persistent
+workstation now retains playback through ordinary edit transactions.
+
+Verification:
+
+- **312 Python tests passed in 23.11 seconds**, including all 25 GUI workflows.
+- **21 JavaScript tests passed**, including zoom/scroll/CSS coordinate mapping,
+  pointer cancellation, capture release, keyboard isolation, follow boundaries,
+  and preserving Play/Pause across repeated seeks.
+- `scripts/waveform_browser_proof.mjs` passed against a synthetic eight-second
+  MP3 project with a moving video background. Real browser mouse drags sought
+  while held, while paused and while playing. A paused click landed at 2800 ms;
+  the drag reached 5200 ms. The waveform and ASS clock matched the transport
+  exactly at the sampled checkpoints; the numeric field rounded to 10 ms.
+- Browser checks also covered source switching among MP3/original/vocal mix,
+  20× zoom following, disabling follow, seeking out of a loop, timing edits and
+  undo while playing, and the review page. Scrubbing left the project revision
+  and saved manifest unchanged. Lower-lane dragging made one undoable edit.
+- Evidence: `C:/Users/young/Documents/Codex/2026-09-06/run/waveform-playback-proof/browser-proof/`.
+  The original song project and its timing approval were not changed.
+
+No new models, separation runs or end-user dependencies are required.

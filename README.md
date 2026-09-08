@@ -186,6 +186,15 @@ Opens a local Streamlit app at <http://localhost:8501> with three steps:
    video backgrounds and the waveform. Use **Save project** in the top bar to
    keep edits, then **Render video** in Export to create the MP4.
 
+In either editing page, **click or drag the waveform to seek**. The playhead,
+played portion, lyrics, video and time display follow the same audio clock.
+Scrubbing keeps audio playing if it was playing, or leaves it paused. **Follow
+playback** keeps a zoomed playhead in view; turn it off to inspect another area.
+The lyric blocks below the waveform still edit word timing. With the waveform
+focused, arrows seek one second (Shift: 0.1 second), Home/End jump to the song
+boundaries, and Space plays/pauses. Seeking outside a selected loop exits it.
+Play/Pause and the time display stay visible as you scroll through the monitor.
+
 Prepared projects reopen in timing review. Approved projects and older projects
 without phrase matching reopen in video editing. Changing reviewed lyrics or
 timing requires approval again before building or exporting. The step buttons

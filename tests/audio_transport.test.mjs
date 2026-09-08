@@ -64,6 +64,16 @@ test('changing speed or seeking preserves a single song position',async()=>{
   c.currentTime=3; assert.equal(t.currentTime,3);
 });
 
+test('repeated scrubbing keeps Play or Pause state and resumes from the latest seek',async()=>{
+  const {transport:t,context:c}=fixture();
+  t.currentTime=2; assert.equal(t.paused,true); assert.equal(t.nodes.length,0);
+  await t.play(); c.currentTime=.2;
+  for (const time of [1.8,.4,2.5,1.2]) { t.currentTime=time; assert.equal(t.paused,false); assert.equal(t.currentTime,time); }
+  c.currentTime=.7; assert.equal(t.currentTime,1.7);
+  t.pause(); t.currentTime=.8; c.currentTime=1.5;
+  assert.equal(t.paused,true); assert.equal(t.currentTime,.8); assert.equal(t.nodes.length,0);
+});
+
 test('stale reference preparation cannot replace a newer preview',async()=>{
   const {transport:t,data}=fixture(); const original=t.decoded; let release;
   t.decoded=url=>url==='slow'?new Promise(r=>release=r):original(url);

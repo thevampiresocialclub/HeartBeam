@@ -18,6 +18,9 @@ Implemented 7 September 2026. See BUILD-STATUS.md for the verification record.
    For one line, set approximate boundaries, **Loop this phrase**, press **Play**,
    and run matching. Explicit boundaries skip recognition and constrain the
    word aligner. Playback, waveform and video keep the existing single clock.
+   Click or drag the waveform itself to seek, including during playback. The
+   playhead follows zoomed playback; lyric blocks beneath it remain separate
+   timing-edit targets. Scrubbing never writes timing or invalidates approval.
 5. In **Build karaoke**, choose **Keep backing vocals** or turn it off to exclude
    lead leakage in that stem, at the cost of its harmonies during removal. Confirm
    you checked the timing, then **Approve timing and build karaoke audio**. The

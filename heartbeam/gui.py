@@ -700,8 +700,7 @@ def main() -> None:
             st.info("This project is open in another editor. Use Save a copy in Project settings to edit independently.")
             st.audio(str(audio))
         else:
-            with st.empty().container():
-                _timing_editor(project, st.session_state.project_dir, audio, review=step == "review")
+            _timing_editor(project, st.session_state.project_dir, audio, review=step == "review")
     else:
         with st.container(key="hb_separation"):
             st.subheader("1 · Prepare audio")
