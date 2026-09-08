@@ -1,5 +1,5 @@
 from heartbeam.alignment_match import token_pairs, phrase_anchors, online_anchors, word_review
-from heartbeam.lyrics_lookup import lookup, parse_lrc
+from heartbeam.lyrics_lookup import lookup, parse_lrc, audio_metadata
 
 
 def spoken(text, start=0):
@@ -106,3 +106,31 @@ def test_plain_text_result_has_no_fabricated_timing(tmp_path):
 def test_review_catches_compressed_word_and_long_gap():
     assert 'Very short word timing' in word_review([dict(start_s=1,end_s=1.02,score=.8)])
     assert 'Long gap inside the phrase' in word_review([dict(start_s=1,end_s=2,score=.8),dict(start_s=25,end_s=26,score=.8)])
+
+
+def test_missing_metadata_dependency_keeps_upload_usable(monkeypatch):
+    import io
+    import sys
+    upload=io.BytesIO(b'uploaded song contents')
+    upload.seek(8)
+    monkeypatch.setitem(sys.modules, 'mutagen', None)
+    assert audio_metadata(upload) == {}
+    assert upload.tell() == 0
+    assert upload.read() == b'uploaded song contents'
+
+
+def test_metadata_reads_real_uploaded_audio_without_consuming_it():
+    import io
+    import wave
+    import pytest
+    pytest.importorskip('mutagen')
+    upload=io.BytesIO()
+    with wave.open(upload, 'wb') as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(8000)
+        wav.writeframes(b'\0\0'*16000)
+    upload.seek(0)
+    metadata=audio_metadata(upload)
+    assert metadata['duration'] == 2.0
+    assert upload.tell() == 0

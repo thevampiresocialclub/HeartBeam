@@ -24,7 +24,7 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 **P01 through P06 are implemented.** See the latest sections below for current verification; earlier sections are historical snapshots.
 
 **7 September timing follow-up:** Online lyrics lookup and phrase-first matching
-are implemented. **299 Python tests and 14 JavaScript tests pass.** See
+are implemented. **301 Python tests and 14 JavaScript tests pass.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -1080,3 +1080,17 @@ note endpoint accuracy. Lead/backing RMS assignment and separation models were
 not changed. SOFA was not installed or evaluated. The existing torch/CUDA setup
 was preserved. Runtime libraries still emit the previously documented optional
 TorchCodec/checkpoint warnings; the tested alignment path completed successfully.
+
+### Upload metadata dependency fix
+
+The owner found an upload crash because `mutagen` had been declared in
+`pyproject.toml` but was absent from the existing launcher environment. The
+earlier browser checks exercised saved-project matching, not fresh song upload.
+Installed mutagen 1.48.1 in the repository `.venv`, which the running launchers
+use. Moved its import inside the metadata fallback so missing metadata support
+cannot prevent song upload. The upload stream is rewound after either outcome.
+
+New regression tests simulate the missing package and read a real in-memory WAV
+with the installed package. Full Python suite: **301 passed in 18.32 seconds**.
+The JavaScript files are unchanged from the earlier 14 passing checks. Existing
+app sessions can use Rerun; no server restart or project reset is required.

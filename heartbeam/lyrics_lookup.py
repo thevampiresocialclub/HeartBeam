@@ -125,8 +125,10 @@ def lookup(metadata, cache_dir, *, request=_request):
 
 def audio_metadata(source):
     """Read tags/duration from a path or seekable upload without saving it."""
-    from mutagen import File
     try:
+        # Existing installations may not have picked up this new dependency.
+        # Metadata prefilling is optional; uploading and editing must still work.
+        from mutagen import File
         audio = File(source, easy=True)
         if audio is None:
             return {}
