@@ -1,6 +1,6 @@
 # HeartBeam handoff
 
-**Updated:** 7 September 2026 by Codex, adding mandatory timing review before the removal mix.
+**Updated:** 7 September 2026 by Codex, including timing review, waveform seeking and the Firefox playback fix.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
@@ -42,6 +42,12 @@ The Node command is optional development verification, not an application build
 step or an end-user dependency. The WASM renderer and fonts ship in the wheel.
 The waveform now replaces the separate song-position slider. Pointer scrubbing,
 keyboard seeking, auto-follow and the time field share HBTransport's clock.
+Firefox does not implement `AudioParam.cancelAndHoldAtTime`: calling it during
+a playing seek left the old audio running while the displayed clock jumped.
+HBTransport now reconstructs its known fade-in ramp using `cancelScheduledValues`
+and `linearRampToValueAtTime`. Keep this Firefox-compatible path and its
+short-interval seek regression test. See BUILD-STATUS for the before/after
+Firefox transport evidence and the separate full Chrome workstation proof.
 Do not wrap the workstation in `st.empty().container()`: clearing that container
 recreates the audio player on ordinary timing edits and undo. Page approval is
 already handled before rendering, and tabs have separate stable keys for each

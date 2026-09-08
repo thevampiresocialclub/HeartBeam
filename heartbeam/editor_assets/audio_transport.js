@@ -80,9 +80,15 @@ class HBTransport extends EventTarget {
     // running for 20 ms, so changing a level mid-word cannot splice waveforms.
     const old = {nodes: this.nodes, gains: this.gains || [], timer: null};
     if (old.nodes.length && this.output) {
-      this.output.gain.cancelAndHoldAtTime(this.context.currentTime);
-      this.output.gain.linearRampToValueAtTime(0, this.context.currentTime + .015);
-      for (const node of old.nodes) { try { node.stop(this.context.currentTime + .020); } catch {} }
+      const now = this.context.currentTime, param = this.output.gain;
+      // Firefox lacks cancelAndHoldAtTime. This output has only our 15 ms
+      // fade-in, so reconstruct its current level and ramp before fading out.
+      // Keeping the shortened ramp also avoids a jump during rapid scrubbing.
+      const held = this.outputRamp.level * Math.max(0, Math.min(1, (now - this.outputRamp.startAt) / .015));
+      param.cancelScheduledValues(now);
+      param.linearRampToValueAtTime(held, now);
+      param.linearRampToValueAtTime(0, now + .015);
+      for (const node of old.nodes) { try { node.stop(now + .020); } catch {} }
       this.retired.add(old);
       old.timer = setTimeout(() => { old.nodes.forEach(n => n.disconnect()); old.gains.forEach(n => n.disconnect()); this.retired.delete(old); }, 80);
     }
@@ -92,8 +98,9 @@ class HBTransport extends EventTarget {
     this.anchor = startAt;
     const gain = value => { const g = context.createGain(); g.gain.value = value; this.gains.push(g); return g; };
     const output = this.output = gain(0); output.connect(context.destination);
+    this.outputRamp = {startAt, level: this.src === 'heartbeam:mix' ? this.mix.headroom : 1};
     output.gain.setValueAtTime(0, startAt);
-    output.gain.linearRampToValueAtTime(this.src === 'heartbeam:mix' ? this.mix.headroom : 1, startAt + .015);
+    output.gain.linearRampToValueAtTime(this.outputRamp.level, startAt + .015);
     const source = (buffer, target) => {
       const node = context.createBufferSource(); node.buffer = buffer; node.playbackRate.value = this._rate;
       if (this.loopRange) { node.loop = true; [node.loopStart, node.loopEnd] = this.loopRange; }

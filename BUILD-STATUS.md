@@ -25,7 +25,7 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**312 Python tests and 21 JavaScript tests pass.** See
+**Latest full Python run: 312 passed. Current JavaScript tests: 22 passed.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -1185,3 +1185,40 @@ Verification:
   The original song project and its timing approval were not changed.
 
 No new models, separation runs or end-user dependencies are required.
+
+### Firefox playback seeking correction (7 September)
+
+The preceding browser proof used Chrome. The owner reported that Firefox
+received waveform clicks but did not seek the playing audio. Reproduced with
+the installed Firefox **155.0.1** in an isolated headless profile: a paused click
+worked, but seeking during playback threw
+`TypeError: this.output.gain.cancelAndHoldAtTime is not a function`. The displayed
+clock moved while the old audio source continued playing from its old offset.
+
+HBTransport now uses `cancelScheduledValues` and a shortened linear ramp to
+hold the known fade-in level before fading the old source out. This preserves
+the 15 ms crossfade, including repeated seeks before a fade-in has finished,
+without relying on `cancelAndHoldAtTime` (see its
+[limited browser availability](https://developer.mozilla.org/en-US/docs/Web/API/AudioParam/cancelAndHoldAtTime)).
+The transport test double intentionally omits that unsupported method.
+
+Verification:
+
+- **22 JavaScript tests passed**, including short-interval seek fades, mix
+  headroom, source restart offsets, pause/resume, rate changes and loops.
+- Actual Firefox pointer input against a standalone harness using the production
+  transport and waveform gesture classes: paused click at 2.8 s, playing click
+  restarting the audio source at 5.6 s, held drag ending at 2.4 s, paused seek
+  and resume at 4.8 s. Audio-node start offsets were recorded independently of
+  the displayed clock. The pre-fix harness failed; the fixed harness passed
+  without JavaScript errors. This was a focused transport test, not a full
+  Firefox workstation or export certification.
+- Full Chrome workstation proof passed again: MP3 waveform seeking, drag,
+  clock/ASS/video synchronization, editing/undo during playback, source changes,
+  looping and both editing pages. Project manifest remained unchanged by seeks.
+- Evidence: `C:/Users/young/Documents/Codex/2026-09-06/run/firefox-seek-before/`,
+  `firefox-seek-after/` and `firefox-fix-chrome-proof/`; the standalone harness is
+  `firefox-seek-proof.mjs` in that workspace.
+
+Existing browser tabs need a Streamlit rerun to load the updated transport.
+Saving the project and refreshing also loads it. No server restart is required.

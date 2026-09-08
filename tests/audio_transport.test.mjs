@@ -10,7 +10,11 @@ class Buffer {
 class Context {
   constructor({sampleRate=8000}={}) { this.sampleRate=sampleRate; this.currentTime=0; this.destination={}; this.starts=[]; }
   createBuffer(c,n,sr) { return new Buffer(c,n,sr); }
-  createGain() { return {gain:{value:0,setTargetAtTime(v){this.value=v;},setValueAtTime(v){this.value=v;},linearRampToValueAtTime(v){this.value=v;},cancelAndHoldAtTime(){}},connect(){},disconnect(){}}; }
+  // Deliberately omit cancelAndHoldAtTime: Firefox does not implement it.
+  createGain() { return {gain:{value:0,events:[],setTargetAtTime(v){this.value=v;},
+    setValueAtTime(v,t){this.events.push(['set',v,t]);},
+    linearRampToValueAtTime(v,t){this.events.push(['ramp',v,t]);},
+    cancelScheduledValues(t){this.events=this.events.filter(e=>e[2]<t);this.events.push(['cancel',t]);}},connect(){},disconnect(){}}; }
   createBufferSource() { const context=this; return {playbackRate:{value:1},connect(){},disconnect(){},stop(){},start(t,offset){context.starts.push([t,offset]);}}; }
   async resume() {}
   close() {}
@@ -72,6 +76,26 @@ test('repeated scrubbing keeps Play or Pause state and resumes from the latest s
   c.currentTime=.7; assert.equal(t.currentTime,1.7);
   t.pause(); t.currentTime=.8; c.currentTime=1.5;
   assert.equal(t.paused,true); assert.equal(t.currentTime,.8); assert.equal(t.nodes.length,0);
+});
+
+test('seeking preserves the fade level even before the previous fade-in finishes',async()=>{
+  const {transport:t,context:c,data}=fixture();
+  await t.configureMix(data); t.src='heartbeam:mix'; await t.play();
+  const first=t.output.gain, level=t.mix.headroom;
+  c.currentTime=.005; t.currentTime=2;
+  assert.equal(t.paused,false); assert.equal(c.starts.at(-1)[1],2);
+  assert.ok(Math.abs(first.events.at(-2)[1]-level/3)<1e-12);
+  assert.deepEqual(first.events.slice(0,2),[['set',0,0],['cancel',.005]]);
+  assert.equal(first.events.at(-2)[0],'ramp'); assert.equal(first.events.at(-2)[2],.005);
+  assert.deepEqual(first.events.at(-1),['ramp',0,.020]);
+  const second=t.output.gain;
+  c.currentTime=.008; t.currentTime=1;
+  assert.ok(Math.abs(second.events.at(-2)[1]-level*.2)<1e-12);
+  const third=t.output.gain;
+  c.currentTime=.030; t.currentTime=3;
+  assert.equal(third.events.at(-2)[1],level); // Full level after fade-in.
+  assert.equal(t.retired.size,3);
+  t.pause(); assert.equal(t.nodes.length,0); assert.equal(t.retired.size,0);
 });
 
 test('stale reference preparation cannot replace a newer preview',async()=>{
