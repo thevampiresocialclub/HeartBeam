@@ -163,6 +163,12 @@ def mix_arrays(clean, original, mix, sample_rate):
 def timing_hash(project):
     pairs = [(w.id, asdict(t) if t else None) for _, w in project.iter_words()
              if not w.non_sung for t in [project.effective_timing(w.id)]]
+    if project.alignment.get('review', {}).get('allow_incomplete'):
+        from .phrase_project import phrase_window
+        # Do not derive this key from generated asset metadata: building clean
+        # audio can populate durations that an imported original did not have.
+        # The actual source duration is checked when compiling removal intervals.
+        pairs.append(('phrase_windows', [(line.id, phrase_window(project, line, float('inf'))) for line in project.lines]))
     return hashlib.sha256(json.dumps(pairs, sort_keys=True).encode()).hexdigest()
 
 
@@ -250,8 +256,20 @@ def rebuild_clean(project, root, recipe=None):
         basis = (sr, arr.shape)
         arrays[role] = arr
     sr, shape = basis
-    timed = current_timings(project, P.seconds_to_ms(shape[0] / sr))
+    from .timing_review import require_approved
+    require_approved(project)
+    duration = P.seconds_to_ms(shape[0] / sr)
+    allow_incomplete = bool(recipe.get('allow_incomplete_timing'))
+    timed = current_timings(project, duration, draft=allow_incomplete)
     words = [w for ln in timed.lines for w in ln.words]
+    if allow_incomplete:
+        from .phrase_project import phrase_window
+        for line in project.lines:
+            sung = [w for w in line.words if not w.non_sung]
+            if any(not (t := project.effective_timing(w.id)) or not t.resolved for w in sung):
+                phrase = phrase_window(project, line, duration)
+                if phrase:
+                    words.append(M.Interval(phrase[0] / 1000, phrase[1] / 1000))
     mask = M.build_mask(words, shape[0], sr, recipe.get("pad_ms", 120),
                         recipe.get("crossfade_ms", 60), recipe.get("merge_gap_ms", 500))
     if recipe.get("energy_threshold", 0) > 0:

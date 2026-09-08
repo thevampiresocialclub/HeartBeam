@@ -25,9 +25,16 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**Latest full Python run: 312 passed. Current JavaScript tests: 22 passed.** See
+**Latest full Python run: 322 passed. Current JavaScript tests: 24 passed.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
+
+**8 September editor follow-up:** current lyrics appear above upcoming lines,
+which rise into place at phrase completion. Letter spacing and line height are
+editable. Partial lines retain timed-word highlights. **Build karaoke and continue**
+warns about missing word timing/conflicts without requiring individual approval;
+known phrase windows cover missing words during removal. See the final section
+for browser evidence and remaining limits.
 
 **P01 and P02 foundation:** A song can be generated, saved, closed, reopened
 and restyled without rerunning separation; lyrics can be pasted rather than
@@ -1222,3 +1229,64 @@ Verification:
 
 Existing browser tabs need a Streamlit rerun to load the updated transport.
 Saving the project and refreshing also loads it. No server restart is required.
+
+### Rolling lyrics, Firefox selection and optional word review (8 September)
+
+The preceding restart note applies to the transport-only change. This update
+changes Python modules too, so already-running servers need a restart after
+saving pending edits. Verification used a separate test server on 8506.
+
+Implemented:
+
+- Current phrase on top, next 1–3 phrases below. At its sung end the current
+  phrase exits upward and future lines rise together, with the next unseen line
+  entering from below. Movement defaults to 220 ms and can be disabled. Explicit
+  wrapping or measured width wrapping uses the same scene in both renderers.
+- Letter spacing (kerning) and line height, with sparse overrides, presets,
+  undo and saved-project round trips. The chosen anchor places the entire stack.
+- Missing words stay plain while known words highlight. Independent absolute
+  ASS onsets preserve gaps, overlaps and sweeps across movement event splits.
+- Review-list selection explicitly seeks the phrase even when its first word
+  is untimed, including repeated clicks. Decoded duration handles absent asset
+  metadata. A focused native dropdown is no longer reset every frame, and stale
+  navigation cannot override a later selection when entering video editing.
+- The audio build button needs no all-words-fixed or all-words-reviewed gate.
+  It warns, then builds with current word/phrase timing. The fallback policy and
+  phrase fingerprint persist for rebuilds without fabricating word times or
+  review flags. A failed build cannot approve the live project.
+
+Verification:
+
+- Full Python suite: **322 passed in 31.27 seconds**. Transport/presentation/
+  waveform/workstation JavaScript: **24 passed**.
+- Real native render pixels verify three ordered rows, halfway/settled rise,
+  increased letter/row spacing, and a 30%-complete word sweep continuing through
+  a movement boundary. Existing three-resolution placement checks also pass.
+- Actual Firefox **155.0.1**, isolated headless profile, real app on 8506:
+  known-word highlight pixels beside an untimed word; first/repeated review
+  selection seeking to 100 ms; native dropdown selection seeking to 1100 ms;
+  playing waveform seek restarting the audio node at 1.001 seconds; moving
+  handles; build with an unresolved word and zero review flags; selection
+  preserved across page transition; spacing increment buttons, Apply and Save.
+  Saved letter spacing is 4 and line height 1.8; the missing timing stays null.
+  No JavaScript errors were captured. Evidence:
+  `C:/Users/young/Documents/Codex/2026-09-06/run/firefox-workstation-final-verified/`.
+- Full Chrome workstation proof passes after these changes: both editing pages,
+  waveform/ASS/video synchronization, source switching, loop exit, timing edits
+  and undo during playback. Separate native input/Tab/Apply/Save checks confirm
+  both spacing values persist. Evidence: `text-chrome-workstation-proof/` and
+  `chrome-appearance.png` in the same workspace.
+
+Limits: the raw Firefox headless harness did not deliver normal input focus/blur
+events, so typed numeric entry was not certified there; increment-button edits
+were verified. Chrome typed entry and Python form persistence passed. Mozilla
+documents related [background focus limitations](https://bugzilla.mozilla.org/show_bug.cgi?id=1398111).
+This is not a claim of complete Firefox or accessibility certification.
+
+Partially timed audio can now be built, but final video export still rejects
+unresolved/conflicting words. Unanchored phrases cannot be scheduled or covered
+by a phrase fallback. Existing energy-mask settings still apply. Tall or heavily
+wrapped stacks can overflow; warnings are shown and no automatic shrinking occurs.
+No new model sweep, separation run, song timing benchmark or guarantee of complete
+vocal removal is part of this change. The owner's song was not silently built
+or marked reviewed during testing.

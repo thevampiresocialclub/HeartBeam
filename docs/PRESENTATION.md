@@ -18,7 +18,7 @@ Style groups and supported fields:
 
 | Group | Fields |
 |---|---|
-| `font` | `family`, `size_px`, `bold`, `italic` |
+| `font` | `family`, `size_px`, `bold`, `italic`, `letter_spacing_px` (−10 to 40, default 0), `line_height` (1 to 4, default 1.4) |
 | `colour` | `primary` (unsung), `highlight` (sung), `outline`, `shadow`; all `#RRGGBB` |
 | `box` | `x`, `y`, `width_px`, `anchor`, `alignment`, `wrap`, `outline_px`, `shadow_px`, legacy `position`, `margin_h_px`, `margin_v_px` |
 | `highlight` | `mode`: `word` or `sweep` |
@@ -54,10 +54,12 @@ by the preset. Every application/reset/drag is one shared History command.
 
 Coordinates, widths, font sizes, outline and shadow distances use design units.
 The anchor is one of the nine combinations of `top/center/bottom` and
-`left/center/right`. It places the text box at X/Y. Horizontal text alignment is
-independent: it places left/center/right-aligned text within that box. ASS receives
-one `\pos`, a corresponding alignment and margins determining the wrap width.
-`wrap=explicit` uses `\q2`; `auto` uses `\q1`; explicit breaks always use `\N`.
+`left/center/right`. It places the full lyric stack at X/Y. Horizontal text
+alignment is independent: it places left/center/right-aligned text within the
+chosen width. `lyric_scene.py` measures explicit breaks or wraps to that width
+using the resolved font and letter spacing. Each physical row gets an ASS event
+with `\q2`, so preview and export use the same wrapping. Row pitch is font size
+times `line_height`; letter spacing feeds ASS's Spacing field.
 
 “Place inside margins” derives X/Y and width from the chosen anchor/margins.
 Other placement actions store explicit coordinates. CSS-scaled dragging converts
@@ -72,17 +74,32 @@ the canvas aspect ratio; the UI offers 1280×720, 1920×1080 and 3840×2160.
 The compiler uses `effective_timing()` through shared timing validation.
 Display windows may extend beyond words; they do not alter audio or vocal
 regions. Final output rejects unresolved/conflicting/out-of-range timing and
-invalid display windows. Drafts omit untimed words and report conflicts.
+invalid display windows. Drafts retain untimed words in any phrase with a usable
+word or phrase window, leave those words plain, and report conflicts. Fully
+unanchored text remains in the lyric editor but cannot be scheduled on screen.
 Absolute millisecond boundaries are rounded once to ASS centiseconds (10 ms).
-`\k` switches a word at onset; `\kf` sweeps during its duration. Completed words
-retain the sung colour. A third active-word colour is outside P05.
+`\kt` sets each word's onset relative to its event; `\k` switches a word at onset
+and `\kf` sweeps during its duration. This keeps gaps, overlaps and continuing
+sweeps correct when movement splits a line into events. Negative onsets preserve
+already-started words in later segments. Completed words retain the sung colour.
+A third active-word colour is outside P05.
 
-Automatic display scheduling accepts 2, 3 or 4 visible lines. The current lyric
-uses its resolved karaoke style; upcoming rows use the same resolved font, box,
-outline and unsung colour at successive vertical offsets. A stack remains visible
-through an inter-phrase gap and every non-overlapping phrase transition shares one
-boundary, so an upcoming row becomes current without a blank or duplicate frame.
-The editor's previous/next lyric controls seek to these compiled display starts.
+Display scheduling accepts 2, 3 or 4 logical phrases, each potentially wrapped.
+The current phrase is on top and future phrases appear below. The tallest phrase
+determines a fixed slot height, preserving the top position even at the song's
+end. When the current phrase's last sung word ends, the next phrase rises by one
+slot; a new phrase enters below while the outgoing phrase rises and fades out.
+`transition_ms` defaults to 220 and accepts 0–1000; zero disables movement.
+Overlapping phrases keep independent word highlights even before promotion.
+Browser placement handles follow the compiled movement segments.
+
+The automatic lead controls the first stack's entrance and hold controls the
+last stack's exit. Intermediate stacks remain visible across gaps and promote
+at sung phrase ends. Manual display windows are validated for compatibility;
+the rolling scene uses the first start and last end. Legacy `show_upcoming` and
+signed `upcoming_offset_y` fields remain readable but no longer control the
+rolling layout. The editor's previous/next lyric buttons seek display boundaries;
+selecting a line in the dropdown or review list seeks its singing/phrase start.
 
 Literal braces use libass's brace escapes. Literal backslashes receive a
 zero-width WORD JOINER so `\N`, `\n`, and `\h` in authored text remain visible

@@ -623,8 +623,9 @@ def _lyrics_editor(project, project_dir: Path) -> None:
     if unresolved:
         with st.expander(f"Needs timing ({len(unresolved)})", expanded=False):
             st.caption(
-                "These words have no timing yet. Nothing has been guessed for "
-                "them; the timing editor (P03) is where they get fixed."
+                "These words do not have individual timing yet. You can continue "
+                "to vocal removal using known phrase timing and fix individual "
+                "word highlights later. Untimed words stay visible without highlighting."
             )
             for line, word, reason in unresolved[:50]:
                 st.markdown(f"- **{word.text}** in *{line.text}* - {reason}")
@@ -886,19 +887,16 @@ def _separation_result() -> None:
 
 
 def _review_controls(project, root, audio_path):
-    from heartbeam import timing_review as review
     st.subheader("Build karaoke audio")
     missing = len(project.unresolved_words())
     conflicts = len(ed.timing_conflicts(project))
     if missing or conflicts:
-        st.warning(f"Set timing for {missing} untimed word(s) and fix {conflicts} timing conflict(s) before building. Use Timing to find and repair them.")
-    st.caption("Separation has prepared the tracks. Your approved timing controls where the karaoke mix removes vocals. Upcoming lines can appear before their coloured highlights start.")
+        st.warning(f"{missing} words have no individual timing and {conflicts} timing conflicts remain. You can continue: known phrase windows cover missing words during vocal removal. Portions with no word or phrase timing may retain vocals.")
+    st.caption("Build with your current edits and continue to video editing. Individual word review is optional; you can adjust timings and vocal levels later.")
     keep_backing = st.checkbox("Keep backing vocals", value=True, key=f"keep_backing_{project.id}",
         help="Turn this off for stronger removal if lead singing leaked into the backing track. This also removes harmonies in the removal regions.")
-    checked = st.checkbox("I checked the lyric timing against the singing",
-        key=f"timing_approved_{project.id}_{review.fingerprint(project)}")
-    st.button("Approve timing and build karaoke audio", type="primary", key="approve_timing_build",
-              disabled=not checked or bool(missing or conflicts) or st.session_state.get('project_readonly', False),
+    st.button("Build karaoke and continue", type="primary", key="approve_timing_build",
+              disabled=st.session_state.get('project_readonly', False),
               on_click=_approve_timing_build, args=(project, root, keep_backing))
 
 
@@ -906,11 +904,11 @@ def _approve_timing_build(project, root, keep_backing):
     from heartbeam import timing_review as review
     try:
         with st.spinner("Building karaoke from the saved tracks…"):
-            ui.history(project).execute(project, lambda p: review.approve_and_build(p, root, keep_backing=keep_backing))
+            ui.history(project).execute(project, lambda p: review.approve_and_build(p, root, keep_backing=keep_backing, allow_incomplete=True))
             prj.save_project(project, root, bump=False)
         _mark_saved(project)
         st.session_state.workflow_step = "video"
-        st.session_state.timing_message = ("ok", "Timing approved. Karaoke audio is ready for video editing.")
+        st.session_state.timing_message = ("ok", "Karaoke audio is ready. You can keep editing word timing and vocal levels.")
     except (prj.ProjectError, OSError, ValueError, RuntimeError) as exc:
         st.session_state.timing_message = ("err", f"Could not build karaoke audio: {exc}")
 

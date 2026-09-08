@@ -225,7 +225,22 @@ def _audio_tools(project, root):
                              "pad_ms": 120, "crossfade_ms": 60, "merge_gap_ms": 500, "energy_threshold": 0}))
 
 
-def _alignment_tools(project, root):
+def _select_review_line(project, line, duration):
+    from .phrase_project import phrase_window
+    words = [w for w in line.words if not w.non_sung]
+    if not words:
+        return
+    spans = [project.effective_timing(w.id) for w in words]
+    spans = [t for t in spans if t and t.resolved and 0 <= t.start_ms < t.end_ms <= duration]
+    phrase = phrase_window(project, line, duration)
+    start = phrase[0] if phrase else min((t.start_ms for t in spans), default=None)
+    st.session_state.selected_word_id = words[0].id
+    st.session_state[f'lyric_navigation_{project.id}'] = dict(id=P.new_id('nav'), word_id=words[0].id, start_ms=start)
+    if start is None:
+        st.session_state.timing_message = ('ok', 'Line selected. No phrase or word timing is available to seek to yet.')
+
+
+def _alignment_tools(project, root, audio_duration_ms):
     from .phrase_project import align_saved, apply_result, review_lines
     needs_review = review_lines(project)
     last_run = project.alignment.get('last_run', {})
@@ -235,11 +250,11 @@ def _alignment_tools(project, root):
         st.warning('Separation is saved. Automatic timing could not finish; match timing here when the model is available.')
     if needs_review:
         st.warning(f'Check timing in {len(needs_review)} lyric lines.')
-        with st.expander('Lines to review'):
+        with st.expander('Lines to review', key=f'review_lines_{project.id}', on_change='rerun'):
             for line, number, issues in needs_review:
                 st.caption(f'{number}. {line.text}: {", ".join(issues)}')
                 if st.button('Select this line', key=f'review_line_{line.id}'):
-                    st.session_state.selected_word_id = line.words[0].id
+                    _select_review_line(project, line, audio_duration_ms)
                     st.rerun()
     else:
         st.caption('No unresolved timing checks. Listen through before export.')
@@ -260,8 +275,7 @@ def _alignment_tools(project, root):
             if st.checkbox('Set approximate phrase boundaries', key=f'anchor_{line.id}'):
                 times = [project.effective_timing(w.id) for w in line.words]
                 times = [t for t in times if t and t.resolved]
-                duration = max((a.duration_ms or 0 for a in project.assets), default=0)/1000
-                duration = duration or 3600.
+                duration = audio_duration_ms / 1000
                 cols = st.columns(2)
                 start = cols[0].number_input('Phrase start (seconds)', 0., duration,
                     min(duration, min((t.start_ms for t in times), default=0)/1000), step=.1, key=f'phrase_start_{line.id}')
@@ -339,6 +353,7 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
         preview = None
         st.error(f"Lyric preview could not load: {exc}")
     payload.update(preview=preview, presentation_selection=appearance_selection,
+                    lyric_navigation=st.session_state.get(f'lyric_navigation_{project.id}'),
                     phrase_audition=st.session_state.get(f'phrase_audition_{project.id}'),
                     can_undo=h.can_undo, can_redo=h.can_redo,
                     command_ack=st.session_state.get(f"command_ack_{project.id}"))
@@ -406,7 +421,7 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
             lyrics_editor(project, root)
     with timing_tab:
         _timing_controls(project, duration)
-        _alignment_tools(project, root)
+        _alignment_tools(project, root, duration)
     if not timing_review:
         with vocals_tab:
             selection = _vocal_controls(project, root, duration)

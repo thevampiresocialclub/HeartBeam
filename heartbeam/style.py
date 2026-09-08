@@ -1,7 +1,8 @@
 """
 Style configuration for the karaoke video.
 
-Loaded from a TOML file; fields map 1:1 to ASS [V4+ Styles] entries.
+Loaded from TOML or a saved project. The project scene compiler handles row
+spacing; font, colour and outline fields also feed ASS style entries.
 """
 from __future__ import annotations
 
@@ -22,6 +23,8 @@ class FontCfg:
     size_px: int = 72
     bold: bool = True
     italic: bool = False
+    letter_spacing_px: float = 0
+    line_height: float = 1.4
 
 
 @dataclass

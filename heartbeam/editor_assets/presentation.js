@@ -1,4 +1,20 @@
 // P05 preview. ASS owns all text rendering; DOM guides are never exported.
+function hbScenePosition(line, ms) {
+  if (!line.segments) return ms >= line.start_ms && ms < line.end_ms ? line.top : null;
+  const segment = line.segments.find(s => ms >= s.start_ms && ms < s.end_ms);
+  if (!segment) return null;
+  const progress = segment.move_ms ? Math.max(0, Math.min(1, (ms - segment.start_ms) / segment.move_ms)) : 1;
+  return segment.from_top + (segment.to_top - segment.from_top) * progress;
+}
+
+function hbTranslateAss(row, dx, dy) {
+  return row.replace(/\\pos\(([^,]+),([^)]+)\)/, (_, x, y) => `\\pos(${Number(x) + dx},${Number(y) + dy})`)
+    .replace(/\\move\(([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^)]+)\)/,
+      (_, x1, y1, x2, y2, t1, t2) => `\\move(${Number(x1) + dx},${Number(y1) + dy},${Number(x2) + dx},${Number(y2) + dy},${t1},${t2})`)
+    .replace(/\\clip\(([^,]+),([^,]+),([^,]+),([^)]+)\)/,
+      (_, x1, y1, x2, y2) => `\\clip(${x1},${Number(y1) + dy},${x2},${Number(y2) + dy})`);
+}
+
 class HBPresentation {
   constructor(root, audio, callbacks, signal) {
     this.root = root; this.audio = audio; this.callbacks = callbacks; this.signal = signal;
@@ -13,7 +29,7 @@ class HBPresentation {
     this.$('img.hb-background').addEventListener('error', () => this.message('Background image could not load. Choose another image.'), {signal});
     this.$('.hb-preview-line').addEventListener('change', e => {
       const line = this.preview?.lines.find(line => line.line_id === e.target.value);
-      if (line) this.callbacks.select(line.word_id, true, true);
+      if (line) { this.callbacks.select(line.word_id, true, false); this.callbacks.seek(line.seek_ms ?? line.start_ms); }
     }, {signal});
     window.addEventListener('pointermove', e => this.pointerMove(e), {signal});
     window.addEventListener('pointerup', e => this.pointerUp(e), {signal});
@@ -37,10 +53,12 @@ class HBPresentation {
     this.$('.hb-safe').hidden = !this.selection.guides;
     this.$('.hb-placement-scope').textContent = `Placement: ${this.selection.label || 'Whole song'} · drag text or use Appearance controls`;
     const chooser = this.$('.hb-preview-line'), selected = chooser.value;
-    chooser.replaceChildren(...preview.lines.map((line, index) => {
+    const choicesKey = JSON.stringify(preview.lines.map(line => [line.line_id, line.label]));
+    if (chooser.dataset.choicesKey !== choicesKey) chooser.replaceChildren(...preview.lines.map((line, index) => {
       const option = document.createElement('option'); option.value = line.line_id;
       option.textContent = `${index + 1}. ${line.label}`; return option;
     }));
+    chooser.dataset.choicesKey = choicesKey;
     if (preview.lines.some(line => line.line_id === selected)) chooser.value = selected;
     chooser.disabled = !preview.lines.length;
     const bg = preview.background;
@@ -117,8 +135,7 @@ class HBPresentation {
       if (!row.startsWith('Dialogue:')) return row;
       const item = byName.get(row.split(',')[3]);
       if (!item || (value.scope === 'lines' ? !value.line_ids.includes(item.line_id) : item.placement_exception)) return row;
-      return row.replace(/\\pos\(([^,]+),([^)]+)\)/, (_, x, y) =>
-        `\\pos(${Number(x) + value.x - item.x},${Number(y) + value.y - item.y})`);
+      return hbTranslateAss(row, value.x - item.x, value.y - item.y);
     }).join('\n');
     if (content !== this.assText) { this.ass?.setTrack(content); this.assText = content; }
   }
@@ -155,14 +172,18 @@ class HBPresentation {
       this.root.dataset.backgroundClockMs = String(Math.round(this.video.currentTime * 1000));
     }
     const selected = this.preview.lines.find(line => line.word_id === this.callbacks.selected() || this.callbacks.selectedLine() === line.line_id);
-    if (selected) this.$('.hb-preview-line').value = selected.line_id;
+    const chooser = this.$('.hb-preview-line');
+    // Firefox changes a focused select's value before firing change. A frame
+    // tick must not overwrite that pending keyboard/native-menu choice.
+    if (selected && chooser.getRootNode().activeElement !== chooser) chooser.value = selected.line_id;
     for (const line of this.preview.lines) {
       const button = this.handles?.get(line.line_id); if (!button) continue;
-      button.hidden = !this.selection.guides || ms < line.start_ms || ms >= line.end_ms;
+      const sceneTop = hbScenePosition(line, ms);
+      button.hidden = !this.selection.guides || sceneTop === null;
       const moved = this.draft && (this.draft.value.scope === 'song' ? !line.placement_exception : this.draft.value.line_ids.includes(line.line_id));
       const dx = moved ? this.draft.value.x - line.x : 0, dy = moved ? this.draft.value.y - line.y : 0;
       button.style.left = `${(line.left + dx) / this.preview.width * 100}%`;
-      button.style.top = `${(line.top + dy) / this.preview.height * 100}%`;
+      button.style.top = `${((sceneTop ?? line.top) + dy) / this.preview.height * 100}%`;
       button.style.width = `${line.width / this.preview.width * 100}%`;
       button.style.height = `${line.height / this.preview.height * 100}%`;
       button.setAttribute('aria-pressed', String(selected?.line_id === line.line_id));

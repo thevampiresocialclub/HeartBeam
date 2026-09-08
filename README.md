@@ -175,10 +175,12 @@ Opens a local Streamlit app at <http://localhost:8501> with three steps:
    Preparation saves the separated tracks and suggested lyric timing without
    building the removal mix. Choose **Save project and review timing**.
 2. **Review timing:** play the original or vocal tracks with the waveform and
-   lyric preview. Correct missing or early words in **Timing**. In **Build karaoke**,
-   choose whether to keep backing vocals, confirm you checked the timing, and
-   select **Approve timing and build karaoke audio**. This uses saved tracks;
-   it does not repeat separation.
+   lyric preview. Make any timing corrections in **Timing**. In **Build karaoke**,
+   choose whether to keep backing vocals and select **Build karaoke and continue**.
+   Missing word timings and conflicts warn without blocking this step. Known
+   phrase windows cover missing words during removal; stretches without any
+   timing may retain vocals. This uses saved tracks without repeating separation
+   or inventing word timings. Individual word approval is optional.
 3. **Edit video:** the desktop workstation keeps Play/Pause, video preview and
    waveform together on the left. The right pane has live lyric selection and
    **Appearance**, **Lyrics**, **Timing**, **Vocals** and **Export** tabs. Each
@@ -197,7 +199,7 @@ Play/Pause and the time display stay visible as you scroll through the monitor.
 
 Prepared projects reopen in timing review. Approved projects and older projects
 without phrase matching reopen in video editing. Changing reviewed lyrics or
-timing requires approval again before building or exporting. The step buttons
+timing requires building again before exporting. The step buttons
 let you return to preparation without losing the loaded project. On narrow screens
 the panes stack to keep the controls usable.
 
@@ -410,10 +412,18 @@ or use **Preview line**, then drag the lyric box on the video. Exact X/Y,
 anchor, alignment, width and margin controls are available below it. Focused
 handles also accept arrow keys (1 design pixel, or 10 with Shift).
 
-Choose a font, size, bold/italic, unsung and sung colours, outline colour and
-thickness, and shadow. Whole-word highlighting changes at onset; sweep mode
-fills during the word. Sung words retain their colour. Zero removes the outline
-or shadow. The wrapping box inserts display breaks without changing timing.
+Choose a font, size, **Letter spacing (kerning)**, **Line height**, bold/italic,
+unsung and sung colours, outline colour and thickness, and shadow. Whole-word
+highlighting changes at onset; sweep mode fills during the word. A missing word
+timing leaves that word plain while timed words still highlight. Sung words
+retain their colour. Zero removes the outline or shadow. The wrapping box
+inserts display breaks without changing timing.
+
+**Lyric reading timing** offers 2–4 lines on screen. The current phrase is on
+top with upcoming phrases below. When it finishes, the next phrase rises into
+the top position and another enters below. **Rise duration** controls that
+movement; zero changes lines instantly. The whole stack shares the chosen
+placement anchor. Wrapped phrases may occupy more than one physical row.
 
 **Fonts in this project** imports static TTF/OTF files or copies an installed
 family. The browser and export use the same files. Missing faces are reported

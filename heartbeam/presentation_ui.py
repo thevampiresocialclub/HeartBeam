@@ -59,6 +59,11 @@ def controls(project, root, selection):
             bold = c[0].checkbox("Bold lyrics", spec["font"]["bold"])
             italic = c[1].checkbox("Italic lyrics", spec["font"]["italic"])
             c = st.columns(2)
+            spacing = c[0].number_input("Letter spacing (kerning)", -10., 40., float(spec["font"]["letter_spacing_px"]), step=.5,
+                                       help="Extra spacing between letters, in design pixels. Zero keeps the font's natural spacing.")
+            line_height = c[1].number_input("Line height", 1., 4., float(spec["font"]["line_height"]), step=.05,
+                                           help="Row spacing as a multiple of the font size. Applies to wrapped rows and the lyric stack.")
+            c = st.columns(2)
             x = c[0].number_input("Lyric X", 0., float(project.presentation.design_width), float(spec["box"]["x"]), step=1.)
             y = c[1].number_input("Lyric Y", 0., float(project.presentation.design_height), float(spec["box"]["y"]), step=1.)
             c = st.columns(2)
@@ -83,7 +88,8 @@ def controls(project, root, selection):
             mode = st.selectbox("Highlighting", ["Whole word at onset", "Sweep during word"], index=0 if spec["highlight"]["mode"] == "word" else 1)
             st.caption("Sung words keep the sung colour. Zero thickness removes the outline or shadow.")
             if st.form_submit_button("Apply lyric appearance", type="primary"):
-                entered = {"font": {"family": family, "size_px": size, "bold": bold, "italic": italic},
+                entered = {"font": {"family": family, "size_px": size, "bold": bold, "italic": italic,
+                                    "letter_spacing_px": spacing, "line_height": line_height},
                     "box": {"x": x, "y": y, "anchor": anchor, "alignment": alignment, "width_px": width,
                             "wrap": "explicit" if wrap == "Explicit line breaks" else "auto", "outline_px": outline_px, "shadow_px": shadow_px},
                     "colour": {"primary": primary, "highlight": highlight, "outline": outline, "shadow": shadow},
@@ -138,13 +144,14 @@ def display_controls(project):
                                      help="Between phrases, the current line stack stays visible until the next stack takes over.")
             lines = st.selectbox("Lines on screen", [2, 3, 4], index=[2, 3, 4].index(value["visible_lines"]),
                                  help="Includes the current lyric plus the next one, two or three lines.")
-            offset = st.number_input("Vertical spacing between lines", -1080, 1080, value["upcoming_offset_y"], step=10,
-                                     help="Negative stacks upcoming lines above the current line; positive stacks them below.")
+            transition = st.number_input("Rise duration (ms)", 0, 1000, value["transition_ms"], step=20,
+                                         help="After the current line finishes, upcoming lines rise into place. Zero changes lines instantly.")
+            st.caption("Current line on top, upcoming lines below. Set letter spacing and line height in Lyric appearance and placement.")
             if st.form_submit_button("Apply lyric reading timing"):
                 change(project, lambda p: S.set_display_settings(p, {"automatic": automatic,
                     "advance_ms": advance, "hold_ms": hold, "visible_lines": lines,
                     "show_upcoming": True,
-                    "upcoming_offset_y": offset}))
+                    "transition_ms": transition}))
 
 
 def _uploaded_files(uploads, action):

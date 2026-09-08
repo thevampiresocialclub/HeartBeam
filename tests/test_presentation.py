@@ -28,7 +28,7 @@ def test_defaults_and_zero_override_inherit_reset_undo():
     h.execute(p, lambda q: S.apply_style(q, {"font": {"size_px": 88}, "box": {"outline_px": 8}}))
     h.execute(p, lambda q: S.apply_style(q, {"box": {"outline_px": 0}, "font": {"bold": False}}, ["line0"]))
     assert S.resolved_style(p, "line0")["box"]["outline_px"] == 0
-    assert S.resolved_style(p, "line0")["font"] == {"family": "Noto Sans", "size_px": 88, "bold": False, "italic": False}
+    assert S.resolved_style(p, "line0")["font"] == {"family": "Noto Sans", "size_px": 88, "bold": False, "italic": False, "letter_spacing_px": 0, "line_height": 1.4}
     h.execute(p, lambda q: S.reset_lines(q, ["line0"]))
     assert S.resolved_style(p, "line0")["box"]["outline_px"] == 8
     h.undo(p)
@@ -44,9 +44,9 @@ def test_phrase_draft_keeps_missing_words_visible_without_fake_highlighting():
                                   'anchor':{'start_s':1.,'end_s':3.}}}}
     compiled=S.compile_project(p,5000,draft=True)
     dialogue=next(row for row in compiled['ass'].splitlines() if row.startswith('Dialogue:'))
-    assert 'Bright' in dialogue and 'guide us' in dialogue
-    assert '\\kf' not in dialogue and '{\\k' not in dialogue
-    assert any('without word highlighting' in w for w in compiled['warnings'])
+    assert all(word in dialogue for word in ('Bright', 'guide', 'us'))
+    assert '\\kf' not in dialogue and '\\1c&H0000D7FF&' not in dialogue
+    assert any('untimed words remain plain' in w for w in compiled['warnings'])
     assert all(not p.effective_timing(w.id).resolved for w in line.words)
     with pytest.raises(P.ProjectError,match='untimed'):
         S.compile_project(p,5000)
@@ -117,20 +117,21 @@ def test_breaks_unicode_literals_and_display_window_are_compiled():
     text = S.compile_project(p, 8000)["ass"]
     assert r"\{stars\}" in text and "Café" in text and "Привет" in text
     assert "\\\u2060N" in text  # literal slash + N, not a forced break
-    assert r"\N{\k10}{\k60}guide" in text
-    assert "Dialogue: 0,0:00:00.00,0:00:04.00,Line0" in text
-    assert r"{\k50}{\k60}Bright" in text  # unsung lead-in follows display window
+    rows = [r for r in text.splitlines() if r.startswith('Dialogue') and ',Line0,' in r and '0:00:00.00,0:00:03.20' in r]
+    assert len(rows) == 2  # Explicit wraps use positioned rows with shared timing.
+    assert r'\kt190\k60}guide' in rows[1]
+    assert r'\kt50\k60}Bright' in rows[0]
 
 
 def test_word_and_sweep_keep_sung_colour_and_absolute_gap_timing():
     p = song(); word = S.compile_project(p, 8000)["ass"]
     S.apply_style(p, {"highlight": {"mode": "sweep"}}, ["line1"])
     swept = S.compile_project(p, 8000)["ass"]
-    assert r"{\k60}Café" in word
-    assert r"{\kf60}Café" in swept
-    assert r"{\k10}{\kf60}Ω" in swept
+    assert r"\kt450\k60}Café" in word
+    assert r"\kt450\kf60}Café" in swept
+    assert r"\kt520\kf60}Ω" in swept
     assert "&H0000D7FF&,&H00FFFFFF&" in swept
-    assert r"{\k60}Bright" in swept
+    assert r"\kt50\k60}Bright" in swept
 
 
 def test_automatic_display_lead_hold_and_upcoming_slot_do_not_shift_audio_timing():
@@ -141,17 +142,17 @@ def test_automatic_display_lead_hold_and_upcoming_slot_do_not_shift_audio_timing
                                "upcoming_offset_y": -160})
     compiled = S.compile_project(p, 8000)
     # First sung word is 500ms, so the first line appears at 200ms. The first
-    # line's final word ends at 3200ms. The stack remains until the next line's
-    # 4200ms reading boundary, avoiding a blank gap between lyric groups.
-    assert "Dialogue: 0,0:00:00.20,0:00:04.20,Line0" in compiled["ass"]
+    # line's final word ends at 3200ms. The next line rises at that boundary.
+    assert "Dialogue: 0,0:00:00.20,0:00:03.20,Line0" in compiled["ass"]
     # The next line appears in its second slot only until its current event
     # starts at 4.2s, so a line never occupies both roles simultaneously.
-    assert r"\pos(960,840)" in compiled["ass"]
+    assert r"\pos(960,899.2)" in compiled["ass"]
     upcoming = [row for row in compiled["ass"].splitlines()
                 if row.startswith("Dialogue") and "Café" in row]
     assert len(upcoming) == 2
-    assert any("0:00:00.20,0:00:04.20" in row for row in upcoming)
-    assert any("0:00:04.20,0:00:07.60" in row for row in upcoming)
+    assert any("0:00:00.20,0:00:03.20" in row for row in upcoming)
+    assert any("0:00:03.20,0:00:07.60" in row for row in upcoming)
+    assert any(r'\move(960,899.2,960,798.4,0,220)' in row for row in upcoming)
     assert p.original_alignment == before
 
 
@@ -172,10 +173,9 @@ def test_adjacent_automatic_windows_share_a_boundary_without_cutting_words():
     compiled = S.compile_project(p, 8000)
     rows = [row for row in compiled["ass"].splitlines() if row.startswith("Dialogue")]
     current0 = next(row for row in rows if ",Line0," in row and "Bright" in row)
-    current1 = next(row for row in rows if ",Line1," in row and r"{\k" in row)
-    assert "0:00:00.00,0:00:03.30" in current0
-    assert "0:00:03.30,0:00:07.70" in current1
-    assert any("shortened" in warning for warning in compiled["warnings"])
+    current1 = next(row for row in rows if ",Line1," in row and r"\move" in row)
+    assert "0:00:00.00,0:00:03.20" in current0
+    assert "0:00:03.20,0:00:07.70" in current1
     assert p.effective_timing("w0-3").end_ms == 3200
     assert p.effective_timing("w1-0").start_ms == 4500
 
@@ -191,14 +191,14 @@ def test_two_to_four_line_stack_has_exact_slots_and_no_boundary_duplicates(visib
         "hold_ms": 200, "visible_lines": visible, "upcoming_offset_y": -150})
     compiled = S.compile_project(p, 10000)
     first_window = [row for row in compiled["ass"].splitlines()
-                    if row.startswith("Dialogue") and "0:00:00.50,0:00:02.50" in row]
+                    if row.startswith("Dialogue") and "0:00:00.50,0:00:01.60" in row]
     assert len(first_window) == visible
     for distance in range(1, visible):
-        assert f"\\pos(960,{1000 - 150 * distance})" in first_window[distance]
-        assert r"\1c&H00FFFFFF&" in first_window[distance]
+        assert f"\\pos(960,{1000 - 100.8 * (visible - distance):g})" in first_window[distance]
+        assert r"\2c&H00FFFFFF&" in first_window[distance]
     # At the next current boundary Row2 has one event ending and one beginning.
     row2 = [row for row in compiled["ass"].splitlines() if row.startswith("Dialogue") and "Row2" in row]
-    assert sum("0:00:02.50" in row for row in row2) == 2
+    assert sum("0:00:01.60" in row for row in row2) == 2
 
 
 def test_line_stack_rejects_values_outside_two_to_four():

@@ -22,17 +22,21 @@ Implemented 7 September 2026. See BUILD-STATUS.md for the verification record.
    playhead follows zoomed playback; lyric blocks beneath it remain separate
    timing-edit targets. Scrubbing never writes timing or invalidates approval.
 5. In **Build karaoke**, choose **Keep backing vocals** or turn it off to exclude
-   lead leakage in that stem, at the cost of its harmonies during removal. Confirm
-   you checked the timing, then **Approve timing and build karaoke audio**. The
-   saved tracks produce a clean reference and MP3, and the app opens video editing.
+   lead leakage in that stem, at the cost of its harmonies during removal. Press
+   **Build karaoke and continue** with your current edits. Missing word timings
+   and conflicts show a warning; they do not require individual fixes or approval
+   before this step. The saved tracks produce a clean reference and MP3, and the
+   app opens video editing. Known phrase windows cover missing words during
+   removal. Portions with no usable word or phrase timing may retain vocals.
 6. Manual corrections, phrase evidence and stable IDs survive undo/redo and
    reopening. Changes to lyrics, effective word timing or linked source identity
-   invalidate approval. Refit existing lyric-attached vocal regions explicitly
+   invalidate approval, as do changes to phrase windows used for removal. Refit existing lyric-attached vocal regions explicitly
    when their intended section boundaries change.
 
 The 2–4 visible lyric rows and visual wrapping are independent of sung phrase
-boundaries. A partially timed phrase can appear as plain draft text. HeartBeam
-does not invent word timings to animate it. Final export still requires resolved
+boundaries. In a partially timed phrase, untimed words remain plain while timed
+words highlight. HeartBeam does not invent word timings to animate it or mark
+them reviewed when building audio. Final video export still requires resolved
 words, corrected conflicts and approval for the current timing.
 
 ## Approval and preparation contract
@@ -44,9 +48,18 @@ it is only a calibration placeholder, never an approved karaoke source.
 The default batch CLI remains automatic for compatibility.
 
 `timing_review.py` fingerprints effective timings, lyric IDs/text and source
-asset identities. Presentation styling does not invalidate timing approval.
-`current_timings(draft=False)` enforces the gate for removal rebuilds and saved
-project exports. Approval/build uses command history; a failed build cannot
+asset identities. With incomplete timing allowed, the timing hash also includes
+valid current phrase windows. Generated asset duration metadata is not part of
+that key; actual source bounds are checked when building the mask. Presentation
+styling does not invalidate timing approval.
+
+The GUI explicitly calls `approve_and_build(..., allow_incomplete=True)`.
+Valid word intervals plus phrase windows for partially timed lines feed the
+existing mask merger. Word edits, unresolved values and review flags remain
+unchanged. The approval flag and removal recipe persist this policy for rebuilds.
+`require_approved` still guards source/timing changes, and the default API policy
+remains strict for callers that do not opt in. Final video exports still use
+`current_timings(draft=False)`. Approval/build uses command history; a failed build cannot
 approve the live project. Audio is content addressed, and MP3 publication is
 atomic so failed encoding cannot poison a retry. Existing phrase-matched projects
 also need review; older imports without phrase metadata remain compatible.

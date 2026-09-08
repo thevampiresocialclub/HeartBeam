@@ -93,3 +93,30 @@ def test_changed_audio_and_missing_word_cannot_be_approved(tmp_path):
     with pytest.raises(P.ProjectError,match='untimed'):
         h.execute(p,lambda c:R.approve_and_build(c,tmp_path))
     assert not R.approved(p)
+
+
+def test_continue_uses_phrase_for_missing_words_without_faking_word_review(tmp_path):
+    p,clean,original,sr=pending(tmp_path);line=p.lines[0]
+    wid=line.words[0].id
+    p.timing_edits[wid]=P.WordTiming(reason='needs timing')
+    p.alignment['phrases']={line.id:{'word_ids':[w.id for w in line.words],
+                                   'anchor':{'start_s':.1,'end_s':.9}}}
+    before=copy.deepcopy(p.timing_edits);h=History()
+    h.execute(p,lambda c:R.approve_and_build(c,tmp_path,allow_incomplete=True))
+    assert R.approved(p) and p.timing_edits==before and not any(p.reviewed.values())
+    samples=sf.read(p.asset_by_role('clean_audio').resolve(tmp_path))[0]
+    np.testing.assert_allclose(samples[int(.45*sr)],clean[int(.45*sr)],atol=1e-7)
+    assert p.vocal_mix.references['timing_hash']==V.timing_hash(p)
+    P.save_project(p,tmp_path);assert R.approved(P.load_project(tmp_path))
+    p.alignment['phrases'][line.id]['anchor']['end_s']=1.
+    assert not R.approved(p)  # Cached audio approval includes fallback windows.
+    assert h.undo(p) and not R.approved(p)
+
+
+def test_continue_keeps_unanchored_missing_words_and_unions_conflicting_spans(tmp_path):
+    p,*_=pending(tmp_path)
+    ids=p.word_ids();p.timing_edits[ids[0]]=P.WordTiming(reason='needs timing')
+    p.timing_edits[ids[1]]=P.WordTiming(600,1400)  # overlaps the following phrase
+    before=copy.deepcopy(p.timing_edits)
+    R.approve_and_build(p,tmp_path,allow_incomplete=True)
+    assert R.approved(p) and p.timing_edits==before and p.unresolved_words()

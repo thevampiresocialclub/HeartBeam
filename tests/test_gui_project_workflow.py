@@ -104,11 +104,9 @@ def test_prepared_song_requires_review_and_explicit_build_before_video(tmp_path,
     assert not at.exception
     assert at.session_state['workflow_step']=='review'
     assert at.button(key='step_video').disabled
-    assert at.button(key='approve_timing_build').disabled
+    assert not at.button(key='approve_timing_build').disabled
     assert payload['sources'][0]['id']=='original' and payload['mix'] is None
     assert not any(b.label=='Render video' for b in at.button)
-    approval=next(c for c in at.checkbox if c.key and c.key.startswith('timing_approved_'))
-    approval.set_value(True).run()
     at.button(key='approve_timing_build').click().run()
     assert not at.exception
     assert at.session_state['workflow_step']=='video'
@@ -121,8 +119,31 @@ def test_prepared_song_requires_review_and_explicit_build_before_video(tmp_path,
     at.button(key='nudge_fwd').click().run()
     assert not at.exception
     assert at.session_state['workflow_step']=='review'
-    assert at.button(key='approve_timing_build').disabled
+    assert not at.button(key='approve_timing_build').disabled
     assert at.button(key='step_video').disabled
+
+
+def test_missing_first_word_can_select_repeat_and_continue_to_removal(tmp_path,monkeypatch):
+    from heartbeam import editor as ED, timing_review as R
+    from tests.test_timing_review import pending
+    root=tmp_path/'partial';root.mkdir();p,*_=pending(root);line=p.lines[0]
+    p.timing_edits[line.words[0].id]=P.WordTiming(reason='needs timing')
+    p.alignment['phrases']={line.id:{'word_ids':[w.id for w in line.words], 'anchor':{'start_s':.1,'end_s':.9}}}
+    P.save_project(p,root);payload={}
+    def component(**kwargs):payload.update(kwargs['data'])
+    monkeypatch.setattr(ED,'timeline_component',lambda:component)
+    at=_fresh_app();at.text_input(key='open_project_path').set_value(str(root));at.button(key='open_project_btn').click().run()
+    before=at.session_state['project'].to_dict()
+    at.button(key=f'review_line_{line.id}').click().run()
+    first=payload['lyric_navigation'];assert first['start_ms']==100 and first['word_id']==line.words[0].id
+    at.button(key=f'review_line_{line.id}').click().run()
+    assert payload['lyric_navigation']['id']!=first['id']
+    assert at.session_state['project'].to_dict()==before
+    assert not at.button(key='approve_timing_build').disabled
+    at.button(key='approve_timing_build').click().run()
+    assert not at.exception and at.session_state['workflow_step']=='video'
+    saved=P.load_project(root);assert R.approved(saved) and saved.unresolved_words()
+    assert not any(saved.reviewed.values())
 
 
 def test_online_search_keeps_draft_until_user_chooses_result(monkeypatch):
@@ -456,11 +477,15 @@ def test_p05_appearance_preset_override_save_reopen(tmp_path, monkeypatch):
     result["selection"] = {"word_id": p.word_ids()[0], "nonce": "p05-select"}
     at.run()
     next(n for n in at.number_input if n.label == "Lyric font size").set_value(90.)
+    next(n for n in at.number_input if n.label == "Letter spacing (kerning)").set_value(4.)
+    next(n for n in at.number_input if n.label == "Line height").set_value(1.8)
     next(t for t in at.text_input if t.label == "Sung colour code").set_value("#55CCAA")
     next(b for b in at.button if b.label == "Apply lyric appearance").click().run()
     assert not at.exception and not at.error
     p = at.session_state["project"]
     assert S.resolved_style(p)["font"]["size_px"] == 90
+    assert S.resolved_style(p)["font"]["letter_spacing_px"] == 4
+    assert S.resolved_style(p)["font"]["line_height"] == 1.8
     assert S.resolved_style(p)["colour"]["highlight"] == "#55CCAA"
     next(t for t in at.text_input if t.label == "Preset name").set_value("Mint song")
     next(b for b in at.button if b.label == "Save named style preset").click().run()

@@ -80,7 +80,7 @@ def _build_styles_block(style: Style) -> str:
     style_line = (
         f"Style: Default,{style.font.family},{style.font.size_px},"
         f"{primary},{secondary},{outline},{shadow},"
-        f"{bold},{italic},0,0,100,100,0,0,1,"
+        f"{bold},{italic},0,0,100,100,{style.font.letter_spacing_px:g},0,1,"
         f"{style.box.outline_px},{style.box.shadow_px},{alignment},"
         f"{style.box.margin_h_px},{style.box.margin_h_px},{style.box.margin_v_px},1\n"
     )

@@ -144,6 +144,7 @@ export default function (component) {
     seek: ms => seek(ms, true), play: togglePlay,
   });
   const presentation = new HBPresentation(root, audio, {
+    seek: ms => seek(ms, true),
     commit, select: (id, notify, shouldSeek) => select(state.words.find(w => w.id === id), notify, shouldSeek),
     pending: () => !!state.pendingCommand, selected: () => state.selectedId,
     selectedLine: () => currentWord()?.line_id,
@@ -554,6 +555,17 @@ export default function (component) {
     resize(); render();
     presentation.draft = null;
     presentation.update(data.preview, data.presentation_selection); void updateMix(data.mix); syncLoop(); buttons();
+    const navigation = data.lyric_navigation;
+    if (navigation && navigation.id !== state.lastNavigation) {
+      state.lastNavigation = navigation.id;
+      // A new page can mount after another line was selected. Do not replay an
+      // older review-panel request over the server's current selection.
+      if (navigation.word_id === data.selected_id) {
+        select(state.words.find(w => w.id === navigation.word_id), false, false);
+        if (Number.isFinite(navigation.start_ms)) seek(navigation.start_ms, true);
+        render();
+      }
+    }
     const audition = data.phrase_audition;
     if (audition && audition.id !== state.lastAudition && Number.isFinite(audition.start_ms) &&
         Number.isFinite(audition.end_ms) && 0 <= audition.start_ms && audition.start_ms < audition.end_ms && audition.end_ms <= state.durationMs) {

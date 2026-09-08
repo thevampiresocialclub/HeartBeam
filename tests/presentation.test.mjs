@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const source = fs.readFileSync(new URL('../heartbeam/editor_assets/presentation.js', import.meta.url), 'utf8');
 const context = {console}; vm.createContext(context);
-vm.runInContext(`${source}\nglobalThis.Presentation = HBPresentation;`, context);
+vm.runInContext(`${source}\nglobalThis.Presentation = HBPresentation; globalThis.scenePosition = hbScenePosition;`, context);
 const Prototype = context.Presentation.prototype;
 function subject() {
   const line = {line_id:'a', ass_name:'Line0', x:960,y:850,word_id:'w0'};
@@ -51,4 +51,23 @@ test('song placement preserves explicit line positions',()=>{
   assert.match(tracks.at(-1),/\\pos\(500,600\)/);
   assert.match(tracks.at(-1),/\\pos\(200,120\)/);
   assert.equal(obj.allowed(another),false);
+});
+
+test('moving preview guides share the compiled scene position across seeks',()=>{
+  const line={segments:[{start_ms:1000,end_ms:2000,from_top:300,to_top:200,move_ms:200}]};
+  assert.equal(context.scenePosition(line,999),null);
+  assert.equal(context.scenePosition(line,1000),300);
+  assert.equal(context.scenePosition(line,1100),250);
+  assert.equal(context.scenePosition(line,1500),200);
+  assert.equal(context.scenePosition(line,2000),null);
+  assert.equal(context.scenePosition(line,1050),275);
+});
+
+test('dragging a rolling line translates motion and clipping without changing timing',()=>{
+  const {obj,line,tracks}=subject();
+  obj.preview.ass='Dialogue: 0,1,4,Line0,,0,0,0,,{\\move(960,700,960,600,0,220)\\clip(0,600,1920,900)}{\\kt-10\\kf40}A';
+  obj.draftPosition(line,obj.position(line,980,870));
+  assert.match(tracks.at(-1),/\\move\(980,720,980,620,0,220\)/);
+  assert.match(tracks.at(-1),/\\clip\(0,620,1920,920\)/);
+  assert.match(tracks.at(-1),/\\kt-10\\kf40/);
 });

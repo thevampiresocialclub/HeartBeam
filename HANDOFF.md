@@ -1,6 +1,7 @@
 # HeartBeam handoff
 
-**Updated:** 7 September 2026 by Codex, including timing review, waveform seeking and the Firefox playback fix.
+**Updated:** 8 September 2026 by Codex, including rolling lyrics, partial highlighting,
+spacing controls, Firefox line selection and optional individual timing review.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
@@ -12,9 +13,13 @@ P03, P04, P05 and **P06, dependable preview/export**, are implemented. The owner
 follow-up timing system is now implemented too; read `docs/TIMING_SYSTEM.md`.
 It adds optional LRCLIB lookup, complete-vocal matching, phrase-local refinement,
 selective/manual-window repair, cached recognition and honest unresolved words.
-The GUI now prepares tracks, saves a project, opens timing review, and requires
-explicit approval before building karaoke and entering video editing. See the
-approval contract in `docs/TIMING_SYSTEM.md`. Lyric/timing edits invalidate approval.
+The GUI prepares tracks, saves a project and opens timing review. The owner can
+make any corrections, then choose **Build karaoke and continue** without fixing
+or approving every word. Missing timings/conflicts warn. Removal uses valid
+word timing plus known phrase windows for partially timed lines; unresolved
+word values and review flags remain unchanged. See `docs/TIMING_SYSTEM.md` for
+the persisted opt-in policy and approval fingerprint. Lyric/timing/phrase edits
+invalidate the build; final video export still requires resolved word timing.
 The Frost Children stalled-prefix regression now retries near the recognized
 suffix instead of accepting a plausible score four seconds early. The backing
 stem also contains recognized lead phrases; timing alone cannot resolve that.
@@ -48,6 +53,13 @@ HBTransport now reconstructs its known fade-in ramp using `cancelScheduledValues
 and `linearRampToValueAtTime`. Keep this Firefox-compatible path and its
 short-interval seek regression test. See BUILD-STATUS for the before/after
 Firefox transport evidence and the separate full Chrome workstation proof.
+The full Firefox editor now also has measured line-selection, native dropdown,
+partial-highlight, spacing-stepper and warning-only audio-build checks. Review
+line clicks send an explicit navigation nonce so repeated clicks seek again.
+Use the decoded audio duration, since imported asset metadata can omit it.
+Do not overwrite a focused native dropdown each animation frame: Firefox's
+intermediate selection was being reset before it could commit. Discard an old
+navigation request when a new page mounts with a different current selection.
 Do not wrap the workstation in `st.empty().container()`: clearing that container
 recreates the audio player on ordinary timing edits and undo. Page approval is
 already handled before rendering, and tabs have separate stable keys for each
@@ -121,10 +133,15 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
   placement handles and safe-area guides. Dragging stays local until release;
   numeric controls and handle keys give alternative access. Video backgrounds
   remain paused and sample the AudioContext clock. Do not add a playback clock.
-- `presentation.py`: the one project presentation compiler. Resolves song
-  defaults and sparse line overrides, anchors/alignment/wrapping, colours,
-  fonts, word/sweep tags, presets and export snapshots. `compile_project` drives
-  preview and native export; `render_project` freezes actual fonts/backgrounds.
+- `presentation.py`: presentation defaults, sparse overrides, validation,
+  presets and export snapshots. `compile_project` delegates to `lyric_scene.py`
+  for both preview and native export; `render_project` freezes fonts/backgrounds.
+- `lyric_scene.py`: deterministic top-to-bottom rolling scene, explicit or
+  measured wrapping, letter/row spacing and movement segments for handles.
+  Timed words use individual absolute `\kt` onsets, preserving gaps, overlaps
+  and ongoing sweeps across event splits. Missing words keep plain colours;
+  they must not disable highlighting for an entire otherwise-timed phrase.
+  A fixed tallest-phrase slot keeps the top position stable through the song.
 - `presentation_fonts.py`: actual font metadata/coverage, explicit installed-font
   copying and content-addressed assets. A missing face warns and uses Noto in both
   renderers. A missing glyph blocks final export. Imported Noto faces override
@@ -142,7 +159,8 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
   normalized MP3. Content-addressed files are retained for undo and recovery.
 - `project_preview.py`: common effective timing validation plus the browser
   media adapter for `presentation.compile_project`. Unresolved timing blocks
-  final export; labelled drafts omit untimed words. Do not reintroduce a second
+  final export; drafts retain untimed words as plain text in anchored phrases.
+  Do not reintroduce a second
   project ASS compiler or use legacy timing JSON to render edited projects.
 - `project_align.py`: explicit CUDA alignment of the saved lead track. It is
   imported only by that action, writes a new result artifact and preserves
@@ -196,8 +214,9 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
 
 ## Current continuation point
 
-The GUI now has separate separation and video-editing pages, with a save-folder
-transition after generation. Opening a saved project enters video editing.
+The GUI has preparation, timing-review and video-editing pages, with a save-folder
+transition after preparation. Pending projects reopen in review; built projects
+open in video editing. Individual word review does not block the build button.
 The desktop monitor and inspector are separate scroll containers. The right-pane
 component hosts the existing live lyric/vocal DOM controls through
 `editor_assets/workstation.js`; it never creates another transport. Preserve
@@ -208,8 +227,12 @@ Playwright and installed Chrome. It creates its own disposable project copy.
 P06 is complete. The editor now also saves 2–4 visible lyric rows and provides a
 prominent playback preview with Play/Pause, Restart and previous/next lyric jumps.
 Those jumps use compiled display starts; the same ASS and concrete fonts still
-drive browser preview and native export. Upcoming rows explicitly use their
-resolved unsung colour and shift at one shared boundary.
+drive browser preview and native export. The current phrase is on top, future
+phrases below, and promotion starts at the current phrase's last sung end.
+Rise duration defaults to 220 ms; zero disables animation. Overlapping future
+words can highlight before promotion. Letter spacing and line height persist
+through styles, overrides, presets, save/reopen and undo. Legacy signed upcoming
+offset fields are readable but ignored; see `docs/PRESENTATION.md`.
 
 Visual revisions must not invalidate audio. `vocal_mix.mix_key()` identifies
 final audio by content; the browser ignores revision-only changes when audio
@@ -222,6 +245,11 @@ box/overflow guides are metric estimates, with libass providing actual text;
 no pixel identity claim across rasterizers/colour management. Browser video
 preview needs a supported codec. Media still occupies RAM, and undo history
 remains session-local. P07's controlled model sweep and listening work are next.
+The latest cross-module update requires restarting an already-running server.
+Have the owner save pending browser edits first; a refresh alone can retain old
+Python modules, and restarting discards unsaved session state. The owner's 8505
+server was deliberately kept running pending their save/restart confirmation;
+the updated code was tested separately on 8506.
 
 Keep P04's first version labelled **Vocal level**: 0% is the saved processed mix,
 100% restores its original reference. Avoid claims of perfect lead separation or
