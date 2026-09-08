@@ -87,8 +87,38 @@ def phrase_anchors(lines, observed, duration):
             continue
         anchors[index] = dict(index=index, text=text, start_s=max(0, start-.35-hits[0][0]*.3),
             end_s=min(duration, end+.45+(len(tokens)-1-hits[-1][0])*.3),
-            onset_s=start, source='audio', coverage=coverage)
+            onset_s=start, source='audio', coverage=coverage,
+            word_evidence=[dict(position=k, start_s=w['start'], end_s=w['end'], score=w.get('score', 0))
+                           for k,w in hits if isinstance(w.get('score'), (int,float)) and
+                           w['score'] >= .3 and .04 <= w['end']-w['start'] <= 2.])
     return anchors
+
+
+def refinement_conflicts(words, anchor):
+    """A plausible score cannot excuse moving a supported word to another beat."""
+    evidence = anchor.get('word_evidence', [])
+    if len(evidence) < 2:
+        return []
+    return [hit['position'] for hit in evidence
+            if words[hit['position']]['start_s'] is not None and
+            abs(words[hit['position']]['start_s']-hit['start_s']) > 1.5]
+
+
+def compact_anchor(anchor, token_count):
+    """Retry around supported words, excluding stalled/low-score prefix timing.
+
+    Long sung words remain valid; they simply cannot pin a retry window alone.
+    The retry must still agree with the acoustic word evidence to be accepted.
+    """
+    evidence = anchor.get('word_evidence', [])
+    if len(evidence) < 2:
+        return None
+    first, last = evidence[0], evidence[-1]
+    start = max(anchor['start_s'], first['start_s']-.35-first['position']*.45)
+    end = min(anchor['end_s'], last['end_s']+.45+(token_count-1-last['position'])*.45)
+    if start >= end or (start-anchor['start_s'] < .2 and anchor['end_s']-end < .2):
+        return None
+    return {**anchor, 'start_s': start, 'end_s': end, 'retry': 'acoustic word evidence'}
 
 
 def online_anchors(lines, synced_lines, audio_anchors, duration):
@@ -141,7 +171,8 @@ def online_anchors(lines, synced_lines, audio_anchors, duration):
             continue
         anchors[index] = dict(index=index, text=dict(lines)[index], start_s=max(0,start+offset-.5),
             end_s=min(duration,end+offset+.5), onset_s=max(0,start+offset),
-            source='online', coverage=1., offset_s=offset)
+            source='online', coverage=1., offset_s=offset,
+            word_evidence=local.get('word_evidence', []) if local else [])
     return anchors, f'Online timing checked against {len(inliers)} phrases; offset {offset:+.2f} seconds.'
 
 

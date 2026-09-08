@@ -169,21 +169,27 @@ This sidesteps two real traps:
 .\.venv\Scripts\heartbeam-gui.exe     # or just `heartbeam-gui` once activated
 ```
 
-Opens a local Streamlit app at <http://localhost:8501>. It covers **both
-phases**:
+Opens a local Streamlit app at <http://localhost:8501> with three steps:
 
-1. **Separate audio:** choose a song, paste its lyrics and pick a genre profile.
-   When separation finishes, audition the result, choose a project folder and
-   select **Save project and edit video**.
-2. **Edit video:** the desktop workstation keeps Play/Pause, video preview and
+1. **Prepare audio:** choose a song, paste its lyrics and pick a genre profile.
+   Preparation saves the separated tracks and suggested lyric timing without
+   building the removal mix. Choose **Save project and review timing**.
+2. **Review timing:** play the original or vocal tracks with the waveform and
+   lyric preview. Correct missing or early words in **Timing**. In **Build karaoke**,
+   choose whether to keep backing vocals, confirm you checked the timing, and
+   select **Approve timing and build karaoke audio**. This uses saved tracks;
+   it does not repeat separation.
+3. **Edit video:** the desktop workstation keeps Play/Pause, video preview and
    waveform together on the left. The right pane has live lyric selection and
    **Appearance**, **Lyrics**, **Timing**, **Vocals** and **Export** tabs. Each
    pane scrolls independently. A single Play button drives audio, highlighting,
    video backgrounds and the waveform. Use **Save project** in the top bar to
    keep edits, then **Render video** in Export to create the MP4.
 
-Opening a saved project goes straight to video editing. The two step buttons
-let you return to separation without losing the loaded project. On narrow screens
+Prepared projects reopen in timing review. Approved projects and older projects
+without phrase matching reopen in video editing. Changing reviewed lyrics or
+timing requires approval again before building or exporting. The step buttons
+let you return to preparation without losing the loaded project. On narrow screens
 the panes stack to keep the controls usable.
 
 Because Phase 2 is only ffmpeg, restyling takes seconds and never re-runs the

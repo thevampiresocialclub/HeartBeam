@@ -242,6 +242,8 @@ def rebuild_clean(project, root, recipe=None):
         asset = project.asset_by_role(role)
         if asset is None or not asset.resolve(root).is_file():
             raise P.ProjectError(f"Rebuilding needs the saved {role.replace('_', ' ')}.")
+        if asset.sha256 and P.file_sha256(asset.resolve(root)) != asset.sha256:
+            raise P.ProjectError('A saved audio track changed. Relink the correct tracks and review timing again.')
         arr, sr = sf.read(str(asset.resolve(root)), dtype="float32", always_2d=True)
         if basis and (sr, arr.shape) != basis:
             raise P.ProjectError("Saved stems and original must have the same sample rate, channels and sample count.")
@@ -259,7 +261,8 @@ def rebuild_clean(project, root, recipe=None):
                     xfade_ms=recipe.get("crossfade_ms", 60))
         mask = M.combine_masks(mask, energy)
     if recipe.get("mix_strategy", "subtract") == "replace":
-        clean = mix_replace(arrays["original_audio"], arrays["instrumental_stem"], arrays["backing_stem"], mask, clip=False)
+        backing = arrays['backing_stem'] if recipe.get('keep_backing', True) else np.zeros_like(arrays['backing_stem'])
+        clean = mix_replace(arrays["original_audio"], arrays["instrumental_stem"], backing, mask, clip=False)
     else:
         clean = mix(arrays["original_audio"], arrays["lead_stem"], mask,
                     recipe.get("vocal_gain", 1), arrays["backing_stem"], recipe.get("backing_boost", 0), clip=False)

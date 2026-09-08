@@ -303,9 +303,11 @@ def _alignment_tools(project, root):
                     change(project, lambda p: lyrics.apply_alignment(p, incoming.lines, only_unresolved=only_missing))
 
 
-def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=None):
+def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=None, timing_review=False):
     h = history(project)
     sources = media.build_sources(project, root, karaoke_path)
+    if timing_review:
+        sources = [s for s in sources if s['id'] != 'karaoke']
     available = [s for s in sources if s["available"]]
     if not available:
         st.error("Relink the missing audio in the project sidebar before editing timing.")
@@ -318,8 +320,14 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
     with inspector:
         st.subheader("Lyric controls")
         E.inspector_component()(data={"project_id": project.id}, key=f"hb_inspector_{project.id}")
-        appearance_tab, lyrics_tab, timing_tab, vocals_tab, export_tab = st.tabs(
-            ["Appearance", "Lyrics", "Timing", "Vocals", "Export"])
+        if timing_review:
+            timing_tab, lyrics_tab, appearance_tab, export_tab = st.tabs(
+                ["Timing", "Lyrics", "Appearance", "Build karaoke"],
+                default="Timing", key=f"editor_tabs_{project.id}_review")
+        else:
+            appearance_tab, lyrics_tab, timing_tab, vocals_tab, export_tab = st.tabs(
+                ["Appearance", "Lyrics", "Timing", "Vocals", "Export"],
+                key=f"editor_tabs_{project.id}_video")
         with appearance_tab:
             appearance_selection = presentation_ui.scope_controls(project)
             presentation_ui.display_controls(project)
@@ -334,23 +342,27 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
                     phrase_audition=st.session_state.get(f'phrase_audition_{project.id}'),
                     can_undo=h.can_undo, can_redo=h.can_redo,
                     command_ack=st.session_state.get(f"command_ack_{project.id}"))
-    try:
-        payload["mix"] = V.preview_payload(project, root, media.register_media, selection)
-        sources.append({**available[0], "id": "mix", "label": "Vocal mix (draft)",
-                         "key": "vocal-mix", "src": "heartbeam:mix", "available": False,
-                         "reason": "Preparing calibrated references…"})
-    except (P.ProjectError, OSError, ValueError):
-        payload["mix"] = None
+    payload["mix"] = None
+    if not timing_review:
+        try:
+            payload["mix"] = V.preview_payload(project, root, media.register_media, selection)
+            sources.append({**available[0], "id": "mix", "label": "Vocal mix (draft)",
+                             "key": "vocal-mix", "src": "heartbeam:mix", "available": False,
+                             "reason": "Preparing calibrated references…"})
+        except (P.ProjectError, OSError, ValueError):
+            pass
     final = st.session_state.get(f"final_mix_{project.id}")
-    if final and final[0] == V.mix_key(project) and Path(final[1]).is_file():
+    if not timing_review and final and final[0] == V.mix_key(project) and Path(final[1]).is_file():
         path = Path(final[1])
         sources.append({**available[0], "id": "final", "label": "Final mix (mastered)",
                          "key": str(path), "src": media.register_media(path, f"final/{project.id}")})
         with export_tab:
             st.download_button("Download final vocal mix.wav", path.read_bytes(), "vocal-mix.wav", mime="audio/wav")
     with monitor:
-        st.subheader("Video preview")
-        result = E.timeline_component()(data=payload, key=f"hb_timeline_{project.id}")
+        st.subheader("Lyric timing preview" if timing_review else "Video preview")
+        if timing_review:
+            st.caption("Play the original and check the coloured word highlights against the singing. Select a word or line to adjust it, then open Build karaoke.")
+        result = E.timeline_component()(data=payload, key=f"hb_timeline_{project.id}_{'review' if timing_review else 'video'}")
     selection_event = result.get("selection") if result else None
     if selection_event and selection_event.get("nonce") != st.session_state.get(f"selection_nonce_{project.id}"):
         st.session_state[f"selection_nonce_{project.id}"] = selection_event["nonce"]
@@ -395,9 +407,10 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
     with timing_tab:
         _timing_controls(project, duration)
         _alignment_tools(project, root)
-    with vocals_tab:
-        selection = _vocal_controls(project, root, duration)
-        _audio_tools(project, root)
+    if not timing_review:
+        with vocals_tab:
+            selection = _vocal_controls(project, root, duration)
+            _audio_tools(project, root)
     template_changed = selection != st.session_state.get(f"vocal_template_{project.id}")
     st.session_state[f"vocal_template_{project.id}"] = selection
     if selection_changed or template_changed:

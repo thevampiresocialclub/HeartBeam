@@ -122,9 +122,10 @@ def align(samples, sr, lyrics_text, whisper_model='medium', device='cpu', langua
         anchor = anchors.get(index)
         tokens = text.split()
         words = [dict(text=t, start_s=None, end_s=None, score=None, reason='Phrase needs matching') for t in tokens]
-        if anchor:
+        def refine(window):
+            proposal = [dict(text=t, start_s=None, end_s=None, score=None, reason='Word needs timing') for t in tokens]
             try:
-                aligned = whisperx.align([dict(text=text, start=anchor['start_s'], end=anchor['end_s'])],
+                aligned = whisperx.align([dict(text=text, start=window['start_s'], end=window['end_s'])],
                              model, metadata, audio, device, return_char_alignments=False)
             except (RuntimeError, ValueError, IndexError) as exc:
                 log.warning('Could not refine phrase %d: %s', index + 1, exc)
@@ -134,12 +135,27 @@ def align(samples, sr, lyrics_text, whisper_model='medium', device='cpu', langua
                 word = got[source]
                 start, end, score = word.get('start'), word.get('end'), word.get('score', 0.)
                 if all(isinstance(v, (int, float)) for v in (start,end,score)) and np.isfinite([start,end,score]).all() \
-                        and anchor['start_s']-.05 <= start < end <= anchor['end_s']+.05 and score >= .1:
-                    words[target] = dict(text=tokens[target], start_s=start, end_s=end,
+                        and window['start_s']-.05 <= start < end <= window['end_s']+.05 and score >= .1:
+                    proposal[target] = dict(text=tokens[target], start_s=start, end_s=end,
                                          score=score, reason=None)
                 else:
-                    words[target]['reason'] = 'Word could not be placed reliably in this phrase'
+                    proposal[target]['reason'] = 'Word could not be placed reliably in this phrase'
+            return proposal
+        disagreement = False
+        if anchor:
+            words = refine(anchor)
+            if matching.refinement_conflicts(words, anchor):
+                retry = matching.compact_anchor(anchor, len(tokens))
+                if retry:
+                    log.info('Retrying phrase %d inside its supported words', index + 1)
+                    anchor, words = retry, refine(retry)
+                if matching.refinement_conflicts(words, anchor):
+                    disagreement = True
+                    words = [dict(text=t,start_s=None,end_s=None,score=None,
+                                  reason='Word refinement disagrees with acoustic phrase evidence') for t in tokens]
         issues = matching.word_review(words)
+        if disagreement:
+            issues.append('Word timing disagrees with the recognized phrase; set approximate boundaries')
         if anchor and anchor['source'] == 'gap':
             issues.append('Recovered between phrases; check this line')
         state = 'match_needed' if not anchor else 'check' if issues else 'ready'

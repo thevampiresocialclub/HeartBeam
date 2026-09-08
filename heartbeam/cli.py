@@ -107,6 +107,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sofa-dict", default=None, help="path to SOFA dictionary file (or HEARTBEAM_SOFA_DICT)")
     p.add_argument("--language", default=None, help="force ASR/alignment language (e.g. 'en'); auto-detect if omitted")
     p.add_argument('--lyrics-candidate', type=Path, help='Optional saved online lyrics candidate to verify against this audio')
+    p.add_argument('--prepare-only', action='store_true', help='Save separation and timing proposals for review; do not build karaoke audio.')
     p.add_argument("-v", "--verbose", action="store_true")
     return p
 
@@ -327,6 +328,24 @@ def main(argv: list[str] | None = None) -> int:
         "alignment: %d words across %d lines (%d low-confidence, lang=%s)",
         ar.total_words, len(ar.lines), ar.low_confidence_count, ar.language,
     )
+
+    if args.prepare_only:
+        from . import audio_cache as cache_mod
+        recipe = {name:getattr(args,name) for name in _PRESET_TUNABLES}
+        recipe.update(separator=args.separator, aligner=aligner_id, whisper_model=args.whisper_model,
+                      sample_rate=sr, pending_timing_review=True)
+        cache_mod.write_cache(args.out/'cache', dict(original=original, lead=lead, backing=backing,
+            instrumental=instrumental, vocals=vocals, clean=original.copy()), sample_rate=sr,
+            source_sha256=cache_mod.file_sha256(args.song), settings=recipe,
+            provenance=dict(separator_preset=args.separator,aligner=aligner_id,whisper_model=args.whisper_model),
+            audio_format=args.cache_format)
+        prepared = timings_mod.Timings(timings_mod.Source(str(args.song),str(args.lyrics),sr,n/sr),
+                     timings_mod.Models(args.separator,aligner_id),ar.lines,alignment=ar.diagnostics)
+        timings_mod.to_json(prepared,args.out/'timings.json')
+        timings_mod.to_lrc(prepared,args.out/'lyrics.lrc')
+        (args.out/'timing-review-required.json').write_text(json.dumps(dict(required=True)),encoding='utf-8')
+        log.info('Audio tracks and lyric proposals saved. Review timing before building karaoke audio.')
+        return 0
 
     # Build the lyric-aware mask from all aligned words.
     all_words = [w for ln in ar.lines for w in ln.words]

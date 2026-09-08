@@ -12,6 +12,9 @@ def current_timings(project, duration_ms, *, draft=False):
     conflicts = timing_conflicts(project)
     if not draft and (missing or conflicts):
         raise ProjectError(f"Fix {len(missing)} untimed word(s) and {len(conflicts)} timing conflict(s) before export.")
+    if not draft:
+        from .timing_review import require_approved
+        require_approved(project)
     lines = []
     for line in project.lines:
         words = []

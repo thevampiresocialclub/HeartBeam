@@ -10,20 +10,43 @@ Implemented 7 September 2026. See BUILD-STATUS.md for the verification record.
 2. Separation keeps the complete vocal stem as well as lead, backing and
    instrumental tracks. Timing matches against complete vocals. Older projects
    combine compatible saved lead/backing tracks; original audio is the fallback.
-3. **Timing → Match lyric timing** matches phrases, then refines words. Review
+3. Save the prepared project and open **Review timing**. Original audio is the
+   default listening source; karaoke mixing and video export wait for approval.
+   **Timing → Match lyric timing** matches phrases, then refines words. Review
    missing, uncertain, compressed, overlapping and ambiguous repeated phrases.
 4. Choose **Selected lines** or **Lines needing review** to repair a subset.
    For one line, set approximate boundaries, **Loop this phrase**, press **Play**,
    and run matching. Explicit boundaries skip recognition and constrain the
    word aligner. Playback, waveform and video keep the existing single clock.
-5. Save. Manual corrections, phrase evidence and stable IDs survive undo/redo
-   and reopening. Refit lyric-attached vocal regions or rebuild the clean audio
-   explicitly after timing corrections, using the existing Vocal controls.
+5. In **Build karaoke**, choose **Keep backing vocals** or turn it off to exclude
+   lead leakage in that stem, at the cost of its harmonies during removal. Confirm
+   you checked the timing, then **Approve timing and build karaoke audio**. The
+   saved tracks produce a clean reference and MP3, and the app opens video editing.
+6. Manual corrections, phrase evidence and stable IDs survive undo/redo and
+   reopening. Changes to lyrics, effective word timing or linked source identity
+   invalidate approval. Refit existing lyric-attached vocal regions explicitly
+   when their intended section boundaries change.
 
 The 2–4 visible lyric rows and visual wrapping are independent of sung phrase
 boundaries. A partially timed phrase can appear as plain draft text. HeartBeam
 does not invent word timings to animate it. Final export still requires resolved
-words and corrected conflicts.
+words, corrected conflicts and approval for the current timing.
+
+## Approval and preparation contract
+
+The GUI passes `--prepare-only` to the CLI. It writes lossless tracks, timing/LRC
+proposals and `timing-review-required.json`, and returns before mask construction,
+removal mixing or MP3 encoding. The temporary clean cache equals the original;
+it is only a calibration placeholder, never an approved karaoke source.
+The default batch CLI remains automatic for compatibility.
+
+`timing_review.py` fingerprints effective timings, lyric IDs/text and source
+asset identities. Presentation styling does not invalidate timing approval.
+`current_timings(draft=False)` enforces the gate for removal rebuilds and saved
+project exports. Approval/build uses command history; a failed build cannot
+approve the live project. Audio is content addressed, and MP3 publication is
+atomic so failed encoding cannot poison a retry. Existing phrase-matched projects
+also need review; older imports without phrase metadata remain compatible.
 
 ## Matching sequence
 
@@ -40,6 +63,11 @@ cached by audio fingerprint, model, language, device and algorithm version.
 `alignment_match.py` matches the supplied lyric token sequence to the recognized
 sequence in order. Missing tokens are skipped, not allocated proportionally.
 Phrase anchors require actual token coverage and reject large internal gaps.
+Word refinement is also compared against at least two sufficiently scored,
+non-stalled recognized words. A displacement over 1.5 seconds triggers a retry
+inside a narrower evidence-based window. Continued disagreement leaves the phrase
+unresolved. Long sung words remain allowed; they do not independently pin retry
+boundaries. This is a conservative check, not proof of perceptually exact timing.
 The whole lyric sequence remains context when only selected lines are refined,
 so repeated choruses retain their occurrence. Ambiguous repetitions are flagged.
 

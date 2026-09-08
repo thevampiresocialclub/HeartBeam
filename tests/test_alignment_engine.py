@@ -93,7 +93,8 @@ def test_import_rejects_invalid_phrase_sidecar(patch):
         Timings.from_dict(data)
 
 
-def test_cli_saves_separation_when_alignment_fails(tmp_path, monkeypatch):
+@pytest.mark.parametrize('prepare_only', [False, True])
+def test_cli_saves_separation_when_alignment_fails(tmp_path, monkeypatch, prepare_only):
     from heartbeam import cli, align as align_mod, io, separate, project as P, timings as T
     monkeypatch.setattr(cli, '_preflight_gpu', lambda *a,**k:None)
     monkeypatch.setattr(cli, '_resolve_device', lambda *a:'cpu')
@@ -108,10 +109,48 @@ def test_cli_saves_separation_when_alignment_fails(tmp_path, monkeypatch):
     song=tmp_path/'song.wav';song.write_bytes(b'test song')
     lyrics=tmp_path/'lyrics.txt';lyrics.write_text('hello there')
     out=tmp_path/'out'
-    assert cli.main([str(song),str(lyrics),'-o',str(out),'--device','cpu','--no-lufs']) == 0
+    if prepare_only:
+        from heartbeam import mask, mix
+        def forbidden(*a, **k):
+            pytest.fail('Preparation must not run the removal mask, mixer, or MP3 encoder')
+        monkeypatch.setattr(mask, 'build_mask', forbidden)
+        monkeypatch.setattr(mix, 'mix', forbidden)
+        monkeypatch.setattr(mix, 'mix_replace', forbidden)
+        monkeypatch.setattr(io, 'write_mp3', forbidden)
+    assert cli.main([str(song),str(lyrics),'-o',str(out),'--device','cpu','--no-lufs'] +
+                    (['--prepare-only'] if prepare_only else [])) == 0
+    assert (out/'karaoke.mp3').exists() is not prepare_only
+    assert (out/'timing-review-required.json').exists() is prepare_only
     t=T.from_json(out/'timings.json')
     assert 'model unavailable' in t.alignment['failure']
     assert (out/'cache'/'vocals.wav').is_file()
     p=P.import_legacy_timings(tmp_path/'project',out/'timings.json')
     assert [w.text for _,w in p.iter_words()] == ['hello','there']
     assert len(p.unresolved_words()) == 2
+
+
+@pytest.mark.parametrize('retry_succeeds', [True, False])
+def test_stalled_prefix_cannot_drag_supported_phrase_four_seconds_early(monkeypatch, retry_succeeds):
+    fake_models(monkeypatch)
+    observed = [dict(word="I'm",start=28.484,end=32.226,score=.812),
+                dict(word='on',start=32.246,end=32.286,score=.002),
+                dict(word='a',start=33.347,end=33.767,score=.694),
+                dict(word='crosstown',start=33.967,end=34.928,score=.767),
+                dict(word='train',start=35.008,end=35.568,score=.711),
+                dict(word='again',start=35.648,end=36.529,score=.491)]
+    windows=[]
+    def refine(segments,*a,**k):
+        segment=segments[0]
+        if segment['text']=='recognition': return dict(word_segments=observed)
+        windows.append(segment['start'])
+        at=33. if len(windows)>1 and retry_succeeds else 28.5
+        return dict(word_segments=[dict(word=w,start=at+i*.5,end=at+i*.5+.4,score=.8)
+                    for i,w in enumerate(segment['text'].split())])
+    sys.modules['whisperx'].align=refine
+    result=align(np.zeros(45*16000,dtype='float32'),16000,"I'm on the cross-town train again")
+    assert len(windows)==2 and windows[0]<29 and windows[1]>32
+    if retry_succeeds:
+        assert result.lines[0].start_s>=33 and len(result.lines[0].words)==6
+    else:
+        assert not result.lines[0].words
+        assert result.diagnostics['phrases'][0]['state']=='check'

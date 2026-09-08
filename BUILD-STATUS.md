@@ -23,8 +23,9 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **P01 through P06 are implemented.** See the latest sections below for current verification; earlier sections are historical snapshots.
 
-**7 September timing follow-up:** Online lyrics lookup and phrase-first matching
-are implemented. **301 Python tests and 14 JavaScript tests pass.** See
+**7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
+and timing approval before the removal mix are implemented.
+**312 Python tests and 14 JavaScript tests pass.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -1094,3 +1095,55 @@ New regression tests simulate the missing package and read a real in-memory WAV
 with the installed package. Full Python suite: **301 passed in 18.32 seconds**.
 The JavaScript files are unchanged from the earlier 14 passing checks. Existing
 app sessions can use Rerun; no server restart or project reset is required.
+
+### Timing approval and the early Frost Children phrase (7 September)
+
+The GUI now has Prepare audio → Review timing → Edit video. Preparation retains
+stems and lyric proposals, but does not construct a removal mask, mix or karaoke
+MP3. The prepared project can be saved before review. Original audio, vocal
+audition, waveform, rendered lyrics and timing controls share the existing
+transport. A user must fix unresolved/conflicting timing, confirm they listened,
+and explicitly approve/build before entering video editing. Approval is tied to
+the current lyrics, effective timing and source asset identities. Changes require
+review again; appearance changes do not. Existing phrase-matched projects need
+review too; old imports without phrase metadata remain usable.
+
+The current problem recording was found in `heartbeam_gui_nw665fed/out/project`.
+Its first reported line had a stalled recognized prefix at 28.484–32.226 seconds,
+while `cross-town`, `train`, and `again` had acoustic evidence near 34–36.5 seconds.
+Refinement nevertheless moved the phrase to 28.494–31.416. A new consistency
+check retries inside supported words and leaves continued disagreement unresolved.
+Using the saved complete vocals, the retry placed the first word at 33.330,
+cross-town at 33.951–34.914, train at 34.974–35.575 and again at 35.616–36.377.
+The article `the` remains unresolved. The second line still begins around 36.84;
+its exact perceptual onset has not been manually verified.
+
+The original project's backing-stem excerpt also transcribed both reported
+phrases. Existing masks already cover approximately 91% and 98% of the two
+examined windows due to the energy mask, so timing alone does not explain the
+residual singing. The build option can now exclude backing from replacement
+regions, sacrificing its harmonies. This does not guarantee perfect separation
+or remove leakage already present in the instrumental stem.
+
+Verification:
+
+- Full Python suite: **312 passed in 20.49 seconds**.
+- Playback/presentation/workstation JavaScript: **14 passed**.
+- New regressions cover preparation without any mask/mix/MP3 calls (including
+  failed alignment), saving and reopening a prepared project, gated export and
+  build, explicit approval, later-edit invalidation, save/copy/undo/redo,
+  encoder failure, changed audio, unresolved words, backing exclusion, and the
+  stalled-prefix retry and rejection paths.
+- Real browser on port 8505: synthetic prepared project opens in Review timing;
+  Original is selected, Play advances the shared clock from 200 to 4000 ms,
+  video/build are disabled until confirmation, and approved building saves an
+  MP3 and opens the video workstation with Karaoke selected. Preview rendering
+  and the two-pane layout were visually inspected at 1280 × 720.
+- The corrected song is a separate review copy, never silently approved:
+  `C:/Users/young/Documents/Codex/2026-09-06/run/verse-review-proof`.
+  Diagnostics and excerpt measurements are in the neighboring `verse-audit`
+  directory. The user's source project was not overwritten.
+
+The test server on 8505 was restarted to load all modules together. Older
+running servers may need a restart for this cross-module workflow change.
+No new ML separation or broad model-quality benchmark was performed.

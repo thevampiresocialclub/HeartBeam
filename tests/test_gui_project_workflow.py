@@ -88,6 +88,43 @@ def test_new_session_starts_with_no_project():
     assert at.button(key="step_video").disabled
 
 
+def test_prepared_song_requires_review_and_explicit_build_before_video(tmp_path,monkeypatch):
+    from heartbeam import editor as ED, timing_review as R
+    from tests.test_timing_review import pending
+    root=tmp_path/'review';root.mkdir()
+    project,*_=pending(root);P.save_project(project,root)
+    payload={}
+    def component(**kwargs):
+        payload.update(kwargs['data'])
+        return None
+    monkeypatch.setattr(ED,'timeline_component',lambda:component)
+    at=_fresh_app()
+    at.text_input(key='open_project_path').set_value(str(root))
+    at.button(key='open_project_btn').click().run()
+    assert not at.exception
+    assert at.session_state['workflow_step']=='review'
+    assert at.button(key='step_video').disabled
+    assert at.button(key='approve_timing_build').disabled
+    assert payload['sources'][0]['id']=='original' and payload['mix'] is None
+    assert not any(b.label=='Render video' for b in at.button)
+    approval=next(c for c in at.checkbox if c.key and c.key.startswith('timing_approved_'))
+    approval.set_value(True).run()
+    at.button(key='approve_timing_build').click().run()
+    assert not at.exception
+    assert at.session_state['workflow_step']=='video'
+    assert R.approved(P.load_project(root))
+    assert any(b.label=='Render video' for b in at.button)
+    for widget in at.text_input:
+        assert widget.id in at.session_state, (widget.label, widget.id)
+    p=at.session_state['project'];at.session_state['selected_word_id']=p.word_ids()[0]
+    at.run()
+    at.button(key='nudge_fwd').click().run()
+    assert not at.exception
+    assert at.session_state['workflow_step']=='review'
+    assert at.button(key='approve_timing_build').disabled
+    assert at.button(key='step_video').disabled
+
+
 def test_online_search_keeps_draft_until_user_chooses_result(monkeypatch):
     from heartbeam import lyrics_lookup_ui
     candidate=dict(id=1,title='Song',artist='Artist',album='',duration=4.,lyrics='new lyrics',synced_lines=[])
@@ -210,8 +247,7 @@ def test_link_cached_audition_tracks_through_the_gui(tmp_path):
     assert at.session_state["out_dir"] is None
     assert at.session_state["workflow_step"] == "video"
     assert not any(t.key == "lyrics_text" for t in at.text_area)
-    assert not any(b.label == "Generate karaoke" for b in at.button)
-
+    assert not any(b.label == "Prepare audio and match lyrics" for b in at.button)
 
 def test_finished_separation_saves_to_chosen_folder_and_enters_workstation(tmp_path):
     _existing_song_project(tmp_path)
@@ -238,13 +274,46 @@ def test_finished_separation_saves_to_chosen_folder_and_enters_workstation(tmp_p
     assert saved.asset_by_role("karaoke_audio").resolve(destination).is_file()
     assert any(s.value == "Video preview" for s in at.subheader)
     assert any(s.value == "Lyric controls" for s in at.subheader)
-    assert not any(b.label == "Generate karaoke" for b in at.button)
+    assert not any(b.label == "Prepare audio and match lyrics" for b in at.button)
     assert len(at.get("audio")) == 0
     at.button(key="step_separation").click().run()
     assert at.session_state["workflow_step"] == "separation"
     assert at.session_state["project"].word_ids() == original_ids
     at.button(key="step_video").click().run()
     assert at.session_state["workflow_step"] == "video"
+    at.button(key="close_project").click().run()
+
+
+def test_preparation_without_mp3_saves_and_enters_timing_review(tmp_path):
+    import numpy as np
+    from heartbeam import audio_cache as AC, timing_review as R
+    run=tmp_path/'prepared';run.mkdir()
+    to_json(_timings(),run/'timings.json')
+    (run/'timing-review-required.json').write_text('{"required":true}')
+    AC.write_cache(run/'cache',{role:np.zeros((32000,2),dtype='float32') for role in AC.ROLES},
+                   sample_rate=8000,source_sha256='fixture',settings={'mix_strategy':'replace','pending_timing_review':True})
+    at=_fresh_app()
+    at.session_state['out_dir']=run;at.session_state['running']=True
+    at.session_state['status']={'progress':1.,'label':'Ready','done':True,'returncode':0}
+    at.run()
+    assert not at.exception
+    assert not R.approved(at.session_state['project'])
+    assert at.session_state['project'].asset_by_role('karaoke_audio') is None
+    target=tmp_path/'saved'
+    next(t for t in at.text_input if t.label=='Save project folder').set_value(str(target))
+    at.button(key='save_and_edit').click().run()
+    assert not at.exception
+    assert at.session_state['workflow_step']=='review'
+    saved=P.load_project(target)
+    assert saved.asset_by_role('original_audio').resolve(target).is_file()
+    assert not R.approved(saved) and at.button(key='step_video').disabled
+    assert len(at.get("audio")) == 0
+    at.button(key="step_separation").click().run()
+    assert at.session_state["workflow_step"] == "separation"
+    assert at.session_state["project"].word_ids() == saved.word_ids()
+    assert at.button(key="step_video").disabled
+    at.button(key="step_review").click().run()
+    assert at.session_state["workflow_step"] == "review"
     at.button(key="close_project").click().run()
 
 
@@ -442,7 +511,7 @@ def test_lyrics_can_be_pasted_without_choosing_a_file():
     assert box is not None, "there must be a lyrics text area"
 
     # Nothing pasted: generation stays disabled and the empty state explains why.
-    generate = next(b for b in at.button if b.label == "Generate karaoke")
+    generate = next(b for b in at.button if b.label == "Prepare audio and match lyrics")
     assert generate.disabled
     assert any("No lyrics yet" in c.value for c in at.caption)
 

@@ -19,8 +19,10 @@ styling, and P06 dependable preview/export are implemented. Preserve the existin
 Streamlit shell, single audio clock, shared command history, presentation compiler
 and immutable export-job path. The current editor supports 2–4 visible lyric lines
 and playback controls for reviewing timing, highlighting, font and placement.
-Separation and editing are separate pages. Completed separation offers a named
-project save followed by video editing. The desktop editor is a workstation with
+Preparation, timing review and video editing are separate pages. Preparation
+saves the separated tracks and timing proposals; the removal mix waits for the
+user to listen, correct and approve timing. A named project can be saved before
+review. Lyric, timing or linked-source changes invalidate approval. The desktop editor is a workstation with
 playback, video and waveform on the left and independently scrolling lyric,
 appearance, timing, vocal and export controls on the right. Play must be visible
 at the top and all preview surfaces must follow the same audio clock.

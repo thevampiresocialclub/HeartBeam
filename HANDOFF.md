@@ -1,6 +1,6 @@
 # HeartBeam handoff
 
-**Updated:** 7 September 2026 by Codex, adding online lyrics and phrase-first timing.
+**Updated:** 7 September 2026 by Codex, adding mandatory timing review before the removal mix.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
@@ -12,6 +12,13 @@ P03, P04, P05 and **P06, dependable preview/export**, are implemented. The owner
 follow-up timing system is now implemented too; read `docs/TIMING_SYSTEM.md`.
 It adds optional LRCLIB lookup, complete-vocal matching, phrase-local refinement,
 selective/manual-window repair, cached recognition and honest unresolved words.
+The GUI now prepares tracks, saves a project, opens timing review, and requires
+explicit approval before building karaoke and entering video editing. See the
+approval contract in `docs/TIMING_SYSTEM.md`. Lyric/timing edits invalidate approval.
+The Frost Children stalled-prefix regression now retries near the recognized
+suffix instead of accepting a plausible score four seconds early. The backing
+stem also contains recognized lead phrases; timing alone cannot resolve that.
+The build offers an instrumental option that excludes backing during removal.
 Broader P07 audio-quality/model evaluation remains. The original program is in
 `C:\Users\young\Documents\Codex\2026-09-06\run\outputs\heartbeam-claude-handoff`.
 Read `06-PREVIEW-EXPORT.md`, `docs/PRESENTATION.md`,

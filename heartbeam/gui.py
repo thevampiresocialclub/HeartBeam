@@ -261,7 +261,8 @@ def _open_project(path: Path) -> tuple[bool, str]:
         _mark_saved(recovered)
         st.session_state.project_saved_snapshot = ""
         st.session_state.history_project = None
-        st.session_state.workflow_step = "video"
+        from heartbeam.timing_review import approved
+        st.session_state.workflow_step = "video" if approved(recovered) else "review"
         st.session_state.lyrics_editor_version = st.session_state.get("lyrics_editor_version", 0) + 1
         return True, (
             f"{exc}. Recovered revision {recovered.revision} from autosave - "
@@ -274,7 +275,8 @@ def _open_project(path: Path) -> tuple[bool, str]:
     st.session_state[f"last_video_{project.id}"] = _latest_project_video(project, path)
     _activate_writer(path)
     _mark_saved(project)
-    st.session_state.workflow_step = "video"
+    from heartbeam.timing_review import approved
+    st.session_state.workflow_step = "video" if approved(project) else "review"
     return True, f"Opened '{project.name}' (revision {project.revision})"
 
 
@@ -317,7 +319,9 @@ def _project_media(project, project_dir: Path):
     rerunning separation: both files are already on disk from the original run.
     """
     audio = None
-    asset = project.asset_by_role("karaoke_audio")
+    from heartbeam.timing_review import approved
+    asset = project.asset_by_role("karaoke_audio") if approved(project) else None
+    asset = asset or project.asset_by_role("original_audio")
     if asset is not None:
         candidate = asset.resolve(project_dir)
         if candidate.exists():
@@ -338,18 +342,22 @@ def _adopt_run_into_project(out_dir: Path, song_name: str) -> bool:
     """
     timings_json = out_dir / "timings.json"
     karaoke = out_dir / "karaoke.mp3"
-    if not timings_json.exists() or not karaoke.exists():
+    prepared = (out_dir / "timing-review-required.json").is_file()
+    if not timings_json.exists() or (not prepared and not karaoke.exists()):
         st.session_state.project_message = f"Separation did not produce both audio and timings. Check the output folder: {out_dir}"
         return False
     project_dir = out_dir / "project"
     try:
         project = prj.import_legacy_timings(
-            project_dir, timings_json, karaoke,
+            project_dir, timings_json, karaoke if not prepared else None,
             name=song_name or "Untitled song", audio_role="karaoke_audio",
         )
     except (prj.ProjectError, OSError) as exc:
         st.session_state.project_message = f"Could not create project: {exc}"
         return False
+    if prepared:
+        project.alignment['review'] = {'required': True}
+        prj.save_project(project, project_dir)
     if (out_dir / "cache" / "audio_cache.json").is_file():
         try:
             em.attach_cached_audio(project, project_dir, out_dir / "cache")
@@ -635,9 +643,10 @@ def _timeline_component():
     return ed.timeline_component()
 
 
-def _timing_editor(project, project_dir: Path, karaoke_path: Path) -> None:
+def _timing_editor(project, project_dir: Path, karaoke_path: Path, *, review=False) -> None:
     ui.render(project, project_dir, karaoke_path,
-              lyrics_editor=_lyrics_editor, export_controls=_editor_exports)
+              lyrics_editor=_lyrics_editor, export_controls=_review_controls if review else _editor_exports,
+              timing_review=review)
 
 
 def main() -> None:
@@ -656,14 +665,20 @@ def main() -> None:
 
     _project_controls()
     project = st.session_state.get("project")
+    from heartbeam.timing_review import approved
     step = st.session_state.setdefault("workflow_step", "video" if project else "separation")
+    if project and step == "video" and not approved(project):
+        step = st.session_state.workflow_step = "review"
     with st.container(key="hb_workflow"):
-        title, back, next_step, save = st.columns([2.6, 1.2, 1.2, .9])
+        title, back, review_step, next_step, save = st.columns([2, 1.2, 1.3, 1.2, .9])
         title.title("HeartBeam")
-        if back.button("1 · Separate audio", key="step_separation", disabled=step == "separation" or st.session_state.running):
+        if back.button("1 · Prepare audio", key="step_separation", disabled=step == "separation" or st.session_state.running):
             st.session_state.workflow_step = "separation"
             st.rerun()
-        if next_step.button("2 · Edit video", key="step_video", disabled=not project or step == "video" or st.session_state.running):
+        if review_step.button("2 · Review timing", key="step_review", disabled=not project or step == "review" or st.session_state.running):
+            st.session_state.workflow_step = "review"
+            st.rerun()
+        if next_step.button("3 · Edit video", key="step_video", disabled=not project or not approved(project) or step == "video" or st.session_state.running):
             st.session_state.workflow_step = "video"
             st.rerun()
         if project and save.button("Save project", key="workstation_save", disabled=st.session_state.get("project_readonly", False) or st.session_state.running):
@@ -673,22 +688,24 @@ def main() -> None:
                 st.rerun()
             except (prj.ProjectError, OSError) as exc:
                 st.error(f"Could not save: {exc}")
-    if step == "video" and project:
-        st.caption(f"{project.name} · Video editing workstation · {'Unsaved changes' if _is_dirty() else 'Saved'}")
+    if step in ("video", "review") and project:
+        label = "Check lyric timing before building karaoke" if step == "review" else "Video editing workstation"
+        st.caption(f"{project.name} · {label} · {'Unsaved changes' if _is_dirty() else 'Saved'}")
         audio, _ = _project_media(project, st.session_state.project_dir)
         if not audio:
-            st.warning("Relink the karaoke audio in Project settings to load playback.")
+            st.warning("Relink the original audio in Project settings to load playback.")
             if not st.session_state.get("project_readonly"):
                 _lyrics_editor(project, st.session_state.project_dir)
         elif st.session_state.get("project_readonly"):
             st.info("This project is open in another editor. Use Save a copy in Project settings to edit independently.")
             st.audio(str(audio))
         else:
-            _timing_editor(project, st.session_state.project_dir, audio)
+            with st.empty().container():
+                _timing_editor(project, st.session_state.project_dir, audio, review=step == "review")
     else:
         with st.container(key="hb_separation"):
-            st.subheader("1 · Separate audio")
-            st.caption("Choose your song and paste its lyrics. Once separation is ready, save the project and move to video editing.")
+            st.subheader("1 · Prepare audio")
+            st.caption("Choose your song and lyrics. Prepare the tracks, save the project, then check the lyric timing before building karaoke audio.")
             _separation_result()
             _separation_page()
 
@@ -725,7 +742,7 @@ def _separation_page() -> None:
     st.markdown(_format_preset_summary(genre))
 
     # --- Advanced ---
-    extra_flags: list[str] = []
+    extra_flags: list[str] = ["--prepare-only"]
     with st.expander("Advanced (overrides preset defaults)"):
         cols = st.columns(2)
         with cols[0]:
@@ -771,7 +788,7 @@ def _separation_page() -> None:
     lyric_line_count, _ = lyr.count_lyrics(lyrics_text)
     ready = song_up is not None and lyric_line_count > 0
     run_clicked = st.button(
-        "Generate karaoke", type="primary", disabled=not ready or st.session_state.running,
+        "Prepare audio and match lyrics", type="primary", disabled=not ready or st.session_state.running,
     )
 
     if run_clicked and ready and not st.session_state.running:
@@ -824,7 +841,7 @@ def _separation_page() -> None:
                     st.session_state.get("song_name", "") or "Untitled song",
                 )
                 if adopted:
-                    st.session_state.project_message = "Separation is ready. Save your project and continue to video editing."
+                    st.session_state.project_message = "Audio tracks are ready. Save your project and review lyric timing."
             else:
                 st.error(f"heartbeam exited with code {status['returncode']}. See log above.")
             st.rerun()
@@ -839,7 +856,9 @@ def _separation_result() -> None:
     root = st.session_state.project_dir
     audio, _ = _project_media(project, root)
     with st.container(border=True):
-        st.subheader("Your song is ready")
+        from heartbeam.timing_review import approved
+        pending = not approved(project)
+        st.subheader("Your tracks are ready" if pending else "Your song is ready")
         st.write(project.name)
         if audio:
             st.audio(str(audio))
@@ -847,7 +866,7 @@ def _separation_result() -> None:
         safe_name = re.sub(r'[^\w .-]', '_', project.name).strip(" .") or "Untitled song"
         default = Path.home() / "Documents" / "HeartBeam Projects" / f"{safe_name}-{project.id[-6:]}" if generated else root
         destination = st.text_input("Save project folder", str(default), key=f"next_save_{project.id}")
-        if st.button("Save project and edit video", key="save_and_edit", type="primary", disabled=st.session_state.get("project_readonly", False)):
+        if st.button("Save project and review timing" if pending else "Save project and edit video", key="save_and_edit", type="primary", disabled=st.session_state.get("project_readonly", False)):
             try:
                 if not destination.strip():
                     raise prj.ProjectError("Choose a project folder first.")
@@ -860,11 +879,41 @@ def _separation_result() -> None:
                 else:
                     prj.save_project(project, root, bump=False)
                 _mark_saved(project)
-                st.session_state.workflow_step = "video"
+                st.session_state.workflow_step = "review" if pending else "video"
                 st.session_state.separation_project_id = None
                 st.rerun()
             except (prj.ProjectError, OSError) as exc:
                 st.error(f"Could not save the project: {exc}")
+
+
+def _review_controls(project, root, audio_path):
+    from heartbeam import timing_review as review
+    st.subheader("Build karaoke audio")
+    missing = len(project.unresolved_words())
+    conflicts = len(ed.timing_conflicts(project))
+    if missing or conflicts:
+        st.warning(f"Set timing for {missing} untimed word(s) and fix {conflicts} timing conflict(s) before building. Use Timing to find and repair them.")
+    st.caption("Separation has prepared the tracks. Your approved timing controls where the karaoke mix removes vocals. Upcoming lines can appear before their coloured highlights start.")
+    keep_backing = st.checkbox("Keep backing vocals", value=True, key=f"keep_backing_{project.id}",
+        help="Turn this off for stronger removal if lead singing leaked into the backing track. This also removes harmonies in the removal regions.")
+    checked = st.checkbox("I checked the lyric timing against the singing",
+        key=f"timing_approved_{project.id}_{review.fingerprint(project)}")
+    st.button("Approve timing and build karaoke audio", type="primary", key="approve_timing_build",
+              disabled=not checked or bool(missing or conflicts) or st.session_state.get('project_readonly', False),
+              on_click=_approve_timing_build, args=(project, root, keep_backing))
+
+
+def _approve_timing_build(project, root, keep_backing):
+    from heartbeam import timing_review as review
+    try:
+        with st.spinner("Building karaoke from the saved tracks…"):
+            ui.history(project).execute(project, lambda p: review.approve_and_build(p, root, keep_backing=keep_backing))
+            prj.save_project(project, root, bump=False)
+        _mark_saved(project)
+        st.session_state.workflow_step = "video"
+        st.session_state.timing_message = ("ok", "Timing approved. Karaoke audio is ready for video editing.")
+    except (prj.ProjectError, OSError, ValueError, RuntimeError) as exc:
+        st.session_state.timing_message = ("err", f"Could not build karaoke audio: {exc}")
 
 
 def _editor_exports(project, root, karaoke_path):
