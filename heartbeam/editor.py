@@ -68,6 +68,7 @@ def words_payload(project: Project) -> list[dict[str, Any]]:
             "start_ms": start,
             "end_ms": end,
             "low_confidence": bool(score < LOW_CONFIDENCE),
+            "estimated": bool(timing and timing.estimated),
             "edited": word.id in project.timing_edits,
             "reviewed": project.reviewed.get(word.id, False),
         })
@@ -182,9 +183,10 @@ def next_low_confidence(project: Project, after_word_id: str | None = None,
     ids = [w.id for _, w in project.iter_words() if not w.non_sung]
     candidates = set()
     for _, word in project.iter_words():
-        if word.non_sung or project.reviewed.get(word.id, word.id in project.timing_edits):
-            continue  # already reviewed by hand
         timing = project.effective_timing(word.id)
+        manual = word.id in project.timing_edits and timing and timing.resolved and not timing.estimated
+        if word.non_sung or project.reviewed.get(word.id, manual):
+            continue  # already reviewed by hand
         if timing and timing.score is not None and timing.score < threshold:
             candidates.add(word.id)
     if not candidates:
@@ -222,7 +224,9 @@ def timing_conflicts(project: Project) -> dict[tuple[str, str], int]:
     """Report ordering/overlap conflicts without rewriting imported proposals."""
     timed = [(w, project.effective_timing(w.id)) for _, w in project.iter_words()
              if not w.non_sung]
-    timed = [(w, t) for w, t in timed if t and t.resolved]
+    # Estimates can borrow an onset interval already occupied by a known word.
+    # Continue checking all known words against each other across those estimates.
+    timed = [(w, t) for w, t in timed if t and t.resolved and not t.estimated]
     return {(a.id, b.id): ta.end_ms - tb.start_ms
             for (a, ta), (b, tb) in zip(timed, timed[1:]) if ta.end_ms > tb.start_ms}
 

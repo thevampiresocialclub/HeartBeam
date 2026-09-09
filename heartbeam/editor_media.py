@@ -18,7 +18,9 @@ from . import waveform as wf
 SOURCE_ROLES = (("karaoke", "Karaoke", "karaoke_audio"),
                 ("original", "Original", "original_audio"),
                 ("vocals", "Complete vocals", "vocals_stem"),
-                ("lead", "Lead vocal", "lead_stem"))
+                ("lead", "Lead vocal", "lead_stem"),
+                ("backing", "Backing vocals", "backing_stem"),
+                ("instrumental", "Instrumental", "instrumental_stem"))
 
 
 def attach_cached_audio(project: P.Project, project_dir: Path,

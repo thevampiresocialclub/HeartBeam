@@ -159,13 +159,14 @@ class Section:
 class WordTiming:
     """Resolved or unresolved timing for one word.
 
-    An unresolved word keeps `start_ms`/`end_ms` absent rather than inventing
-    plausible values, and carries a reason so the editor can list it for review.
+    Raw missing values remain absent. The shared resolver can derive a labelled
+    estimate from neighboring words or a phrase anchor without altering them.
     """
     start_ms: int | None = None
     end_ms: int | None = None
     score: float | None = None
     reason: str | None = None
+    estimated: bool = False
 
     @property
     def resolved(self) -> bool:
@@ -176,9 +177,9 @@ class WordTiming:
 class VocalRegion:
     """A span with its own lead-vocal restoration level.
 
-    `value` is 0..1, where 0 is the fully processed karaoke result and 1 the
-    original pre-mastering reference. One non-overlapping lane; insertions split
-    or replace intersecting portions.
+    `value` is a 0..1 lead-stem gain in separated_stems mode. Legacy
+    clean_to_original mode restores the clean-to-original residual instead.
+    One non-overlapping lane; insertions split or replace intersecting portions.
     """
     id: str
     start_ms: int
@@ -197,6 +198,7 @@ class VocalMix:
     restoration_mode: str = "clean_to_original"
     transition_ms: int = 40
     references: dict[str, Any] = field(default_factory=dict)
+    backing_value: float = 1.0
 
 
 @dataclass
@@ -288,7 +290,7 @@ class Project:
     def asset_by_role(self, role: str) -> Asset | None:
         return next((a for a in self.assets if a.role == role), None)
 
-    def effective_timing(self, word_id: str) -> WordTiming | None:
+    def raw_timing(self, word_id: str) -> WordTiming | None:
         """The single place that decides which timing wins.
 
         A user edit overrides the aligner's proposal. Returns None for a word
@@ -298,6 +300,18 @@ class Project:
         if edit is not None:
             return edit
         return self.alignment_proposals.get(word_id, self.original_alignment.get(word_id))
+
+    def effective_timing(self, word_id: str) -> WordTiming | None:
+        """Manual, then acoustic timing; labelled estimates fill remaining gaps."""
+        timing = self.raw_timing(word_id)
+        if timing and timing.resolved:
+            return timing
+        from .timing_estimates import estimate
+        return estimate(self, word_id) or timing
+
+    def estimated_word_ids(self) -> list[str]:
+        return [w.id for _, w in self.iter_words() if not w.non_sung
+                for t in [self.effective_timing(w.id)] if t and t.estimated]
 
     def unresolved_words(self) -> list[tuple[Line, Word, str | None]]:
         """Words the editor should surface for review."""
@@ -382,6 +396,7 @@ class Project:
                 restoration_mode=vm.get("restoration_mode", "clean_to_original"),
                 transition_ms=vm.get("transition_ms", 40),
                 references=vm.get("references", {}),
+                backing_value=vm.get("backing_value", 1.0),
             ),
             provenance=Provenance(**d.get("provenance", {})),
             exports=[ExportRecord(**e) for e in d.get("exports", [])],

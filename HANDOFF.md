@@ -1,7 +1,7 @@
 # HeartBeam handoff
 
-**Updated:** 8 September 2026 by Codex, including rolling lyrics, partial highlighting,
-spacing controls, Firefox line selection and optional individual timing review.
+**Updated:** 8 September 2026 by Codex, including labelled timing estimates,
+independent lead/backing levels, current-mix MP3 downloads and Firefox verification.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
@@ -15,15 +15,21 @@ It adds optional LRCLIB lookup, complete-vocal matching, phrase-local refinement
 selective/manual-window repair, cached recognition and honest unresolved words.
 The GUI prepares tracks, saves a project and opens timing review. The owner can
 make any corrections, then choose **Build karaoke and continue** without fixing
-or approving every word. Missing timings/conflicts warn. Removal uses valid
-word timing plus known phrase windows for partially timed lines; unresolved
-word values and review flags remain unchanged. See `docs/TIMING_SYSTEM.md` for
-the persisted opt-in policy and approval fingerprint. Lyric/timing/phrase edits
-invalidate the build; final video export still requires resolved word timing.
+or approving every word. Missing timings/conflicts warn. Missing words can now
+highlight using labelled estimates within their phrase; raw word values and
+review flags remain unchanged. This is the owner's explicit new policy, replacing
+the earlier requirement to keep every uncertain word plain. Estimates are enabled
+by default, opt-out in Timing, and do not replace acoustic/manual evidence.
+New GUI builds select independent instrumental/lead/backing mixing. Both vocal
+tracks have 0–100% controls in 1% steps; regions override only the lead default.
+See `docs/TIMING_SYSTEM.md` for algorithms, legacy compatibility and approval.
+Final video export accepts estimates but still rejects remaining unanchored words
+and known timing conflicts. Lyric/timing/source edits invalidate build approval.
 The Frost Children stalled-prefix regression now retries near the recognized
 suffix instead of accepting a plausible score four seconds early. The backing
 stem also contains recognized lead phrases; timing alone cannot resolve that.
-The build offers an instrumental option that excludes backing during removal.
+Zero backing gain excludes that stem for the whole song; its leakage cannot be
+removed independently from its harmonies by these controls.
 Broader P07 audio-quality/model evaluation remains. The original program is in
 `C:\Users\young\Documents\Codex\2026-09-06\run\outputs\heartbeam-claude-handoff`.
 Read `06-PREVIEW-EXPORT.md`, `docs/PRESENTATION.md`,
@@ -95,8 +101,14 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
 
 - `project.py`: serialized project, IDs, asset metadata, effective timing and
   atomic saves. New fields are optional when reading existing version-1 projects.
-  `effective_timing()` resolves manual edit, latest alignment proposal, then
-  immutable original proposal. Do not duplicate that decision in a renderer.
+  `raw_timing()` resolves manual edit, latest alignment proposal, then immutable
+  original proposal. `effective_timing()` fills missing raw values with labelled
+  estimates from `timing_estimates.py`. Renderers must use the shared resolver.
+  Fill-only acoustic alignment uses raw timing so estimates remain replaceable.
+- `stem_mix.py`: validated independent instrumental/lead/backing summation.
+  `VocalMix.backing_value` is additive and defaults to 1. Existing projects keep
+  `clean_to_original` until the user enables separate tracks; new GUI builds use
+  `separated_stems`. Track level commands share undo, save and export settings.
 - `commands.py`: `History.execute(project, action, command_id=..., base_revision=...)`
   applies an action to a candidate, then commits one reversible content change.
   Failed validation changes neither live content nor history. Undo/redo cover
@@ -196,8 +208,10 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
 6. Browser mix preparation uses a generation token. A stale decode/template
    task cannot publish over a newer revision. Selecting a range does not apply
    its candidate constant level; only actual slider/numeric editing does.
-7. Clean and original must share their pre-mastering sample/gain basis. Blend
-   `clean + restore * (original - clean)` before one final mastering stage.
+7. Audio tracks must share their pre-mastering sample/gain basis. Legacy mode
+   blends `clean + restore * (original - clean)`. Separated mode uses
+   `instrumental + lead * lead_envelope + backing * backing_value`. One final
+   mastering stage follows the whole mix; never add the instrumental twice.
    Linear coefficients avoid the correlated-audio bump of equal-power mixing.
 8. Timing corrections do not rebuild clean audio or move saved vocal regions.
    Refit and rebuild are separate explicit, undoable actions. Preserve all
@@ -245,15 +259,14 @@ box/overflow guides are metric estimates, with libass providing actual text;
 no pixel identity claim across rasterizers/colour management. Browser video
 preview needs a supported codec. Media still occupies RAM, and undo history
 remains session-local. P07's controlled model sweep and listening work are next.
-The latest cross-module update requires restarting an already-running server.
-Have the owner save pending browser edits first; a refresh alone can retain old
-Python modules, and restarting discards unsaved session state. The owner's 8505
-server was deliberately kept running pending their save/restart confirmation;
-the updated code was tested separately on 8506.
+Restart after cross-module updates so Streamlit cannot retain old imports.
+The owner already explicitly authorized restarting without saving in this session;
+do not repeat that approval request. The latest update was tested on isolated
+fixtures at 8506 before activation at 8505. Check BUILD-STATUS for final evidence.
 
-Keep P04's first version labelled **Vocal level**: 0% is the saved processed mix,
-100% restores its original reference. Avoid claims of perfect lead separation or
-unchanged harmonies. Measured sample accuracy and numerical smoothness do not
+Label lead/backing percentages as stem gain in separated mode. Legacy **Vocal
+level** still goes from the processed reference to the original. Avoid claims
+of perfect lead separation or unchanged harmonies. Measured sample accuracy and numerical smoothness do not
 substitute for a subjective listening verdict; evidence and an audition sample
 are listed in BUILD-STATUS.
 

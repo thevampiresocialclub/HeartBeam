@@ -25,7 +25,7 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**Latest full Python run: 322 passed. Current JavaScript tests: 24 passed.** See
+**Latest full Python run: 335 passed. Current JavaScript tests: 27 passed.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -35,6 +35,12 @@ editable. Partial lines retain timed-word highlights. **Build karaoke and contin
 warns about missing word timing/conflicts without requiring individual approval;
 known phrase windows cover missing words during removal. See the final section
 for browser evidence and remaining limits.
+
+**Latest 8 September follow-up:** missing words receive labelled estimates from
+neighbors/phrase windows by default. New builds expose independent lead and
+backing gains above the preview, including 1–5% guide vocals. Current MP3/WAV and
+video exports share that mix; old projects can explicitly enable separate tracks.
+See the final section for current evidence; earlier descriptions are historical.
 
 **P01 and P02 foundation:** A song can be generated, saved, closed, reopened
 and restyled without rerunning separation; lyrics can be pasted rather than
@@ -1290,3 +1296,76 @@ wrapped stacks can overflow; warnings are shown and no automatic shrinking occur
 No new model sweep, separation run, song timing benchmark or guarantee of complete
 vocal removal is part of this change. The owner's song was not silently built
 or marked reviewed during testing.
+
+## Follow-up: estimated highlights and independent vocal tracks — 8 September 2026
+
+The owner explicitly requested estimated highlights for missing word matches,
+an independent backing track, and a fine lead-vocal restoration slider.
+
+- `timing_estimates.py` derives labelled integer-ms times inside a lyric line
+  from neighboring words or valid phrase anchors. Character-weighted runs have
+  at least 10 ms per word. Touching neighbors may share a labelled overlap while
+  known timings remain unchanged. Known-known conflicts are still reported.
+  Estimates default on, can be disabled in Timing, and appear with dotted
+  underlines, tooltips and a count. They are never marked reviewed automatically.
+- `effective_timing()` is still the shared editor/ASS/export path. Raw missing
+  timings remain missing; save/reopen and anchor edits recompute estimates.
+  Both alignment application paths use raw timing for fill-only mode, so acoustic
+  matching can replace an estimate while preserving actual manual corrections.
+- New GUI builds use `separated_stems`: instrumental once, plus independently
+  controlled lead and backing. Both sliders and numeric inputs accept 0–100% in
+  1% steps. Existing section regions override only lead. Saved legacy projects
+  retain their previous mix until **Use separate lead and backing tracks**.
+- Preview shares one audio clock and fixed headroom. Final WAV/MP3/video use the
+  current mix followed by one mastering stage. Current audio downloads are
+  explicitly prepared and cached per mix identity; the initial build MP3 has a
+  separate, accurate label. No ML pass is needed to change levels.
+- Passage snapshots freeze estimated times before removing surrounding words.
+  Their approval is derived only from an already-approved source snapshot;
+  cropping cannot approve an unapproved project.
+
+Verification:
+
+- `.venv/Scripts/python.exe -m pytest -q -m "not slow"`: **335 passed**, 24.20 s.
+- `node --test tests/*.test.mjs`: **27 passed**, including three new transport
+  tests for separate backing gain, 1–5% lead, region overrides, synchronized
+  starts/loops, fixed headroom and rejection of mismatched track lengths.
+- Real Chrome and Firefox **155.0.1**, separate original-tone/lyric projects on
+  8506: a raw untimed word produces **706 highlighted pixels** at 0.5 s; build
+  succeeds; lead **3%** and backing **50%** can be typed while playing; waveform,
+  ASS and audio clock stay synchronized. Save/reopen retains both levels and
+  selects the current vocal mix. Raw missing timing remains null. No captured
+  JavaScript errors. Firefox waveform click restarted audio at 5.006 s and kept
+  playing. These are actual native keyboard/pointer actions through WebDriver BiDi.
+- Synthetic 200/400/800 Hz tracks isolate the three gains: unmastered amplitudes
+  are **0.2000000 / 0.0090000 / 0.0500000** at lead 3%, backing 50%. Actual MP3,
+  20-second MP4 and 3-second passage MP4 decode to lead/instrumental and
+  backing/instrumental ratios **0.045 / 0.25**, within 0.3%. Both videos retain
+  estimated-word timings and warning, mix settings and immutable project snapshot.
+- Final live-server Chrome check on 8505 also prepares both current MP3/WAV
+  download buttons, keeps the faders through reruns, and saves/reopens at 3%/50%.
+  Evidence: `track-live-evidence/`. A separate media regression verifies that an
+  older stem-only project exports the current mix even without legacy clean/
+  original reference metadata or an initial karaoke MP3.
+- Repeated GUI export checks exposed Windows `WinError 5` while job progress
+  replaced a JSON file still open in the recovery reader. Recovery reads now
+  share the existing writer lock. The failing GUI case plus ten export/stem
+  tests passed, followed by the full 335-test run above.
+- Evidence lives under `C:/Users/young/Documents/Codex/2026-09-06/run/`:
+  `track-browser-evidence/`, `firefox-track-evidence/`, `track-export-evidence/`.
+  Reproducers there are `build_track_fixture.py`, `track-browser-proof.mjs`,
+  `firefox-track-proof.mjs` and `track-export-proof.py`; each guards its synthetic
+  fixture identity. The actual saved song was inspected without modification.
+
+Limits: the saved Frost Children review copy has 56 raw missing words. Eight
+can now be estimated inside timed phrases. The other 48 occupy nine whole lines
+(30–38) with no raw timings or phrase anchors; this change does not place those
+verses arbitrarily in the recording. They need rough phrase bounds or alignment.
+Final video still blocks remaining unanchored words and known timing conflicts;
+audio building does not. Percentages are stem amplitudes, not calibrated
+perceptual loudness. Lead leakage within the backing stem remains when backing
+is audible. No new separation-quality or perceptual listening benchmark is claimed.
+
+The owner's 8505 server was restarted to load these modules, after confirming
+the current in-app session had no project open. Health endpoint returned `ok`.
+No owner project was saved, built or approved by the verification scripts.

@@ -42,6 +42,7 @@ def test_phrase_draft_keeps_missing_words_visible_without_fake_highlighting():
         p.timing_edits[word.id]=P.WordTiming(reason='Needs matching')
     p.alignment={'phrases':{line.id:{'word_ids':[w.id for w in line.words],
                                   'anchor':{'start_s':1.,'end_s':3.}}}}
+    p.alignment['estimate_missing_words'] = False
     compiled=S.compile_project(p,5000,draft=True)
     dialogue=next(row for row in compiled['ass'].splitlines() if row.startswith('Dialogue:'))
     assert all(word in dialogue for word in ('Bright', 'guide', 'us'))

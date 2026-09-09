@@ -14,6 +14,7 @@ def test_partial_line_highlights_known_words_keeps_spaces_and_unknown_plain():
     p=song();p.lines=p.lines[:1];line=p.lines[0]
     p.timing_edits[line.words[1].id]=P.WordTiming(reason='missing')
     p.alignment={'phrases':{line.id:{'word_ids':[w.id for w in line.words], 'anchor':{'start_s':.5,'end_s':3.2}}}}
+    p.alignment['estimate_missing_words'] = False
     before=copy.deepcopy(p.to_dict());text=S.compile_project(p,4000,draft=True)['ass']
     assert r'\kt50\k60}Bright' in text and r'\kt190\k60}guide' in text
     assert r'\1c&H00FFFFFF&\2c&H00FFFFFF&\kt0\k0}\{stars\}' in text

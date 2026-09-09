@@ -106,3 +106,46 @@ test('stale reference preparation cannot replace a newer preview',async()=>{
   await latest; release(await original('clean')); await stale;
   assert.equal(t.mix.revision,2);
 });
+
+function stemFixture() {
+  const setup=fixture(), {transport:t, context:c, data}=setup;
+  const instrumental=c.createBuffer(2,32000,8000),lead=c.createBuffer(2,32000,8000),backing=c.createBuffer(2,32000,8000);
+  instrumental.data.forEach(a=>a.fill(.2)); lead.data.forEach(a=>a.fill(.4)); backing.data.forEach(a=>a.fill(.1));
+  t.decoded=async url=>({instrumental,lead,backing})[url];
+  Object.assign(data,{mode:'separated_stems',clean:'instrumental',original:null,lead:'lead',backing:'backing',backing_value:.5,
+    song_templates:[[[0,0],[32000,0]],[[0,1],[32000,1]]]});
+  return {...setup,instrumental,lead,backing};
+}
+
+test('separated tracks use lead directly and keep backing on its own synchronized gain',async()=>{
+  const {transport:t,context:c,data,lead}=stemFixture();await t.configureMix(data);
+  assert.equal(t.mix.residual.getChannelData(0)[0],lead.getChannelData(0)[0]);
+  t.src='heartbeam:mix';t.currentTime=1;t.setLoop([1,2]);await t.play();
+  assert.equal(t.nodes.length,6);assert.equal(t.backingNode.gain.value,.5);
+  assert.ok(t.nodes.every(n=>n.loop && n.loopStart===1 && n.loopEnd===2));
+  assert.ok(c.starts.every(([at,offset])=>at===0 && offset===1));
+  c.currentTime=.25;t.auditionTrack('backing',.1);
+  assert.equal(t.currentTime,1.25);assert.equal(t.backingNode.gain.value,.1);
+  t.auditionTrack('lead',.03);assert.equal(t.currentTime,1.25);assert.equal(t.amountNode.gain.value,.03);
+  assert.equal(t.mix.backingValue,.1);assert.equal(t.backingNode.gain.value,.1);
+  t.pause();
+});
+
+test('whole-song lead audition preserves section overrides and can return to selection audition',async()=>{
+  const {transport:t,data}=stemFixture();
+  data.song_templates=[[[0,0],[8000,0],[8001,.8],[16000,.8],[16001,0],[32000,0]],
+    [[0,1],[8000,1],[8001,.8],[16000,.8],[16001,1],[32000,1]]];
+  await t.configureMix(data);t.auditionTrack('lead',.03);
+  const base=t.mix.base.getChannelData(0),delta=t.mix.delta.getChannelData(0);
+  assert.ok(Math.abs(base[12000]+.03*delta[12000]-.8)<1e-7);
+  assert.ok(Math.abs(base[4000]+.03*delta[4000]-.03)<1e-7);
+  t.audition(.5);assert.equal(t.mix.previewing,'selection');assert.equal(t.mix.delta.getChannelData(0)[12000],1);
+});
+
+test('stem headroom is stable for either track at full gain and basis mismatches fail',async()=>{
+  const {transport:t,data,backing}=stemFixture();backing.data.forEach(a=>a.fill(1.5));
+  await t.configureMix(data);assert.ok(t.mix.headroom*(.2+.4+1.5)<=.950001);
+  const fixed=t.mix.headroom;t.auditionTrack('backing',0);t.auditionTrack('lead',1);assert.equal(t.mix.headroom,fixed);
+  const decode=t.decoded;t.decoded=async url=>url==='bad'?new Buffer(1,32000,8000):decode(url);
+  await assert.rejects(t.configureMix({...data,backing:'bad'}),/sample basis/);
+});

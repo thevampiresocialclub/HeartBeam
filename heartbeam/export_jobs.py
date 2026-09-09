@@ -77,9 +77,12 @@ def recover(root):
     result = []
     for path in sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime_ns, reverse=True):
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if data.get("status") in ("queued", "running") and data.get("id") not in _jobs:
-                data.update(status="interrupted", message="The app closed before this export finished.")
+            # Windows cannot atomically replace a file held open by this reader.
+            # Coordinate with _save/_update so viewing progress cannot fail a job.
+            with _lock:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if data.get("status") in ("queued", "running") and data.get("id") not in _jobs:
+                    data.update(status="interrupted", message="The app closed before this export finished.")
             result.append(data)
         except (OSError, ValueError):
             continue
@@ -89,6 +92,11 @@ def recover(root):
 def _trim_snapshot(project, start_ms, end_ms):
     """Create a clip-relative project while retaining stable source IDs."""
     result = copy.deepcopy(project)
+    # Freeze estimates before trimming removes their surrounding anchors.
+    for _, word in project.iter_words():
+        timing = project.effective_timing(word.id)
+        if timing and timing.estimated:
+            result.timing_edits[word.id] = copy.deepcopy(timing)
     keep_lines, keep_words = [], set()
     for line in result.lines:
         words = []
@@ -120,6 +128,13 @@ def _trim_snapshot(project, start_ms, end_ms):
                 timing.start_ms = max(0, timing.start_ms - start_ms)
                 timing.end_ms = min(end_ms - start_ms, timing.end_ms - start_ms)
     result.presentation.line_overrides = {k: v for k, v in result.presentation.line_overrides.items() if k in keep_line_ids}
+    from .timing_review import approved, required, fingerprint
+    if required(project) and approved(project):
+        # Cropping an approved immutable snapshot is not a new user timing edit.
+        # Unapproved source projects must retain their existing export gate.
+        review = result.alignment['review']
+        review['source_fingerprint'] = fingerprint(project)
+        review['approved_fingerprint'] = fingerprint(result)
     return result
 
 
@@ -139,7 +154,7 @@ def preflight(project, root, karaoke, selection_ms=None):
     from .render import _audio_duration, _ffmpeg_path
     _ffmpeg_path()
     root, audio = Path(root), Path(karaoke)
-    if project.vocal_mix.references:
+    if V.configured(project):
         paths, basis = V.checked_references(project, root)
         duration_ms = P.seconds_to_ms(basis[2] / basis[0])
     elif project.vocal_mix.regions or project.vocal_mix.default_value:
@@ -184,7 +199,7 @@ def _run(job, snapshot, root, karaoke):
     temporary = exports / f".job-{job.id}.tmp"
     try:
         _update(root, job, status="running", progress=.02, message="Preparing the frozen audio mix…")
-        audio = V.render_mix(snapshot, root) if snapshot.vocal_mix.references else karaoke
+        audio = V.render_mix(snapshot, root) if V.configured(snapshot) else karaoke
         if job._cancel.is_set():
             raise RuntimeError("Video export cancelled.")
         render_snapshot = snapshot

@@ -113,7 +113,8 @@ def test_inserting_a_word_keeps_neighbours_timed(tmp_path):
     assert proj.effective_timing(bravo_id).start_ms == 500
     new_word = proj.find_word(ids[1])
     assert new_word.text == "inserted"
-    timing = proj.effective_timing(new_word.id)
+    assert proj.effective_timing(new_word.id).estimated
+    timing = proj.raw_timing(new_word.id)
     assert not timing.resolved
     assert "needs timing" in timing.reason
 
@@ -199,7 +200,8 @@ def test_editing_the_second_chorus_leaves_the_first_alone(tmp_path):
     assert len(result.new_word_ids) == 1
     changed = proj.lines[2]
     assert changed.words[3].text == "very"
-    assert not proj.effective_timing(changed.words[3].id).resolved
+    assert not proj.raw_timing(changed.words[3].id).resolved
+    assert proj.effective_timing(changed.words[3].id).estimated
 
 
 def test_repeated_word_within_a_line_keeps_distinct_identities(tmp_path):
@@ -346,6 +348,7 @@ def test_explicit_realignment_replaces_proposals_but_not_manual_edits(tmp_path):
 
 def test_partial_alignment_leaves_missing_words_unresolved(tmp_path):
     proj = _project("alpha bravo charlie\n", tmp_path)
+    proj.alignment['estimate_missing_words'] = False
     stats = L.apply_alignment(proj, _aligned([("alpha", 0.0, 0.5),
                                               ("charlie", 1.0, 1.5)]))
     assert stats["filled"] == 2 and stats["unmatched"] == 1

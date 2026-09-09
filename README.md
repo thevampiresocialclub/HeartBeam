@@ -176,11 +176,12 @@ Opens a local Streamlit app at <http://localhost:8501> with three steps:
    building the removal mix. Choose **Save project and review timing**.
 2. **Review timing:** play the original or vocal tracks with the waveform and
    lyric preview. Make any timing corrections in **Timing**. In **Build karaoke**,
-   choose whether to keep backing vocals and select **Build karaoke and continue**.
-   Missing word timings and conflicts warn without blocking this step. Known
-   phrase windows cover missing words during removal; stretches without any
-   timing may retain vocals. This uses saved tracks without repeating separation
-   or inventing word timings. Individual word approval is optional.
+   set **Backing vocals (%)** and select **Build karaoke and continue**.
+   Missing word timings and conflicts warn without blocking this step.
+   Missing words get labelled timing estimates from their neighbors or phrase
+   window, preserving raw and manual timings. Individual word approval is optional.
+   The new mix uses saved instrumental, lead and backing tracks across the whole
+   song; it does not rerun separation or depend on lyric timing to mute vocals.
 3. **Edit video:** the desktop workstation keeps Play/Pause, video preview and
    waveform together on the left. The right pane has live lyric selection and
    **Appearance**, **Lyrics**, **Timing**, **Vocals** and **Export** tabs. Each
@@ -319,6 +320,10 @@ The shipped default lives at `heartbeam/styles/default.toml` and is used when `-
 
 ## How the lyrics-aware masking works
 
+This describes the batch CLI and legacy selective mixer. New GUI builds use
+the independent stem mixer described above, so missing lyric timing cannot
+switch the original vocals back on.
+
 The core idea is in `heartbeam/mix.py`:
 
 ```python
@@ -386,19 +391,28 @@ The **Playback preview** controls play or pause the shared song clock, restart a
 the beginning, and jump to the previous or next lyric display boundary. Use them
 to review timing, highlighting, font and placement together before rendering.
 
-Under **Section vocals**, target a lyric line, multiple lines, a named section,
-or a time range. **Vocal level** ranges from 0% (processed karaoke reference) to
-100% (original reference). Drag the live slider or enter an exact percentage.
-Regions replace overlapping portions of the same lane; they do not stack gains.
-Use **Refit to source lyrics** to move a region after timing corrections, and
-**Rebuild clean audio from corrected timing** only when you want to rebuild the
-removal mask from saved stems. Both actions can be undone.
+Above the video preview, **Lead vocals** and **Backing vocals** each offer
+0–100% sliders and exact numeric percentages. Try 1–5% lead for a quiet guide;
+backing can be muted, halfway or full. These are independent gains on the saved
+stems. The instrumental is included once, and the combined result is mastered
+once for export. Mixing the original MP3 back in would also change instruments.
 
-Older projects need calibrated clean/original audio: link their generation
-cache, or explicitly prepare references from the original file and saved stems.
-A normalized karaoke MP3 is not a calibrated clean reference. Final mix audition
-and WAV download are available under **Audio references and final mix**; video
-export uses the edited mix and retains a revision-specific project snapshot.
+Under **Section vocals**, target a lyric line, multiple lines, a named section,
+or a time range. Regions override the lead default without changing backing.
+Overlapping regions replace existing portions; they do not stack gains.
+**Refit to source lyrics** explicitly follows later lyric timing corrections.
+
+Older projects retain their previous clean-to-original mix until you choose
+**Vocals → Use separate lead and backing tracks**. This requires the saved
+lossless stems and does not run ML. Without stems, the calibrated legacy mix
+still works: 0% is the processed reference and 100% restores its original.
+Link the generation cache or prepare references from matching saved audio;
+a normalized karaoke MP3 cannot supply independent lead/backing controls.
+
+In **Export → Audio and timing downloads**, choose **Prepare current audio
+download** for MP3 and WAV with your current mix settings. The separately
+labelled initial build download retains the original build. Video export uses
+the current mix automatically and retains a revision-specific project snapshot.
 
 The renderer and fonts are bundled; ordinary users need no Node installation
 or browser CDN access. See [BUILD-STATUS.md](BUILD-STATUS.md) for verified
@@ -414,8 +428,10 @@ handles also accept arrow keys (1 design pixel, or 10 with Shift).
 
 Choose a font, size, **Letter spacing (kerning)**, **Line height**, bold/italic,
 unsung and sung colours, outline colour and thickness, and shadow. Whole-word
-highlighting changes at onset; sweep mode fills during the word. A missing word
-timing leaves that word plain while timed words still highlight. Sung words
+highlighting changes at onset; sweep mode fills during the word. Missing words
+use labelled timing estimates where nearby words or phrase timing give bounds.
+Turn **Timing → Estimate missing word timing** off to leave them plain instead.
+Fully unanchored phrases still need a rough window. Sung words
 retain their colour. Zero removes the outline or shadow. The wrapping box
 inserts display breaks without changing timing.
 

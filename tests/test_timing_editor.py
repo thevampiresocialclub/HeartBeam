@@ -189,6 +189,7 @@ def test_manual_timing_resolves_an_untimed_word(tmp_path):
 
 def test_next_unresolved_cycles_through_untimed_words(tmp_path):
     proj = _project(tmp_path, "alpha bravo charlie delta\n")
+    proj.alignment['estimate_missing_words'] = False
     ids = proj.word_ids()
     for wid in (ids[1], ids[3]):
         proj.original_alignment.pop(wid)
@@ -227,6 +228,7 @@ def test_next_low_confidence_skips_words_already_reviewed(tmp_path):
 
 def test_payload_includes_untimed_words_so_they_stay_findable(tmp_path):
     proj = _project(tmp_path)
+    proj.alignment['estimate_missing_words'] = False
     wid = proj.word_ids()[1]
     proj.original_alignment.pop(wid)
     proj.timing_edits[wid] = P.WordTiming(reason="needs timing")

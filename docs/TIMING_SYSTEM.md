@@ -1,6 +1,7 @@
 # Lyric lookup and phrase timing
 
-Implemented 7 September 2026. See BUILD-STATUS.md for the verification record.
+Implemented 7 September 2026; estimates and independent vocal tracks added
+8 September. See BUILD-STATUS.md for the verification record.
 
 ## User workflow
 
@@ -21,23 +22,69 @@ Implemented 7 September 2026. See BUILD-STATUS.md for the verification record.
    Click or drag the waveform itself to seek, including during playback. The
    playhead follows zoomed playback; lyric blocks beneath it remain separate
    timing-edit targets. Scrubbing never writes timing or invalidates approval.
-5. In **Build karaoke**, choose **Keep backing vocals** or turn it off to exclude
-   lead leakage in that stem, at the cost of its harmonies during removal. Press
+5. In **Build karaoke**, set **Backing vocals (%)**. Zero excludes that stem,
+   including harmonies and any lead leakage in it. Press
    **Build karaoke and continue** with your current edits. Missing word timings
    and conflicts show a warning; they do not require individual fixes or approval
    before this step. The saved tracks produce a clean reference and MP3, and the
-   app opens video editing. Known phrase windows cover missing words during
-   removal. Portions with no usable word or phrase timing may retain vocals.
+   app opens video editing. New builds use independent instrumental, lead and
+   backing stems across the song, so lyric gaps no longer restore original vocals.
+   Lead and backing each have 0–100% controls above the video, in 1% steps.
 6. Manual corrections, phrase evidence and stable IDs survive undo/redo and
    reopening. Changes to lyrics, effective word timing or linked source identity
    invalidate approval, as do changes to phrase windows used for removal. Refit existing lyric-attached vocal regions explicitly
    when their intended section boundaries change.
 
 The 2–4 visible lyric rows and visual wrapping are independent of sung phrase
-boundaries. In a partially timed phrase, untimed words remain plain while timed
-words highlight. HeartBeam does not invent word timings to animate it or mark
-them reviewed when building audio. Final video export still requires resolved
-words, corrected conflicts and approval for the current timing.
+boundaries. Missing words now highlight using labelled estimates where neighbors
+or a valid phrase anchor provide bounds. The Timing tab can disable estimates.
+They are not acoustic matches and are not automatically marked reviewed.
+Final video export accepts estimates with a warning; it still requires no
+remaining unanchored words, corrected known-word conflicts and current approval.
+
+## Estimated highlights
+
+`timing_estimates.py` operates inside one lyric line. It divides each missing
+run between the preceding word's end and the following word's start, using
+alphanumeric character counts as weights and a minimum 10 ms per word. A valid
+phrase anchor supplies a missing edge, or bounds an entirely unaligned phrase.
+If touching neighbors leave no room, the run can borrow a weighted tail of the
+preceding onset interval. The known word remains unchanged; this intentional
+estimated overlap is exempt from conflict blocking. Known-word conflicts remain.
+
+`Project.raw_timing()` retains the manual → proposal → original precedence.
+`effective_timing()` returns a resolved raw timing or the derived estimate.
+`WordTiming.estimated` identifies estimates; raw missing values stay missing.
+They recompute with anchor/text changes and survive save/reopen as that policy,
+not silently written manual edits. Manual corrections and acoustic refinement
+can replace them, including **Fill only untimed words**. Review navigation still
+includes estimates. The shared resolver supplies timeline, ASS, preview and export.
+Passage exports freeze estimates before cropping away their neighbors and derive
+approval only from an already-approved source snapshot.
+
+`Project.alignment.estimate_missing_words` defaults to true unless explicitly
+false. No estimates are created outside known audio duration, against stale
+phrase membership, or for whole unanchored verses. This is a visual fallback,
+not evidence that a repeated verse occurs in a particular recording.
+
+## Independent vocal tracks
+
+`stem_mix.py` validates the hashes and common sample rate/channel/count of the
+saved instrumental, lead and backing stems. New GUI builds select
+`VocalMix.restoration_mode = separated_stems`; the raw mix is
+`instrumental + lead * lead_envelope + backing * backing_value`.
+`default_value` remains the lead default and existing regions override it.
+The backing gain is song-wide and independent. Browser audition has fixed
+headroom across all slider values; MP3/WAV/video apply one final mastering stage.
+These percentages describe linear stem amplitude, not perceived loudness or
+separation accuracy. Lead leakage already inside backing remains there when
+backing is audible. No new separation model or quality claim is implied.
+
+Older projects remain `clean_to_original` until explicitly switching in Vocals.
+Their legacy residual blend and mask-rebuild behavior stay available. New
+builds also retain a historical clean reference for compatibility, but the
+independent-track preview/export does not use that reference as its instrumental.
+Both faders participate in cache identity, command undo, persistence and export.
 
 ## Approval and preparation contract
 
@@ -53,9 +100,10 @@ valid current phrase windows. Generated asset duration metadata is not part of
 that key; actual source bounds are checked when building the mask. Presentation
 styling does not invalidate timing approval.
 
-The GUI explicitly calls `approve_and_build(..., allow_incomplete=True)`.
-Valid word intervals plus phrase windows for partially timed lines feed the
-existing mask merger. Word edits, unresolved values and review flags remain
+The GUI calls `approve_and_build(..., allow_incomplete=True, separate_tracks=True)`.
+The compatibility clean reference uses valid word intervals plus phrase windows
+for partially timed lines. The final new mix uses separated stems directly.
+Word edits, raw unresolved values and review flags remain
 unchanged. The approval flag and removal recipe persist this policy for rebuilds.
 `require_approved` still guards source/timing changes, and the default API policy
 remains strict for callers that do not opt in. Final video exports still use
@@ -110,7 +158,8 @@ failure retains that phrase's text and does not discard other phrases.
   Sidecar words and boundaries are validated on import.
 - `Project.alignment` stores entries keyed by stable line IDs with word membership.
   `effective_timing()` remains the only timing resolver; project timing stays in
-  integer milliseconds. Draft phrase windows never become synthetic word times.
+  integer milliseconds. Derived estimates are explicitly labelled and remain
+  separate from original/manual evidence.
 - `phrase_project.py` checks saved audio hashes, retains full-song context, emits
   identity-bearing result artifacts and applies proposals by line/word IDs.
   Changed lyric membership or a stale project revision rejects application.

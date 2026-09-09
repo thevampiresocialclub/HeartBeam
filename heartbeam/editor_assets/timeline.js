@@ -90,6 +90,13 @@ export default function (component) {
       <label>Listen to <select class="hb-source"></select></label>
       <label>Speed <select class="hb-rate"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option></select></label>
     </div>
+    <div class="hb-track-mixer" hidden aria-label="Song vocal tracks">
+      <div><label>Lead vocals <input data-track="lead" type="range" min="0" max="100" step="1" value="0"></label>
+        <label class="hb-track-number"><input data-track-number="lead" aria-label="Lead vocals percent" type="number" min="0" max="100" step="1" value="0">%</label></div>
+      <div><label>Backing vocals <input data-track="backing" type="range" min="0" max="100" step="1" value="100"></label>
+        <label class="hb-track-number"><input data-track-number="backing" aria-label="Backing vocals percent" type="number" min="0" max="100" step="1" value="100">%</label></div>
+      <small>0% mutes a track. Try 1–5% lead for a quiet guide. Lead regions override the song default.</small>
+    </div>
     <div class="hb-preview"><canvas class="hb-ass" width="960" height="540" aria-label="Rendered lyric preview"></canvas></div>
     <div class="hb-preview-status" role="status">Loading lyric preview…</div>
     <div class="hb-toolbar hb-waveform-tools">
@@ -201,7 +208,7 @@ export default function (component) {
     if (word?.id !== state.selectedId) state.phraseLoop = null;
     state.selectedId = word?.id || null;
     if (word?.start_ms == null && !state.phraseLoop) state.looping = false;
-    $('.hb-sel').textContent = word ? `Selected: ${word.text}${word.start_ms == null ? ' (needs timing)' : ''}` : '';
+    $('.hb-sel').textContent = word ? `Selected: ${word.text}${word.estimated ? ' (estimated timing)' : word.start_ms == null ? ' (needs timing)' : ''}` : '';
     for (const [id, button] of wordButtons) button.setAttribute('aria-pressed', String(id === state.selectedId));
     syncLoop();
     if (shouldSeek && word?.start_ms != null) seek(word.start_ms);
@@ -222,7 +229,8 @@ export default function (component) {
       button.textContent = word.text; button.dataset.wordId = word.id;
       button.setAttribute('aria-pressed', String(word.id === state.selectedId));
       button.classList.toggle('needs-timing', word.start_ms == null);
-      button.title = word.start_ms == null ? 'Needs timing' : `${fmt(word.start_ms)} – ${fmt(word.end_ms)}`;
+      button.classList.toggle('estimated-timing', !!word.estimated);
+      button.title = word.start_ms == null ? 'Needs timing' : `${word.estimated ? 'Estimated: ' : ''}${fmt(word.start_ms)} – ${fmt(word.end_ms)}`;
       button.addEventListener('click', () => select(state.words.find(w => w.id === word.id), true, true));
       wordButtons.set(word.id, button); lines.get(word.line_id).appendChild(button);
     }
@@ -428,7 +436,7 @@ export default function (component) {
   $('.hb-seek').addEventListener('input', e => { e.target.dataset.editing = 'true'; });
   $('.hb-seek').addEventListener('keydown', e => { if (e.key === 'Enter') { seek(Number(e.target.value) * 1000, true); e.target.dataset.editing = ''; } });
   $('.hb-seek').addEventListener('blur', e => { if (!e.target.dataset.editing) render(); });
-  sourceSelect.addEventListener('change', e => { void switchSource(e.target.value); });
+  sourceSelect.addEventListener('change', e => { state.userSourceChoice = true; void switchSource(e.target.value); });
   $('.hb-rate').addEventListener('change', e => { audio.playbackRate = Number(e.target.value); if (state.pending) state.pending.rate = audio.playbackRate; });
   $('.hb-zoom').addEventListener('input', e => { const start = xToMs(scroll.scrollLeft); state.zoom = Number(e.target.value); resize(); scroll.scrollLeft = msToX(start); draw(); });
   scroll.addEventListener('scroll', () => draw());
@@ -478,8 +486,20 @@ export default function (component) {
     state.mix = data;
     $('.hb-vocal').hidden = !data?.selection;
     $('.hb-vocal-level').disabled = true;
+    $('.hb-track-mixer').hidden = data?.mode !== 'separated_stems';
+    enableTrackControls(false);
     $('.hb-vocal-lane').replaceChildren();
     if (!data) return;
+    if (data.mode === 'separated_stems') {
+      for (const [track, value] of [['lead', data.default_value], ['backing', data.backing_value]]) {
+        $(`[data-track="${track}"]`).value = Math.round(value * 100);
+        const number = $(`[data-track-number="${track}"]`);
+        if (number.getRootNode().activeElement !== number) number.value = Math.round(value * 100);
+      }
+    }
+    $('.hb-vocal p').textContent = data.mode === 'separated_stems'
+      ? 'Lead vocal level for this selection. Backing vocals keep their separate song volume.'
+      : 'Blends processed karaoke toward the original recording. Use separate tracks in Vocals to control lead and backing independently.';
     for (const region of data.regions) {
       const button = document.createElement('button'); button.className = 'hb-region';
       button.style.left = `${region.start_ms / state.durationMs * 100}%`;
@@ -495,12 +515,14 @@ export default function (component) {
     }
     const signature = JSON.stringify({...data, revision: undefined});
     if (mixSignature === signature) { $('.hb-vocal-level').disabled = !!state.pendingCommand;
+      enableTrackControls(!state.pendingCommand);
       root.dataset.mixRevision = String(data.revision); return; }
     mixSignature = signature;
     try {
       const ready = await audio.configureMix(data);
       if (!ready || signal.aborted) return;
       root.dataset.mixRevision = String(data.revision); $('.hb-vocal-level').disabled = !!state.pendingCommand;
+      enableTrackControls(!state.pendingCommand);
       root.dataset.mixReady = 'true';
       // Warm each saved audition source after references load. Switching a
       // cached source then uses the current clock without a decode pause.
@@ -509,7 +531,29 @@ export default function (component) {
       const mixSource = state.sources.find(s => s.id === 'mix');
       if (mixSource) { mixSource.available = true; const option = sourceSelect.querySelector('option[value="mix"]');
         if (option) { option.disabled = false; option.textContent = mixSource.label; } }
+      if (data.mode === 'separated_stems' && !state.initialStemMix && !state.userSourceChoice) {
+        state.initialStemMix = true; void switchSource('mix');
+      }
     } catch (e) { root.dataset.mixReady = 'false'; status(`Vocal audition: ${e.message}`, true); }
+  }
+  function enableTrackControls(enabled) {
+    for (const element of root.querySelectorAll('[data-track], [data-track-number]')) element.disabled = !enabled;
+  }
+  function trackInput(element, apply) {
+    const track = element.dataset.track || element.dataset.trackNumber;
+    if (state.pendingCommand || element.value.trim() === '' || !Number.isFinite(Number(element.value))) return;
+    const percent = Math.max(0, Math.min(100, Math.round(Number(element.value))));
+    $(`[data-track="${track}"]`).value = percent;
+    $(`[data-track-number="${track}"]`).value = percent;
+    audio.auditionTrack(track, percent / 100);
+    root.dataset[`${track}Percent`] = String(percent);
+    if (state.sourceId !== 'mix') void switchSource('mix');
+    if (apply) { commit('track_level', {track, value: percent / 100}); enableTrackControls(false); }
+  }
+  for (const element of root.querySelectorAll('[data-track], [data-track-number]')) {
+    element.addEventListener('input', () => trackInput(element, false));
+    element.addEventListener('change', () => trackInput(element, true));
+    element.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); trackInput(element, true); } });
   }
   $('.hb-vocal-level').addEventListener('input', e => {
     const value = Number(e.target.value) / 100;

@@ -114,8 +114,12 @@ class HBTransport extends EventTarget {
       const delta = gain(0), amount = gain(this.amount ?? 0);
       delta.connect(amount); amount.connect(output); source(mix.residual, delta); source(mix.delta, delta.gain);
       this.amountNode = amount;
+      if (mix.backing) {
+        this.backingNode = gain(mix.backingValue); this.backingNode.connect(output);
+        source(mix.backing, this.backingNode);
+      } else this.backingNode = null;
     } else {
-      this.amountNode = null; main = source(this.buffer, output);
+      this.amountNode = null; this.backingNode = null; main = source(this.buffer, output);
     }
     main.onended = () => {
       if (this.nodes[0] === main && !this.loopRange && !this._paused) {
@@ -138,18 +142,27 @@ class HBTransport extends EventTarget {
     const token = this.mixToken = (this.mixToken || 0) + 1;
     if (!data) { this.mix = null; return; }
     this.ensureContext(data.sample_rate);
-    const [clean, original] = await Promise.all([this.decoded(data.clean), this.decoded(data.original)]);
+    const separated = data.mode === 'separated_stems';
+    const [clean, original, backing] = await Promise.all([this.decoded(data.clean),
+      this.decoded(separated ? data.lead : data.original), separated ? this.decoded(data.backing) : null]);
     if (token !== this.mixToken) return false;
     if (clean.length !== original.length || clean.sampleRate !== original.sampleRate || clean.numberOfChannels !== original.numberOfChannels)
       throw new Error('Decoded vocal references do not share a sample basis.');
-    let residual = this.mix?.clean === clean && this.mix?.original === original ? this.mix.residual : null;
+    if (backing && (clean.length !== backing.length || clean.sampleRate !== backing.sampleRate || clean.numberOfChannels !== backing.numberOfChannels))
+      throw new Error('Decoded backing vocals do not share the song sample basis.');
+    let residual = this.mix?.clean === clean && this.mix?.original === original && this.mix?.backing === backing && this.mix?.mode === data.mode ? this.mix.residual : null;
     let headroom = this.mix?.headroom;
     if (!residual) {
       residual = this.context.createBuffer(clean.numberOfChannels, clean.length, clean.sampleRate);
       let peak = 1;
       for (let ch = 0; ch < clean.numberOfChannels; ch++) {
         const c = clean.getChannelData(ch), o = original.getChannelData(ch), d = residual.getChannelData(ch);
-        for (let i = 0; i < c.length; i++) { d[i] = o[i] - c[i]; peak = Math.max(peak, Math.abs(c[i]), Math.abs(o[i])); }
+        const backingSamples = backing?.getChannelData(ch);
+        for (let i = 0; i < c.length; i++) {
+          d[i] = separated ? o[i] : o[i] - c[i];
+          peak = separated ? Math.max(peak, Math.abs(c[i]) + Math.abs(o[i]) + Math.abs(backingSamples[i]))
+            : Math.max(peak, Math.abs(c[i]), Math.abs(o[i]));
+        }
       }
       headroom = .95 / peak;
     }
@@ -161,20 +174,43 @@ class HBTransport extends EventTarget {
     if (token !== this.mixToken) return false;
     const base = this.envelope(data.knots, clean, data.sample_rate);
     const delta = this.context.createBuffer(1, clean.length, clean.sampleRate);
-    this.mix = {clean, original, residual, headroom, base, delta, templateBase, templateDelta, revision: data.revision};
+    const songBase = separated ? this.envelope(data.song_templates[0], clean, data.sample_rate) : null;
+    const songDelta = separated ? this.envelope(data.song_templates[1], clean, data.sample_rate) : null;
+    if (songDelta) {
+      const a = songBase.getChannelData(0), b = songDelta.getChannelData(0);
+      for (let i = 0; i < b.length; i++) b[i] -= a[i];
+    }
+    this.mix = {clean, original, residual, backing, backingValue: data.backing_value ?? 1,
+      mode: data.mode, headroom, base, delta, templateBase, templateDelta, songBase, songDelta, revision: data.revision};
     this.amount = data.selection?.value ?? 0;
     if (this.src === 'heartbeam:mix') { this._time = this.currentTime; this.buffer = clean; this.duration = clean.duration; this.restart(); }
     return true;
   }
   audition(value) {
     this.amount = value;
-    if (this.mix && !this.mix.previewing) {
+    if (this.mix && this.mix.previewing !== 'selection') {
       if (this.src === 'heartbeam:mix') this._time = this.currentTime;
-      this.mix.previewing = true;
+      this.mix.previewing = 'selection';
       this.mix.base = this.mix.templateBase; this.mix.delta = this.mix.templateDelta;
       if (this.src === 'heartbeam:mix') this.restart();
     }
     if (this.amountNode) this.amountNode.gain.setTargetAtTime(value, this.context.currentTime, .008);
+  }
+  auditionTrack(track, value) {
+    if (this.mix?.mode !== 'separated_stems' || !Number.isFinite(value)) return;
+    value = Math.max(0, Math.min(1, value));
+    if (track === 'backing') {
+      this.mix.backingValue = value;
+      this.backingNode?.gain.setTargetAtTime(value, this.context.currentTime, .008);
+    } else if (track === 'lead') {
+      this.amount = value;
+      if (this.mix.previewing !== 'song') {
+        if (this.src === 'heartbeam:mix') this._time = this.currentTime;
+        this.mix.previewing = 'song'; this.mix.base = this.mix.songBase; this.mix.delta = this.mix.songDelta;
+        if (this.src === 'heartbeam:mix') this.restart();
+      }
+      this.amountNode?.gain.setTargetAtTime(value, this.context.currentTime, .008);
+    }
   }
   dispose() { this.pause(); this.loadEpoch++; this.mixToken++; this.cache.clear(); this.context?.close(); }
 }

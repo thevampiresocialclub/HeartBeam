@@ -51,8 +51,30 @@ def vocal_action(project, selection, duration):
         V.insert_region(project.vocal_mix, region, duration)
 
 
+def track_action(project, data):
+    if project.vocal_mix.restoration_mode != 'separated_stems':
+        raise P.ProjectError('Enable separate track controls first.')
+    value = V.level(data['value'])
+    if data.get('track') == 'lead':
+        project.vocal_mix.default_value = value
+    elif data.get('track') == 'backing':
+        project.vocal_mix.backing_value = value
+    else:
+        raise P.ProjectError('Choose lead or backing vocals.')
+    return True, 'Track volume updated. Save to keep this mix.'
+
+
 def _timing_controls(project, duration):
     h = history(project)
+    from .timing_estimates import enabled
+    automatic = st.checkbox('Estimate missing word timing', enabled(project),
+        key=f'estimate_timing_{project.id}_{project.revision}',
+        help='Fill gaps using surrounding words or phrase boundaries. Estimates stay labelled and update when nearby timing changes.')
+    if automatic != enabled(project):
+        change(project, lambda p: p.alignment.__setitem__('estimate_missing_words', automatic))
+    estimates = project.estimated_word_ids()
+    if estimates:
+        st.caption(f'{len(estimates)} words use estimated timing and can highlight. You can edit them like any other word.')
     selected = st.session_state.get("selected_word_id")
     word = project.find_word(selected)
     nav = st.columns(3)
@@ -74,6 +96,8 @@ def _timing_controls(project, duration):
         return
     timing = project.effective_timing(word.id)
     st.markdown(f"Selected word: **{word.text}**")
+    if timing and timing.estimated:
+        st.info('Estimated from nearby words or phrase timing. Set a manual timing to override it.')
     identity = f"{project.id}_{word.id}_{project.revision}"
     with st.form(f"timing_numbers_{identity}"):
         cols = st.columns(2)
@@ -103,6 +127,17 @@ def _timing_controls(project, duration):
 
 def _vocal_controls(project, root, duration):
     st.subheader("Section vocals")
+    from . import stem_mix
+    if project.vocal_mix.restoration_mode != stem_mix.MODE:
+        st.caption('Separate lead and backing tracks give independent volume controls. Existing mixes keep their original blend until you switch.')
+        try:
+            stem_mix.checked(project, root)
+            if st.button('Use separate lead and backing tracks', key=f'enable_tracks_{project.id}'):
+                change(project, lambda p: stem_mix.enable(p, root))
+        except P.ProjectError as exc:
+            st.caption(str(exc))
+    else:
+        st.caption('Lead and backing song sliders are above the preview. These section controls change only lead vocals.')
     try:
         V.checked_references(project, root)
     except P.ProjectError as exc:
@@ -189,6 +224,18 @@ def _vocal_controls(project, root, duration):
         return None
 
 
+def prepare_final_mix(project, root):
+    try:
+        with st.spinner("Preparing audio with the current lead and backing levels…"):
+            snapshot = copy.deepcopy(project)
+            path = V.render_mix(snapshot, root)
+            V.render_mix_mp3(snapshot, root)
+        st.session_state[f"final_mix_{project.id}"] = (V.mix_key(project), str(path))
+        st.rerun()
+    except (P.ProjectError, OSError, ValueError, RuntimeError) as exc:
+        st.error(str(exc))
+
+
 def _audio_tools(project, root):
     with st.expander("Audio references and final mix"):
         st.caption("Link the cache from this song's generation run. The clean and original references must share the same pre-mastering sample basis.")
@@ -197,19 +244,17 @@ def _audio_tools(project, root):
             if st.form_submit_button("Link cached tracks"):
                 change(project, lambda p: media.attach_cached_audio(p, root, Path(folder)), save_root=root)
         refs = project.vocal_mix.references
-        if refs:
-            changed = refs.get("timing_hash") != V.timing_hash(project)
-            st.caption("Clean audio was built from earlier timing. Rebuild only when you want the removal mask to follow your corrections." if changed else "Clean audio matches the recorded timing basis.")
-            if st.button("Rebuild clean audio from corrected timing"):
-                with st.spinner("Rebuilding from saved stems…"):
-                    change(project, lambda p: V.rebuild_clean(p, root))
+        if V.configured(project):
+            if project.vocal_mix.restoration_mode == 'separated_stems':
+                st.caption("The mix uses the saved instrumental, lead and backing tracks. Timing edits change the lyric highlights; they do not require rebuilding audio.")
+            else:
+                changed = refs.get("timing_hash") != V.timing_hash(project)
+                st.caption("Clean audio was built from earlier timing. Rebuild only when you want the removal mask to follow your corrections." if changed else "Clean audio matches the recorded timing basis.")
+                if st.button("Rebuild clean audio from corrected timing"):
+                    with st.spinner("Rebuilding from saved stems…"):
+                        change(project, lambda p: V.rebuild_clean(p, root))
             if st.button("Prepare final mix for audition and download"):
-                try:
-                    with st.spinner("Rendering and mastering the current vocal mix…"):
-                        path = V.render_mix(copy.deepcopy(project), root)
-                    st.session_state[f"final_mix_{project.id}"] = (V.mix_key(project), str(path))
-                except (P.ProjectError, OSError, ValueError) as exc:
-                    st.error(str(exc))
+                prepare_final_mix(project, root)
         else:
             st.caption("For an older project, prepare new calibrated references from its original audio and saved stems. This uses the chosen recipe and current timing; it does not run separation.")
             with st.form(f"prepare_legacy_{project.id}"):
@@ -373,6 +418,8 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
                          "key": str(path), "src": media.register_media(path, f"final/{project.id}")})
         with export_tab:
             st.download_button("Download final vocal mix.wav", path.read_bytes(), "vocal-mix.wav", mime="audio/wav")
+            if path.with_suffix('.mp3').is_file():
+                st.download_button("Download current karaoke.mp3", path.with_suffix('.mp3').read_bytes(), "karaoke.mp3", mime="audio/mpeg")
     with monitor:
         st.subheader("Lyric timing preview" if timing_review else "Video preview")
         if timing_review:
@@ -406,6 +453,8 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
             change(project, lambda p: E.apply_timing_edit(p, data, duration), command=command)
         elif kind == "vocal":
             change(project, lambda p: vocal_action(p, data, duration), command=command)
+        elif kind == 'track_level':
+            change(project, lambda p: track_action(p, data), command=command)
         elif kind == "placement":
             change(project, lambda p: presentation.placement_command(p, data), command=command)
     message = st.session_state.pop("timing_message", None)

@@ -75,6 +75,8 @@ def compile_scene(project, duration_ms, root=None, *, draft=False):
             warnings.append(message)
         timings = {w.id: project.effective_timing(w.id) for w in line.words if not w.non_sung}
         timings = {wid: t for wid, t in timings.items() if t and t.resolved and 0 <= t.start_ms < t.end_ms <= duration_ms}
+        if any(t.estimated for t in timings.values()):
+            warnings.append(f'Line {index + 1}: some word highlights use estimated timing. Original and manual timings are preserved.')
         partial = len(timings) < sum(not w.non_sung for w in line.words)
         phrase = phrase_window(project, line, duration_ms) if draft and partial else None
         if not timings and not phrase:

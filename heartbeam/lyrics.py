@@ -451,12 +451,12 @@ def apply_alignment(project: Project, aligned_lines, *,
             matched_ids.add(target.id)
 
             has_manual = target.id in project.timing_edits and \
-                project.timing_edits[target.id].resolved
+                project.timing_edits[target.id].resolved and not project.timing_edits[target.id].estimated
             if has_manual:
                 skipped += 1
                 continue
-            existing = project.effective_timing(target.id)
-            if only_unresolved and existing is not None and existing.resolved:
+            existing = project.raw_timing(target.id)
+            if only_unresolved and existing is not None and existing.resolved and not existing.estimated:
                 skipped += 1
                 continue
 
@@ -470,7 +470,7 @@ def apply_alignment(project: Project, aligned_lines, *,
             )
             # A word that was flagged as needing timing no longer is.
             edit = project.timing_edits.get(target.id)
-            if edit is not None and not edit.resolved:
+            if edit is not None and (not edit.resolved or edit.estimated):
                 del project.timing_edits[target.id]
             filled += 1
             project.reviewed.pop(target.id, None)

@@ -125,7 +125,7 @@ def test_missing_tracks_are_explicit_and_audition_does_not_edit_project(tmp_path
     project, root, audio = song(tmp_path)
     before = project.to_dict()
     sources = EM.build_sources(project, root, audio, register=lambda path, coord: "/media/" + path.name)
-    assert [s["available"] for s in sources] == [True, False, False, False]
+    assert [s["available"] for s in sources] == [True, False, False, False, False, False]
     assert all(s["reason"] for s in sources[1:])
     assert all("path" not in s for s in sources)
     assert project.to_dict() == before

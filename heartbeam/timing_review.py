@@ -30,7 +30,8 @@ def require_approved(project):
         raise P.ProjectError('Review and approve the current lyric timing before building karaoke audio or exporting video.')
 
 
-def approve_and_build(project, root, *, keep_backing=True, allow_incomplete=False):
+def approve_and_build(project, root, *, keep_backing=True, allow_incomplete=False,
+                      separate_tracks=False, backing_level=None):
     """Called only by the explicit approval action, inside the command history."""
     from . import vocal_mix as V, io as IO
     root = Path(root)
@@ -46,6 +47,11 @@ def approve_and_build(project, root, *, keep_backing=True, allow_incomplete=Fals
     if not keep_backing:
         recipe['mix_strategy'] = 'replace'
     clean_path = V.rebuild_clean(project, root, recipe)
+    if separate_tracks:
+        from .stem_mix import enable
+        enable(project, root, backing=backing_level if backing_level is not None else float(keep_backing))
+    if project.vocal_mix.restoration_mode == 'separated_stems':
+        clean_path = V.render_mix(project, root, mastered=False)
     import soundfile as sf
     samples,sr = sf.read(clean_path,dtype='float32',always_2d=True)
     mastered = V.master(samples,sr, target_lufs=recipe.get('target_lufs', -16.),

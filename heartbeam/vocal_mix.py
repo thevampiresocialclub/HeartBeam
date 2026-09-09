@@ -35,7 +35,8 @@ def level(value):
 def validate(mix, duration_ms):
     level(mix.default_value)
     _ms(mix.transition_ms, "Transition")
-    if mix.restoration_mode != "clean_to_original":
+    level(mix.backing_value)
+    if mix.restoration_mode not in ("clean_to_original", "separated_stems"):
         raise P.ProjectError("Unsupported vocal restoration mode.")
     end, ids = 0, set()
     for region in sorted(mix.regions, key=lambda r: r.start_ms):
@@ -161,7 +162,8 @@ def mix_arrays(clean, original, mix, sample_rate):
 
 
 def timing_hash(project):
-    pairs = [(w.id, asdict(t) if t else None) for _, w in project.iter_words()
+    # Preserve existing fingerprints for words without an estimate marker.
+    pairs = [(w.id, {k: v for k, v in asdict(t).items() if k != 'estimated' or v} if t else None) for _, w in project.iter_words()
              if not w.non_sung for t in [project.effective_timing(w.id)]]
     if project.alignment.get('review', {}).get('allow_incomplete'):
         from .phrase_project import phrase_window
@@ -178,7 +180,15 @@ def _file_info(path, size, mtime):
     return info.samplerate, info.channels, info.frames, P.file_sha256(path), info.format
 
 
+def configured(project):
+    """Whether export should use the saved mix instead of the initial MP3."""
+    return bool(project.vocal_mix.references) or project.vocal_mix.restoration_mode == 'separated_stems'
+
+
 def checked_references(project, root):
+    if project.vocal_mix.restoration_mode == 'separated_stems':
+        from .stem_mix import checked
+        return checked(project, root)
     refs = project.vocal_mix.references
     if not refs or not refs.get("source_sha256"):
         raise P.ProjectError("Vocal mixing needs calibrated clean and original audio. Link this song's audio cache or prepare references from its saved stems; the normalized karaoke MP3 cannot be used as the clean reference.")
@@ -214,11 +224,21 @@ def bind_references(project, *, source_sha256, recipe=None):
 def preview_payload(project, root, register, selection=None):
     paths, (sr, channels, count) = checked_references(project, root)
     mix = project.vocal_mix
+    separated = mix.restoration_mode == 'separated_stems'
     data = {"revision": project.revision, "sample_rate": sr, "sample_count": count,
-            "clean": register(paths["clean_audio"], f"mix/{project.id}/clean"),
-            "original": register(paths["original_audio"], f"mix/{project.id}/original"),
+            "mode": mix.restoration_mode,
+            "clean": register(paths['instrumental_stem' if separated else 'clean_audio'], f"mix/{project.id}/base"),
+            "original": None if separated else register(paths["original_audio"], f"mix/{project.id}/original"),
             "knots": compile_envelope(mix, sr, count), "regions": [asdict(r) for r in mix.regions],
             "default_value": mix.default_value, "selection": selection}
+    if separated:
+        data.update(lead=register(paths['lead_stem'], f'mix/{project.id}/lead'),
+                    backing=register(paths['backing_stem'], f'mix/{project.id}/backing'),
+                    backing_value=mix.backing_value)
+        data['song_templates'] = []
+        for value in (0., 1.):
+            candidate = copy.deepcopy(mix); candidate.default_value = value
+            data['song_templates'].append(compile_envelope(candidate, sr, count))
     if selection:
         templates = []
         for value in (0., 1.):
@@ -317,6 +337,9 @@ def master(samples, sr, *, target_lufs=-16., peak_db=-1.):
 
 def mix_key(project, *, mastered=True):
     spec = {"references": project.vocal_mix.references, "mix": asdict(project.vocal_mix), "mastered": mastered}
+    if project.vocal_mix.restoration_mode == 'separated_stems':
+        from .stem_mix import ROLES
+        spec['stems'] = [(a.id, a.role, a.sha256) for a in project.assets if a.role in ROLES]
     return hashlib.sha256(json.dumps(spec, sort_keys=True).encode()).hexdigest()[:24]
 
 
@@ -325,9 +348,14 @@ def render_mix(project, root, *, mastered=True):
     key = mix_key(project, mastered=mastered)
     destination = root / P.CACHE_DIR / f"vocal-mix-{key}.wav"
     if not destination.exists():
-        clean = sf.read(str(paths["clean_audio"]), dtype="float32", always_2d=True)[0]
-        original = sf.read(str(paths["original_audio"]), dtype="float32", always_2d=True)[0]
-        result = mix_arrays(clean, original, project.vocal_mix, sr)
+        if project.vocal_mix.restoration_mode == 'separated_stems':
+            from . import stem_mix
+            arrays = [sf.read(str(paths[role]), dtype='float32', always_2d=True)[0] for role in stem_mix.ROLES]
+            result = stem_mix.mix_arrays(*arrays, project.vocal_mix, sr)
+        else:
+            clean = sf.read(str(paths["clean_audio"]), dtype="float32", always_2d=True)[0]
+            original = sf.read(str(paths["original_audio"]), dtype="float32", always_2d=True)[0]
+            result = mix_arrays(clean, original, project.vocal_mix, sr)
         if mastered:
             result = master(result, sr)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -336,6 +364,24 @@ def render_mix(project, root, *, mastered=True):
         os.close(fd)
         try:
             sf.write(temporary, result, sr, subtype="FLOAT")
+            os.replace(temporary, destination)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    return destination
+
+
+def render_mix_mp3(project, root):
+    """Encode the current mastered mix once per audio-settings revision."""
+    from . import io as IO
+    import os, tempfile
+    source = render_mix(project, root)
+    destination = source.with_suffix('.mp3')
+    if not destination.exists():
+        samples, sr = sf.read(source, dtype='float32', always_2d=True)
+        fd, temporary = tempfile.mkstemp(dir=destination.parent, suffix='.mp3')
+        os.close(fd)
+        try:
+            IO.write_mp3(Path(temporary), samples, sr)
             os.replace(temporary, destination)
         finally:
             Path(temporary).unlink(missing_ok=True)

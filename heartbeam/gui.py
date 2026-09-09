@@ -623,9 +623,9 @@ def _lyrics_editor(project, project_dir: Path) -> None:
     if unresolved:
         with st.expander(f"Needs timing ({len(unresolved)})", expanded=False):
             st.caption(
-                "These words do not have individual timing yet. You can continue "
-                "to vocal removal using known phrase timing and fix individual "
-                "word highlights later. Untimed words stay visible without highlighting."
+                "These words still lack enough timing context to estimate. Enable "
+                "Estimate missing word timing in Timing to fill supported gaps. "
+                "You can continue to vocal removal without fixing every word."
             )
             for line, word, reason in unresolved[:50]:
                 st.markdown(f"- **{word.text}** in *{line.text}* - {reason}")
@@ -891,20 +891,24 @@ def _review_controls(project, root, audio_path):
     missing = len(project.unresolved_words())
     conflicts = len(ed.timing_conflicts(project))
     if missing or conflicts:
-        st.warning(f"{missing} words have no individual timing and {conflicts} timing conflicts remain. You can continue: known phrase windows cover missing words during vocal removal. Portions with no word or phrase timing may retain vocals.")
+        st.warning(f"{missing} words still have no timing and {conflicts} timing conflicts remain. You can continue with separate vocal tracks; word timing controls the lyric highlights.")
+    estimated = len(project.estimated_word_ids())
+    if estimated:
+        st.caption(f'{estimated} words use estimated timing from nearby words or phrases.')
     st.caption("Build with your current edits and continue to video editing. Individual word review is optional; you can adjust timings and vocal levels later.")
-    keep_backing = st.checkbox("Keep backing vocals", value=True, key=f"keep_backing_{project.id}",
-        help="Turn this off for stronger removal if lead singing leaked into the backing track. This also removes harmonies in the removal regions.")
+    backing_level = st.slider('Backing vocals (%)', 0, 100, round(project.vocal_mix.backing_value * 100),
+        key=f'build_backing_{project.id}', help='0 mutes backing vocals; 100 keeps the saved backing track. Adjust it later with the song sliders.')
     st.button("Build karaoke and continue", type="primary", key="approve_timing_build",
               disabled=st.session_state.get('project_readonly', False),
-              on_click=_approve_timing_build, args=(project, root, keep_backing))
+              on_click=_approve_timing_build, args=(project, root, backing_level / 100))
 
 
-def _approve_timing_build(project, root, keep_backing):
+def _approve_timing_build(project, root, backing_level):
     from heartbeam import timing_review as review
     try:
         with st.spinner("Building karaoke from the saved tracks…"):
-            ui.history(project).execute(project, lambda p: review.approve_and_build(p, root, keep_backing=keep_backing, allow_incomplete=True))
+            ui.history(project).execute(project, lambda p: review.approve_and_build(p, root,
+                keep_backing=backing_level > 0, allow_incomplete=True, separate_tracks=True, backing_level=backing_level))
             prj.save_project(project, root, bump=False)
         _mark_saved(project)
         st.session_state.workflow_step = "video"
@@ -915,9 +919,14 @@ def _approve_timing_build(project, root, keep_backing):
 
 def _editor_exports(project, root, karaoke_path):
     from heartbeam.project_video_ui import render_controls
+    from heartbeam.vocal_mix import configured
     render_controls(project, root, karaoke_path)
     with st.expander("Audio and timing downloads"):
-        st.download_button("Download karaoke.mp3", karaoke_path.read_bytes(), "karaoke.mp3", mime="audio/mpeg")
+        if configured(project):
+            st.caption("Prepare an MP3 and WAV with your current lead, backing and section levels. Video exports use those levels automatically.")
+            if st.button("Prepare current audio download"):
+                ui.prepare_final_mix(project, root)
+        st.download_button("Download initial karaoke build.mp3", karaoke_path.read_bytes(), "karaoke-initial.mp3", mime="audio/mpeg")
         if project.imported_timings_path:
             from heartbeam.project_preview import current_timings
             from heartbeam.render import _audio_duration

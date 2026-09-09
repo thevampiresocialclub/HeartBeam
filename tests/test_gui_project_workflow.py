@@ -142,7 +142,8 @@ def test_missing_first_word_can_select_repeat_and_continue_to_removal(tmp_path,m
     assert not at.button(key='approve_timing_build').disabled
     at.button(key='approve_timing_build').click().run()
     assert not at.exception and at.session_state['workflow_step']=='video'
-    saved=P.load_project(root);assert R.approved(saved) and saved.unresolved_words()
+    saved=P.load_project(root);assert R.approved(saved) and saved.effective_timing(line.words[0].id).estimated
+    assert not saved.raw_timing(line.words[0].id).resolved
     assert not any(saved.reviewed.values())
 
 
@@ -565,7 +566,7 @@ def test_editing_project_lyrics_preserves_timing(tmp_path):
     assert edited.effective_timing(first_id).start_ms == before_start
 
 
-def test_adding_a_word_is_reported_as_needing_timing(tmp_path):
+def test_adding_a_word_gets_labelled_estimated_timing(tmp_path):
     project_dir = _existing_song_project(tmp_path)
     at = _fresh_app()
     at.text_input(key="open_project_path").set_value(str(project_dir))
@@ -577,9 +578,9 @@ def test_adding_a_word_is_reported_as_needing_timing(tmp_path):
     assert not at.exception
 
     edited = at.session_state["project"]
-    unresolved = {w.text for _, w, _ in edited.unresolved_words()}
-    assert unresolved == {"right"}
-    assert any("Needs timing" in e.label for e in at.expander)
+    estimated = {edited.find_word(wid).text for wid in edited.estimated_word_ids()}
+    assert estimated == {"right"}
+    assert any('estimated timing' in c.value for c in at.caption)
 
 
 def test_undo_restores_the_previous_lyrics(tmp_path):

@@ -29,6 +29,14 @@
 }
 
 .hb-time { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.hb-track-mixer { display: grid; gap: 5px; margin: 10px 0; }
+.hb-track-mixer[hidden] { display: none; }
+.hb-track-mixer > div { display: flex; align-items: center; gap: 10px; }
+.hb-track-mixer > div > label:first-child { display: flex; align-items: center; gap: 10px; flex: 1; }
+.hb-track-mixer input[type="range"] { flex: 1; min-width: 70px; }
+.hb-track-number input { width: 52px; font: inherit; }
+.hb-track-mixer small { opacity: .8; max-width: 72ch; }
+.hb-word.estimated-timing { text-decoration: underline dotted; text-underline-offset: 3px; }
 .hb-sel { opacity: 0.85; }
 
 .hb-speed, .hb-zoomwrap { display: flex; align-items: center; gap: 6px; opacity: 0.85; }

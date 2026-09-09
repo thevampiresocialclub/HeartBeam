@@ -104,15 +104,15 @@ def apply_result(project, result, *, only_unresolved=False):
         automatic_window = not old_times or (line.display_start_ms == min(t.start_ms for t in old_times)
                             and line.display_end_ms == max(t.end_ms for t in old_times))
         for (wid, _), source in zip(targets, phrase['words']):
-            current, manual = project.effective_timing(wid), project.timing_edits.get(wid)
-            if (manual and manual.resolved) or (only_unresolved and current and current.resolved):
+            current, manual = project.raw_timing(wid), project.timing_edits.get(wid)
+            if (manual and manual.resolved and not manual.estimated) or (only_unresolved and current and current.resolved and not current.estimated):
                 skipped += 1
                 continue
             project.alignment_proposals[wid] = P.WordTiming(
                 P.seconds_to_ms(source['start_s']) if source['start_s'] is not None else None,
                 P.seconds_to_ms(source['end_s']) if source['end_s'] is not None else None,
                 source['score'], source['reason'])
-            if manual and not manual.resolved:
+            if manual and (not manual.resolved or manual.estimated):
                 project.timing_edits.pop(wid)
             project.reviewed.pop(wid, None)
             filled += source['start_s'] is not None
@@ -140,7 +140,7 @@ def review_lines(project):
             t = project.effective_timing(word.id)
             words.append(dict(start_s=t.start_ms/1000 if t and t.resolved else None,
                               end_s=t.end_ms/1000 if t and t.resolved else None,
-                              score=1. if project.reviewed.get(word.id) or word.id in project.timing_edits else
+                              score=1. if project.reviewed.get(word.id) or (word.id in project.timing_edits and t and t.resolved and not t.estimated) else
                               t.score if t and t.score is not None else 0.))
         issues = word_review(words)
         phrase = project.alignment.get('phrases', {}).get(line.id, {})
@@ -155,7 +155,7 @@ def review_lines(project):
 
 
 def phrase_window(project, line, duration_ms):
-    """A current phrase anchor can support plain draft text, never fake words."""
+    """A current phrase anchor supports draft display and labelled estimates."""
     entry = project.alignment.get('phrases', {}).get(line.id, {})
     if entry.get('word_ids') != [w.id for w in line.words if not w.non_sung]:
         return None
