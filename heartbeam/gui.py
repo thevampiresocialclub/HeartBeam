@@ -931,7 +931,7 @@ def _editor_exports(project, root, karaoke_path):
             from heartbeam.project_preview import current_timings
             from heartbeam.render import _audio_duration
             try:
-                current = current_timings(project, round(_audio_duration(karaoke_path) * 1000))
+                current = current_timings(project, round(_audio_duration(karaoke_path) * 1000), allow_timing_issues=True)
                 st.download_button("Download timings.json", json.dumps(current.to_dict(), ensure_ascii=False, indent=2), "timings.json", mime="application/json")
             except prj.ProjectError as exc:
                 st.caption(str(exc))

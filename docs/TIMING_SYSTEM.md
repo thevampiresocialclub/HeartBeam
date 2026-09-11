@@ -39,8 +39,11 @@ The 2–4 visible lyric rows and visual wrapping are independent of sung phrase
 boundaries. Missing words now highlight using labelled estimates where neighbors
 or a valid phrase anchor provide bounds. The Timing tab can disable estimates.
 They are not acoustic matches and are not automatically marked reviewed.
-Final video export accepts estimates with a warning; it still requires no
-remaining unanchored words, corrected known-word conflicts and current approval.
+Video export accepts estimates, missing words, overlaps and stale timing approval
+with warnings. It renders current preview timing with the saved audio mix.
+Words without timing stay plain inside a usable lyric/display window. Entirely
+unanchored lines are omitted and identified in warnings. No word is automatically
+marked reviewed or rewritten just to make export succeed.
 
 ## Estimated highlights
 
@@ -105,9 +108,12 @@ The compatibility clean reference uses valid word intervals plus phrase windows
 for partially timed lines. The final new mix uses separated stems directly.
 Word edits, raw unresolved values and review flags remain
 unchanged. The approval flag and removal recipe persist this policy for rebuilds.
-`require_approved` still guards source/timing changes, and the default API policy
-remains strict for callers that do not opt in. Final video exports still use
-`current_timings(draft=False)`. Approval/build uses command history; a failed build cannot
+`require_approved` still guards source/timing changes for audio construction, and
+low-level timing/compiler APIs remain strict for callers that do not opt in.
+GUI export jobs default to `allow_timing_issues=True`, propagate it through
+preflight, timing JSON and final ASS encoding, and record it in the export manifest.
+Warnings appear while encoding and remain with the completed video. Font/glyph,
+audio and background validation are unaffected. Approval/build uses command history; a failed build cannot
 approve the live project. Audio is content addressed, and MP3 publication is
 atomic so failed encoding cannot poison a retry. Existing phrase-matched projects
 also need review; older imports without phrase metadata remain compatible.

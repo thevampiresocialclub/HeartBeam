@@ -28,6 +28,7 @@ class ExportJob:
     finished_at: float | None = None
     selection_ms: tuple[int, int] | None = None
     warnings: list[str] = field(default_factory=list)
+    allow_timing_issues: bool = True
     _cancel: threading.Event = field(default_factory=threading.Event, repr=False)
 
     def public(self):
@@ -89,8 +90,10 @@ def recover(root):
     return result
 
 
-def _trim_snapshot(project, start_ms, end_ms):
+def _trim_snapshot(project, start_ms, end_ms, *, allow_timing_issues=False):
     """Create a clip-relative project while retaining stable source IDs."""
+    from .project_preview import line_window
+    from .phrase_project import phrase_window
     result = copy.deepcopy(project)
     # Freeze estimates before trimming removes their surrounding anchors.
     for _, word in project.iter_words():
@@ -99,19 +102,24 @@ def _trim_snapshot(project, start_ms, end_ms):
             result.timing_edits[word.id] = copy.deepcopy(timing)
     keep_lines, keep_words = [], set()
     for line in result.lines:
+        window = line_window(project, line, float('inf')) if allow_timing_issues else None
+        keep_plain = bool(window and window[1] > start_ms and window[0] < end_ms)
         words = []
         for word in line.words:
             timing = result.effective_timing(word.id)
-            if word.non_sung or not timing or not timing.resolved:
+            if word.non_sung:
                 continue
-            if timing.end_ms > start_ms and timing.start_ms < end_ms:
+            if not timing or not timing.resolved:
+                if keep_plain:
+                    words.append(word); keep_words.add(word.id)
+            elif timing.end_ms > start_ms and timing.start_ms < end_ms:
                 words.append(word); keep_words.add(word.id)
         if words:
             line.words = words
             line.display_start_ms = max(0, (line.display_start_ms if line.display_start_ms is not None else start_ms) - start_ms)
             line.display_end_ms = min(end_ms, line.display_end_ms if line.display_end_ms is not None else end_ms) - start_ms
             keep_lines.append(line)
-    if not keep_lines:
+    if not keep_lines and not allow_timing_issues:
         raise P.ProjectError("The selected passage contains no timed lyrics.")
     result.lines = keep_lines
     keep_line_ids = {line.id for line in keep_lines}
@@ -128,6 +136,18 @@ def _trim_snapshot(project, start_ms, end_ms):
                 timing.start_ms = max(0, timing.start_ms - start_ms)
                 timing.end_ms = min(end_ms - start_ms, timing.end_ms - start_ms)
     result.presentation.line_overrides = {k: v for k, v in result.presentation.line_overrides.items() if k in keep_line_ids}
+    if allow_timing_issues:
+        phrases = result.alignment.get('phrases', {})
+        for line in result.lines:
+            entry = phrases.get(line.id)
+            source_line = project.find_line(line.id)
+            window = phrase_window(project, source_line, float('inf'))
+            if entry and window and window[1] > start_ms and window[0] < end_ms:
+                entry['word_ids'] = [w.id for w in line.words if not w.non_sung]
+                entry['anchor']['start_s'] = max(0, window[0] - start_ms) / 1000
+                entry['anchor']['end_s'] = min(end_ms - start_ms, window[1] - start_ms) / 1000
+            else:
+                phrases.pop(line.id, None)
     from .timing_review import approved, required, fingerprint
     if required(project) and approved(project):
         # Cropping an approved immutable snapshot is not a new user timing edit.
@@ -149,7 +169,7 @@ def _clip_audio(source, destination, start_ms, end_ms):
     sf.write(str(destination), data, rate, subtype="FLOAT")
 
 
-def preflight(project, root, karaoke, selection_ms=None):
+def preflight(project, root, karaoke, selection_ms=None, *, allow_timing_issues=True):
     """Fail before launching a costly job and return compiler warnings."""
     from .render import _audio_duration, _ffmpeg_path
     _ffmpeg_path()
@@ -169,22 +189,24 @@ def preflight(project, root, karaoke, selection_ms=None):
         start, end = selection_ms
         if not 0 <= start < end <= duration_ms or end - start > 60000:
             raise P.ProjectError("Choose a passage within the song, up to 60 seconds long.")
-        candidate = _trim_snapshot(project, start, end)
+        candidate = _trim_snapshot(project, start, end, allow_timing_issues=allow_timing_issues)
         compile_duration = end - start
-    compiled = S.compile_project(candidate, compile_duration, root)
+    compiled = S.compile_project(candidate, compile_duration, root, allow_timing_issues=allow_timing_issues)
+    if selection_ms and allow_timing_issues and not candidate.lines:
+        compiled['warnings'].append('The selected passage has no usable lyric window. It will render with the saved audio and background.')
     return duration_ms, compiled["warnings"]
 
 
-def start(project, root, karaoke, selection_ms=None):
+def start(project, root, karaoke, selection_ms=None, *, allow_timing_issues=True):
     snapshot, root = copy.deepcopy(project), Path(root).resolve()
-    _, warnings = preflight(snapshot, root, karaoke, selection_ms)
+    _, warnings = preflight(snapshot, root, karaoke, selection_ms, allow_timing_issues=allow_timing_issues)
     kind = "selection" if selection_ms else "full"
     with _lock:
         for old in _jobs.values():
             if old.project_id == snapshot.id and old.status in ("queued", "running"):
                 raise P.ProjectError("An export for this project is already running.")
         job = ExportJob(P.new_id("export"), snapshot.id, snapshot.revision, kind,
-                        selection_ms=selection_ms, warnings=warnings)
+                        selection_ms=selection_ms, warnings=warnings, allow_timing_issues=allow_timing_issues)
         _jobs[job.id] = job
         _save(root, job)
     thread = threading.Thread(target=_run, args=(job, snapshot, root, Path(karaoke)), daemon=True,
@@ -209,21 +231,23 @@ def _run(job, snapshot, root, karaoke):
             clipped = temporary / "selection-audio.wav"
             _clip_audio(audio, clipped, start_ms, end_ms)
             audio = clipped
-            render_snapshot = _trim_snapshot(snapshot, start_ms, end_ms)
+            render_snapshot = _trim_snapshot(snapshot, start_ms, end_ms, allow_timing_issues=job.allow_timing_issues)
         from .project_preview import current_timings
         from .render import _audio_duration
         from .timings import to_json
         duration = P.seconds_to_ms(_audio_duration(Path(audio)))
-        timings = current_timings(render_snapshot, duration)
+        timings = current_timings(render_snapshot, duration, allow_timing_issues=job.allow_timing_issues)
         _update(root, job, progress=.08, message="Encoding video from the frozen snapshot…")
         path = S.render_project(render_snapshot, root, audio, temporary,
+            allow_timing_issues=job.allow_timing_issues,
             progress=lambda fraction: _update(root, job, progress=.08 + .9 * fraction,
                                                message=f"Encoding video… {round(fraction * 100)}%"),
             cancel=job._cancel)
         to_json(timings, temporary / "timings.json")
         manifest = {"format": "heartbeam-export", "version": 1, "job_id": job.id,
                     "kind": job.kind, "source_revision": snapshot.revision,
-                    "selection_ms": job.selection_ms, "audio_sha256": P.file_sha256(audio),
+                    "selection_ms": job.selection_ms, "allow_timing_issues": job.allow_timing_issues,
+                    "audio_sha256": P.file_sha256(audio),
                     "asset_ids": [{"id": a.id, "sha256": a.sha256, "role": a.role} for a in snapshot.assets],
                     "warnings": job.warnings}
         (temporary / "export-manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")

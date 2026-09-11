@@ -73,12 +73,16 @@ the canvas aspect ratio; the UI offers 1280×720, 1920×1080 and 3840×2160.
 
 The compiler uses `effective_timing()` through shared timing validation.
 Display windows may extend beyond words; they do not alter audio or vocal
-regions. Final output rejects unresolved/conflicting/out-of-range timing and
-invalid display windows. Labelled estimates from surrounding words or a current
-phrase anchor participate in the same word/sweep highlighting path, including
-final export, with warnings. Raw model/manual timings are preserved. Disabling
-estimation leaves missing words plain in the draft. Fully
-unanchored text remains in the lyric editor but cannot be scheduled on screen.
+regions. GUI exports use `allow_timing_issues=True`: missing/conflicting/out-of-range
+timing, stale timing approval and invalid display windows produce warnings rather
+than blocking encoding. Labelled estimates use the shared word/sweep highlighting
+path. Raw model/manual timings are preserved. Untimed words stay plain in a known
+word/phrase window, or an authored display window. Fully unanchored lines are
+omitted with warnings. Invalid display windows fall back to available lyric timing.
+Font/glyph, background and audio-integrity validation stay strict. Low-level
+compiler/render APIs retain strict defaults for callers needing validation.
+Passage exports preserve plain words in intersecting lyric windows, shift phrase
+anchors to clip time, and freeze estimates before cropping away their neighbors.
 Absolute millisecond boundaries are rounded once to ASS centiseconds (10 ms).
 `\kt` sets each word's onset relative to its event; `\k` switches a word at onset
 and `\kf` sweeps during its duration. This keeps gaps, overlaps and continuing

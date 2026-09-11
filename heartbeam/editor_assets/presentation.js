@@ -73,7 +73,7 @@ class HBPresentation {
       this.ass.dispose(); this.ass = null; URL.revokeObjectURL(this.workerBlob);
     }
     this.fontKey = fonts;
-    const message = preview.draft || preview.conflicts ? 'Draft lyric preview: fix untimed words and timing conflicts before export.' : 'Rendered lyrics: same ASS and font files as export. Guides show an approximate text box.';
+    const message = preview.draft || preview.conflicts ? 'Timing warnings: export can continue with the estimates and lyric timing shown here.' : 'Rendered lyrics: same ASS and font files as export. Guides show an approximate text box.';
     if (!this.ass) {
       this.root.dataset.assReady = 'false';
       const absolute = path => new URL(path, location.href).href;

@@ -293,17 +293,18 @@ def as_legacy_style(spec):
     return style
 
 
-def compile_project(project, duration_ms, root=None, *, draft=False):
+def compile_project(project, duration_ms, root=None, *, draft=False, allow_timing_issues=False):
     """The sole presentation compiler for preview and project exports."""
     from .lyric_scene import compile_scene
-    return compile_scene(project, duration_ms, root, draft=draft)
+    return compile_scene(project, duration_ms, root, draft=draft, allow_timing_issues=allow_timing_issues)
 
 
-def render_project(project, root, audio, destination, *, progress=None, cancel=None):
+def render_project(project, root, audio, destination, *, progress=None, cancel=None, allow_timing_issues=False):
     """Render an immutable project snapshot with its exact ASS and font files."""
     from .render import render, _audio_duration
     destination = Path(destination)
-    compiled = compile_project(project, P.seconds_to_ms(_audio_duration(Path(audio))), root)
+    compiled = compile_project(project, P.seconds_to_ms(_audio_duration(Path(audio))), root,
+                               allow_timing_issues=allow_timing_issues)
     destination.mkdir(parents=True, exist_ok=True)
     font_dir = destination / "fonts"
     font_dir.mkdir(exist_ok=True)

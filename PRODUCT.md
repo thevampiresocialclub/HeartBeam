@@ -32,6 +32,10 @@ conflicts warn. New builds mix saved instrumental, lead and backing tracks, so
 missing lyric timing does not switch vocals back on. Lead and backing each have
 a 0–100% slider with 1% steps; lyric regions override the lead default only.
 Preview, current MP3/WAV downloads and video export share those settings.
+Video export warns about estimated, missing, overlapping and out-of-range timings
+and continues with the available preview timing. Remaining untimed words stay
+plain inside known lyric/display windows; wholly unanchored lines are omitted
+with warnings. Timing approval is not required to render the saved audio mix.
 Never present estimated timing as an acoustic match or automatic user approval. Lyric, timing,
 phrase-window or linked-source changes invalidate that build approval. The desktop editor is a workstation with
 playback, video and waveform on the left and independently scrolling lyric,

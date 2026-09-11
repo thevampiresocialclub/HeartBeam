@@ -88,7 +88,7 @@ def _timing_controls(project, duration):
     conflicts = E.timing_conflicts(project)
     if conflicts:
         with st.expander(f"Timing conflicts ({len(conflicts)})"):
-            st.caption("Imported timings were preserved. Correct overlapping or reversed words before export.")
+            st.caption("Imported timings were preserved. Timing problems show warnings and do not block video rendering.")
             for (a, b), amount in list(conflicts.items())[:30]:
                 st.write(f"{project.find_word(a).text} → {project.find_word(b).text}: {amount} ms overlap")
     if not word:

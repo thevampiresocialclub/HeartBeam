@@ -25,7 +25,7 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**Latest full Python run: 335 passed. Current JavaScript tests: 27 passed.** See
+**Latest full Python run: 341 passed. Current JavaScript tests: 27 passed.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -36,11 +36,16 @@ warns about missing word timing/conflicts without requiring individual approval;
 known phrase windows cover missing words during removal. See the final section
 for browser evidence and remaining limits.
 
-**Latest 8 September follow-up:** missing words receive labelled estimates from
+**8 September follow-up:** missing words receive labelled estimates from
 neighbors/phrase windows by default. New builds expose independent lead and
 backing gains above the preview, including 1–5% guide vocals. Current MP3/WAV and
 video exports share that mix; old projects can explicitly enable separate tracks.
 See the final section for current evidence; earlier descriptions are historical.
+
+**Latest 10 September follow-up:** video exports warn and continue for missing,
+estimated, conflicting or out-of-range word timing and stale timing approval.
+They follow the preview, keep plain text within usable lyric windows, and report
+unanchored lines that cannot appear. Audio/font/background validation remains.
 
 **P01 and P02 foundation:** A song can be generated, saved, closed, reopened
 and restyled without rerunning separation; lyrics can be pasted rather than
@@ -1369,3 +1374,51 @@ is audible. No new separation-quality or perceptual listening benchmark is claim
 The owner's 8505 server was restarted to load these modules, after confirming
 the current in-app session had no project open. Health endpoint returned `ok`.
 No owner project was saved, built or approved by the verification scripts.
+
+## Follow-up: timing warnings allow video export, 10 September 2026
+
+The owner reported that **Render video** stopped at “Fix 8 untimed word(s) and
+3 timing conflict(s) before export” and explicitly requested a warning instead.
+Derived estimates were already accepted, but remaining missing words, known-word
+conflicts and stale approval still stopped the shared strict compiler.
+
+Export jobs now default to `allow_timing_issues=True` and freeze that policy with
+the job. Preflight, final timing JSON and the final ASS renderer all use it;
+changing just preflight would still have failed during encoding. The UI shows
+warnings while encoding and keeps them with the completed video. The old preview
+and Timing-tab messages claiming export was blocked were corrected.
+
+Estimated and known timings highlight as in the preview. Other words remain
+plain within a known word/phrase window or an authored display window. Completely
+unanchored lines are omitted with warnings. Invalid display windows fall back to
+available lyric timing. Passage snapshots preserve plain words in intersecting
+windows, shift phrase anchors, and retain estimated timings before cropping.
+An audio-only passage with no usable lyric window can also render with a warning.
+Raw lyrics/timing/review state are not rewritten or marked approved by export.
+
+Low-level compiler/timing APIs keep their strict defaults; audio construction
+still requires its existing approval. Export callers can explicitly select
+strict timing checks with `allow_timing_issues=False`. Font glyph coverage,
+missing/changed audio or backgrounds and invalid clip bounds remain validated.
+
+Verified:
+
+- Full Python suite: **341 passed in 24.43 seconds**.
+- JavaScript suite: **27 passed**. `git diff --check` passed.
+- Six new timing-warning tests include the exact **8 missing / 3 conflict** case,
+  estimated highlights, current preview/ASS agreement, unchanged source project
+  and review flags, full and passage MP4 encoding, plain phrase-window shifts,
+  unanchored-line warnings, and retained font/audio checks.
+- Real in-app browser, existing server **http://localhost:8505/**: isolated
+  **Export warning proof** opened with eight untimed words and three conflicts.
+  Clicking **Render video** displayed those warnings, reached **100% / Video
+  ready**, and exposed **Download karaoke.mp4**. The final preview wording was
+  confirmed after Streamlit's **Rerun**, retaining the loaded test project.
+- Evidence: `C:/Users/young/Documents/Codex/2026-09-06/run/export-warning-proof/`
+  includes `exports/rev-1-full-export_5964f4cecd6c/karaoke.mp4`, the matching job
+  record, ASS, full project snapshot and warning manifests. The synthetic fixture
+  generator is `build_export_warning_fixture.py` in that workspace.
+
+The running server loaded the change through its source watcher. No restart,
+owner-project overwrite or new ML pass was needed. The test browser tab was
+closed after verification; the owner's tab remains open.

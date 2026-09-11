@@ -84,7 +84,7 @@ def test_cancel_running_job_keeps_previous_video(tmp_path, monkeypatch):
     previous = tmp_path / P.EXPORTS_DIR / "rev-1-full-old" / "karaoke.mp4"
     previous.parent.mkdir(parents=True); previous.write_bytes(b"old-good-video")
     entered = threading.Event()
-    def wait_for_cancel(project, root, audio, destination, *, progress, cancel):
+    def wait_for_cancel(project, root, audio, destination, *, progress, cancel, allow_timing_issues):
         Path(destination).mkdir(parents=True, exist_ok=True)
         entered.set()
         assert cancel.wait(5)

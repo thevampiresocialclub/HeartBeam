@@ -1,7 +1,7 @@
 # HeartBeam handoff
 
-**Updated:** 8 September 2026 by Codex, including labelled timing estimates,
-independent lead/backing levels, current-mix MP3 downloads and Firefox verification.
+**Updated:** 10 September 2026 by Codex, including warning-only video export for
+estimated, missing and conflicting timing. Independent lead/backing mixing remains.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
@@ -23,8 +23,11 @@ by default, opt-out in Timing, and do not replace acoustic/manual evidence.
 New GUI builds select independent instrumental/lead/backing mixing. Both vocal
 tracks have 0–100% controls in 1% steps; regions override only the lead default.
 See `docs/TIMING_SYSTEM.md` for algorithms, legacy compatibility and approval.
-Final video export accepts estimates but still rejects remaining unanchored words
-and known timing conflicts. Lyric/timing/source edits invalidate build approval.
+Video export now accepts estimates, missing words, overlaps and stale timing
+approval with warnings. It uses current preview timing and the saved audio mix.
+Untimed words stay plain in known lyric/display windows; wholly unanchored lines
+are omitted with warnings. Lyric/timing/source edits still invalidate audio-build
+approval, but do not force a rebuild just to render a video.
 The Frost Children stalled-prefix regression now retries near the recognized
 suffix instead of accepting a plausible score four seconds early. The backing
 stem also contains recognized lead phrases; timing alone cannot resolve that.

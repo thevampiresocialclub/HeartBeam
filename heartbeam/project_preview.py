@@ -6,13 +6,51 @@ from .project import ProjectError
 VENDOR = Path(__file__).parent / "editor_assets" / "vendor"
 
 
-def current_timings(project, duration_ms, *, draft=False):
+def timing_warnings(project, duration_ms):
+    """Export diagnostics; accepting them never edits or approves lyric data."""
+    from .editor import timing_conflicts
+    from .timing_review import approved
+    messages = []
+    missing, conflicts = len(project.unresolved_words()), len(timing_conflicts(project))
+    if missing:
+        messages.append(f'{missing} word(s) still have no timing. Export will continue: they stay plain within a usable lyric window; lines without a window are omitted.')
+    if conflicts:
+        messages.append(f'{conflicts} timing conflict(s). Export will continue with the current overlapping word timings.')
+    invalid = sum(1 for _, w in project.iter_words() if not w.non_sung
+                  for t in [project.effective_timing(w.id)] if t and t.resolved
+                  and not 0 <= t.start_ms < t.end_ms <= duration_ms)
+    if invalid:
+        messages.append(f'{invalid} word timing(s) fall outside the audio or have invalid duration. Those words will not highlight.')
+    if not approved(project):
+        messages.append('Current lyric timing has not been approved. Export will use the current lyrics and saved audio mix.')
+    return messages
+
+
+def line_window(project, line, duration_ms):
+    """Known words, phrase anchor, then an authored display window for plain text."""
+    from .phrase_project import phrase_window
+    times = [t for w in line.words if not w.non_sung
+             for t in [project.effective_timing(w.id)]
+             if t and t.resolved and 0 <= t.start_ms < t.end_ms <= duration_ms]
+    windows = [(t.start_ms, t.end_ms) for t in times]
+    phrase = phrase_window(project, line, duration_ms)
+    if phrase:
+        windows.append(phrase)
+    if windows:
+        return min(w[0] for w in windows), max(w[1] for w in windows)
+    start, end = line.display_start_ms, line.display_end_ms
+    if start is not None and end is not None and 0 <= start < end <= duration_ms:
+        return start, end
+    return None
+
+
+def current_timings(project, duration_ms, *, draft=False, allow_timing_issues=False):
     from .editor import timing_conflicts
     missing = project.unresolved_words()
     conflicts = timing_conflicts(project)
-    if not draft and (missing or conflicts):
+    if not (draft or allow_timing_issues) and (missing or conflicts):
         raise ProjectError(f"Fix {len(missing)} untimed word(s) and {len(conflicts)} timing conflict(s) before export.")
-    if not draft:
+    if not (draft or allow_timing_issues):
         from .timing_review import require_approved
         require_approved(project)
     lines = []
@@ -23,7 +61,7 @@ def current_timings(project, duration_ms, *, draft=False):
             if word.non_sung or not t or not t.resolved:
                 continue
             if not (0 <= t.start_ms < t.end_ms <= duration_ms):
-                if draft:
+                if draft or allow_timing_issues:
                     continue
                 raise ProjectError(f"‘{word.text}’ is outside the audio or has an invalid duration.")
             words.append(T.Word(word.text if word.display_text is None else word.display_text, t.start_ms / 1000,

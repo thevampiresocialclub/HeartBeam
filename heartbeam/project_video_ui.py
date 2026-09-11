@@ -31,6 +31,10 @@ def _active_status(project, root):
         st.session_state.pop(key, None)
         return False
     st.progress(job.progress, text=f"{job.message} Source revision {job.revision}.")
+    if job.warnings:
+        with st.expander(f'Export warnings ({len(job.warnings)})', expanded=True):
+            for warning in job.warnings:
+                st.warning(warning)
     if job.status in ("queued", "running"):
         c = st.columns(2)
         if c[0].button("Refresh export status", key=f"refresh_{job.id}"):
@@ -46,8 +50,6 @@ def _active_status(project, root):
         else:
             st.session_state[f"last_selection_video_{project.id}"] = record
         st.success(f"{'Passage' if job.kind == 'selection' else 'Full video'} rendered from revision {job.revision}.")
-        for warning in job.warnings:
-            st.warning(warning)
     elif job.status == "cancelled":
         st.info("Export cancelled. Your previous completed video was kept.")
     else:
@@ -59,6 +61,7 @@ def render_controls(project, root, karaoke):
     st.divider()
     st.subheader("Karaoke video")
     st.caption("Exports freeze the current revision, lyric appearance, timing, fonts, background and vocal levels. Editing can continue while the video renders.")
+    st.caption('Estimated highlights, untimed words and timing overlaps will show warnings and allow rendering. The video uses the timing available in the preview.')
     busy = _active_status(project, root)
     readonly = st.session_state.get("project_readonly", False)
     if not busy:

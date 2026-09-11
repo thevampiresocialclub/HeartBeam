@@ -48,16 +48,18 @@ def karaoke(words, timings, spec, start_ms):
     return ' '.join(parts)
 
 
-def compile_scene(project, duration_ms, root=None, *, draft=False):
-    from .project_preview import current_timings
-    from .phrase_project import phrase_window
-    current_timings(project, duration_ms, draft=draft)
+def compile_scene(project, duration_ms, root=None, *, draft=False, allow_timing_issues=False):
+    from .project_preview import current_timings, timing_warnings, line_window
+    current_timings(project, duration_ms, draft=draft, allow_timing_issues=allow_timing_issues)
+    lenient_timing = draft or allow_timing_issues
     width, height = project.presentation.design_width, project.presentation.design_height
     base = S.resolved_style(project)
     script_style = S.as_legacy_style(base); script_style.video.resolution = f'{width}x{height}'
     header = A._build_script_info(script_style)
     schedule = S.display_settings(project)
     styles, warnings, fonts, entries, events = [], [], set(), [], []
+    if allow_timing_issues:
+        warnings.extend(timing_warnings(project, duration_ms))
     for index, line in enumerate(project.lines):
         spec = S.resolved_style(project, line.id)
         face, family, messages = F.resolve_face(project, root, spec['font'])
@@ -78,19 +80,21 @@ def compile_scene(project, duration_ms, root=None, *, draft=False):
         if any(t.estimated for t in timings.values()):
             warnings.append(f'Line {index + 1}: some word highlights use estimated timing. Original and manual timings are preserved.')
         partial = len(timings) < sum(not w.non_sung for w in line.words)
-        phrase = phrase_window(project, line, duration_ms) if draft and partial else None
-        if not timings and not phrase:
+        window = line_window(project, line, duration_ms) if lenient_timing and partial else None
+        if not timings and not window:
+            if partial:
+                warnings.append(f'Line {index + 1} has no usable timing window and will not appear in the video.')
             continue
-        starts = [t.start_ms for t in timings.values()] + ([phrase[0]] if phrase else [])
-        ends = [t.end_ms for t in timings.values()] + ([phrase[1]] if phrase else [])
+        starts = [t.start_ms for t in timings.values()] + ([window[0]] if window else [])
+        ends = [t.end_ms for t in timings.values()] + ([window[1]] if window else [])
         first, last = min(starts), max(ends)
         start = max(0, first - schedule['advance_ms']) if schedule['automatic'] else line.display_start_ms
         end = min(duration_ms, last + schedule['hold_ms']) if schedule['automatic'] else line.display_end_ms
         start = first if start is None else start; end = last if end is None else end
         if not 0 <= start <= first < last <= end <= duration_ms:
-            if not draft:
+            if not lenient_timing:
                 raise P.ProjectError(f'Line {index + 1} has an invalid display window.')
-            warnings.append(f'Line {index + 1}: invalid display window; preview uses word timing.')
+            warnings.append(f'Line {index + 1}: invalid display window; using available lyric timing.')
             start, end = first, last
         if partial:
             warnings.append(f'Line {index + 1}: untimed words remain plain; words with timing still highlight.')

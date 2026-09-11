@@ -199,8 +199,9 @@ boundaries, and Space plays/pauses. Seeking outside a selected loop exits it.
 Play/Pause and the time display stay visible as you scroll through the monitor.
 
 Prepared projects reopen in timing review. Approved projects and older projects
-without phrase matching reopen in video editing. Changing reviewed lyrics or
-timing requires building again before exporting. The step buttons
+without phrase matching reopen in video editing. Video export uses current
+lyric timing and the saved audio mix, warning about timing issues without
+requiring another approval or audio build. The step buttons
 let you return to preparation without losing the loaded project. On narrow screens
 the panes stack to keep the controls usable.
 
@@ -385,7 +386,7 @@ Open a saved project to edit lyrics directly in the text box. The timing editor
 supports word/edge dragging, precise numeric times, word/line/song nudges,
 review flags, undo/redo, configurable selection loops, and a rendered lyric
 preview. Save keeps corrected timing and review state. Export uses those current
-timings; unresolved words or timing conflicts must be fixed first.
+timings. Missing words and timing conflicts show warnings and allow rendering.
 
 The **Playback preview** controls play or pause the shared song clock, restart at
 the beginning, and jump to the previous or next lyric display boundary. Use them
