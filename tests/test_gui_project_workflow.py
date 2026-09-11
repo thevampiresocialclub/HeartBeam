@@ -445,7 +445,8 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
     assert [e.value for e in at.error] == []
 
     # P06 renders outside Streamlit's request so the editor remains usable and
-    # cancellation can be processed. Poll exactly as the Refresh button does.
+    # cancellation can be processed. AppTest has no browser timer, so drive the
+    # page while the real browser uses the status fragment's automatic timer.
     import time
     until = time.time() + 20
     outputs = []
@@ -462,6 +463,16 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
          "-of", "csv=p=0", str(out)],
         capture_output=True, text=True, check=True).stdout.strip())
     assert 3.5 < duration < 5.0
+    at.run()
+    project = at.session_state["project"]
+    assert f"export_job_{project.id}" not in at.session_state
+    assert at.session_state[f"last_video_{project.id}"][1] == str(out)
+    assert next(b for b in at.button if b.label == "Render video").disabled is False
+    # A post-export edit still works and can be saved without regenerating audio.
+    at.session_state["project"].name = "After export"
+    at.button(key="save_project").click().run()
+    assert not at.exception
+    assert P.load_project(project_dir).name == "After export"
 
 
 def test_p05_appearance_preset_override_save_reopen(tmp_path, monkeypatch):

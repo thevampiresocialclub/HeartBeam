@@ -96,3 +96,54 @@ def test_cancel_running_job_keeps_previous_video(tmp_path, monkeypatch):
     assert done.status == "cancelled"
     assert previous.read_bytes() == b"old-good-video"
     assert not list((tmp_path / P.EXPORTS_DIR).glob(".job-*.tmp"))
+
+
+def test_status_save_retries_a_windows_file_lock(tmp_path, monkeypatch):
+    atomic_write = P._atomic_write
+    attempts = []
+    def briefly_locked(path, content):
+        attempts.append(path)
+        if len(attempts) < 3:
+            raise PermissionError("[WinError 5] Access is denied")
+        atomic_write(path, content)
+    monkeypatch.setattr(P, "_atomic_write", briefly_locked)
+    job = J.ExportJob("retry", "song", 1, "full")
+    J._save(tmp_path, job)
+    record = J.recover(tmp_path)[0]
+    assert len(attempts) == 3
+    assert record["id"] == job.id
+    assert "_last_saved_at" not in record
+
+
+@pytest.mark.media
+def test_progress_storage_failure_keeps_rendering_and_preserves_completed_video(tmp_path, monkeypatch):
+    audio = _audio(tmp_path / "audio.wav")
+    p = song(); S.apply_style(p, {"video": {"resolution": "320x180"}})
+    save = J._save
+    def unavailable_after_start(root, job):
+        if job.status != "queued":
+            raise PermissionError("[WinError 5] Access is denied")
+        save(root, job)
+    monkeypatch.setattr(J, "_save", unavailable_after_start)
+    done = _wait(J.start(p, tmp_path, audio).id)
+    assert done.status == "complete", done.error
+    assert done.progress == 1 and done.status_warning
+    output = Path(done.output_path)
+    assert output.is_file() and output.stat().st_size > 1000
+    assert (output.parent / "export-manifest.json").is_file()
+    assert not list((tmp_path / P.EXPORTS_DIR).glob(".job-*.tmp"))
+
+
+def test_failed_initial_job_save_does_not_leave_a_phantom_running_export(tmp_path, monkeypatch):
+    audio = _audio(tmp_path / "audio.wav")
+    p = song(); p.id = P.new_id("project")
+    save = J._save
+    def denied(*args):
+        raise PermissionError("Cannot create job record")
+    monkeypatch.setattr(J, "_save", denied)
+    with pytest.raises(PermissionError):
+        J.start(p, tmp_path, audio)
+    assert not any(job.project_id == p.id for job in J._jobs.values())
+    monkeypatch.setattr(J, "_save", save)
+    done = _wait(J.start(p, tmp_path, audio).id)
+    assert done.status == "complete", done.error

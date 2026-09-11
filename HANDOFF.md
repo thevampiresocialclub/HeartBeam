@@ -28,6 +28,11 @@ approval with warnings. It uses current preview timing and the saved audio mix.
 Untimed words stay plain in known lyric/display windows; wholly unanchored lines
 are omitted with warnings. Lyric/timing/source edits still invalidate audio-build
 approval, but do not force a rebuild just to render a video.
+Export status now updates automatically without rerunning the playback editor
+each second. Windows progress-file lock failures retry, then warn instead of
+aborting encoding; completed export folders remain recoverable even if status
+bookkeeping could not be persisted. See BUILD-STATUS.md for the post-export
+reproduction, full-song browser check and 344-test Python result.
 The Frost Children stalled-prefix regression now retries near the recognized
 suffix instead of accepting a plausible score four seconds early. The backing
 stem also contains recognized lead phrases; timing alone cannot resolve that.

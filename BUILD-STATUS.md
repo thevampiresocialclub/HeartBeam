@@ -25,7 +25,7 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**Latest full Python run: 341 passed. Current JavaScript tests: 27 passed.** See
+**Latest full Python run: 344 passed. Current JavaScript tests: 27 passed.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -1422,3 +1422,41 @@ Verified:
 The running server loaded the change through its source watcher. No restart,
 owner-project overwrite or new ML pass was needed. The test browser tab was
 closed after verification; the owner's tab remains open.
+
+## Follow-up: editor recovery after export, 10 September 2026
+
+The owner reported HeartBeam was broken after exporting. The server remained
+healthy and their latest full video (`export_4d18085f91cb`, Paloma Faith revision
+21) was complete. No owner-session crash traceback was found. In an isolated
+copy of revision 22, the old UI stayed at 2% even after the job failed at 96%:
+Windows denied replacement of its progress JSON. This demonstrates two defects;
+it does not establish every symptom in the owner's separate browser session.
+
+- Export status now polls in a one-second Streamlit fragment. Only progress and
+  cancellation rerender during encoding. Completion triggers one full refresh,
+  consumes the job, restores downloads and stops the polling fragment.
+- Progress saves retry brief Windows permission failures and avoid duplicate
+  writes from FFmpeg's two timestamp fields. Persistent progress-storage failures
+  report a warning and preserve encoding/completed output. Initial job creation
+  must still succeed; a rejected write no longer leaves a phantom active job.
+- Project manifests, audio preparation, timing policy and renderer input
+  snapshots are unchanged. Completed export folders remain recovery sources if
+  progress records could not be updated.
+
+Verification: **344 Python tests passed in 147.94 seconds**, including simulated
+Windows file locks, persistent status-storage failure through a real MP4 render,
+failed-start recovery, and saving edits after export. The focused export/editor
+run passed all 40 tests. No JavaScript changed; its previous 27-test result stands.
+`git diff --check` passed.
+
+Live browser verification on 8505 used
+`C:/Users/young/Documents/Codex/2026-09-06/run/post-export-review/` (a copy of the
+owner's project). The repaired full 3:50 song export completed automatically as
+`exports/rev-22-full-export_099e13e5e336/karaoke.mp4`. Playback and waveform position
+continued during rendering, an appearance edit advanced only the editing copy
+to revision 23, and waveform clicking sought playback after completion. The
+export retained revision 22 and the download remained available. No browser
+console errors were observed. A second render was cancelled in the browser;
+the status automatically changed to cancelled and kept the previous download.
+Firefox was not directly exercised in this turn.
+The server was not restarted; another user-started audio preparation was active.

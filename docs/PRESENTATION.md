@@ -157,6 +157,11 @@ font files, a copied background, warnings and effective `timings.json` (the GUI
 adapter writes timing JSON). P06's background jobs call this exact path from a
 deep-copied project revision. `export-manifest.json` records the source revision,
 audio hash, asset IDs/hashes, export kind and optional passage range.
+Progress updates automatically in an isolated UI fragment while playback and
+editing continue. Completion refreshes the download controls once. A temporary
+Windows lock on progress metadata is retried; persistent status-write failures
+warn without aborting the encoder or removing completed output. Initial job
+creation and actual media/output failures still report errors.
 
 ## Verification and limits
 

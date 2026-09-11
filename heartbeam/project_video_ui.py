@@ -5,6 +5,23 @@ import streamlit as st
 from . import export_jobs as J, project as P
 
 
+@st.fragment(run_every=1.0)
+def _running_status(job_id):
+    """Poll only the status panel, preserving the editor and its audio clock."""
+    job = J.get(job_id)
+    if job is None or job.status not in ("queued", "running"):
+        # The full page consumes completion once, restores download controls,
+        # and removes this fragment so its timer stops.
+        st.rerun()
+    st.progress(job.progress, text=f"{job.message} Source revision {job.revision}.")
+    st.caption("Progress updates automatically. You can keep editing while this renders.")
+    if job.status_warning:
+        st.warning(job.status_warning)
+    if st.button("Cancel export", key=f"cancel_{job.id}"):
+        J.cancel(job.id)
+        st.rerun(scope="fragment")
+
+
 def _show_video(record, project, *, selection=False):
     if not record:
         return
@@ -30,17 +47,18 @@ def _active_status(project, root):
         st.warning("This export belonged to an earlier app session. Its last saved status is available below.")
         st.session_state.pop(key, None)
         return False
-    st.progress(job.progress, text=f"{job.message} Source revision {job.revision}.")
+    running = job.status in ("queued", "running")
+    if running:
+        _running_status(job.id)
+    else:
+        st.progress(job.progress, text=f"{job.message} Source revision {job.revision}.")
+        if job.status_warning:
+            st.warning(job.status_warning)
     if job.warnings:
         with st.expander(f'Export warnings ({len(job.warnings)})', expanded=True):
             for warning in job.warnings:
                 st.warning(warning)
-    if job.status in ("queued", "running"):
-        c = st.columns(2)
-        if c[0].button("Refresh export status", key=f"refresh_{job.id}"):
-            st.rerun()
-        if c[1].button("Cancel export", key=f"cancel_{job.id}"):
-            J.cancel(job.id); st.rerun()
+    if running:
         return True
     st.session_state.pop(key, None)
     if job.status == "complete":

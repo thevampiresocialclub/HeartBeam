@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass, field, fields
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -29,15 +30,18 @@ class ExportJob:
     selection_ms: tuple[int, int] | None = None
     warnings: list[str] = field(default_factory=list)
     allow_timing_issues: bool = True
+    status_warning: str | None = None
     _cancel: threading.Event = field(default_factory=threading.Event, repr=False)
+    _last_saved_at: float = field(default=0.0, repr=False)
 
     def public(self):
         return {item.name: copy.deepcopy(getattr(self, item.name)) for item in fields(self)
-                if item.name != "_cancel"}
+                if not item.name.startswith("_")}
 
 
 _jobs: dict[str, ExportJob] = {}
 _lock = threading.Lock()
+_log = logging.getLogger(__name__)
 
 
 def _state_path(root, job_id):
@@ -46,14 +50,37 @@ def _state_path(root, job_id):
 
 def _save(root, job):
     path = _state_path(root, job.id)
-    P._atomic_write(path, json.dumps(job.public(), indent=2))
+    # Antivirus/indexing and external readers can briefly hold a Windows file
+    # without delete-sharing, even though our own reader uses _lock.
+    for attempt in range(5):
+        try:
+            P._atomic_write(path, json.dumps(job.public(), indent=2))
+            job._last_saved_at = time.monotonic()
+            return
+        except PermissionError:
+            if attempt == 4:
+                raise
+            time.sleep(.025 * 2 ** attempt)
 
 
 def _update(root, job, **values):
     with _lock:
         for key, value in values.items():
             setattr(job, key, value)
-        _save(root, job)
+        # FFmpeg reports the same timestamp as both out_time_us/out_time_ms.
+        # Keep live state current but avoid duplicate atomic disk replacements.
+        if "status" not in values and time.monotonic() - job._last_saved_at < .5:
+            return
+        previous_warning = job.status_warning
+        job.status_warning = None
+        try:
+            _save(root, job)
+        except OSError as exc:
+            # Progress bookkeeping must not kill the encoder or discard a good
+            # video. The immutable output/manifest remain the recovery source.
+            job.status_warning = "Progress could not be saved to disk. The live status below is current; completed videos are kept."
+            if not previous_warning:
+                _log.warning("Could not save export status for %s: %s", job.id, exc)
 
 
 def get(job_id):
@@ -208,7 +235,11 @@ def start(project, root, karaoke, selection_ms=None, *, allow_timing_issues=True
         job = ExportJob(P.new_id("export"), snapshot.id, snapshot.revision, kind,
                         selection_ms=selection_ms, warnings=warnings, allow_timing_issues=allow_timing_issues)
         _jobs[job.id] = job
-        _save(root, job)
+        try:
+            _save(root, job)
+        except OSError:
+            _jobs.pop(job.id, None)
+            raise
     thread = threading.Thread(target=_run, args=(job, snapshot, root, Path(karaoke)), daemon=True,
                               name=f"heartbeam-export-{job.id}")
     thread.start()
