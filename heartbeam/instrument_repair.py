@@ -41,20 +41,27 @@ def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
         raise P.ProjectError("Recovery tracks must be non-empty and finite.")
     if sample_rate <= 0 or not 0.0 <= strength <= 1.0:
         raise P.ProjectError("Recovery sample rate or strength is invalid.")
+    if (type(fft_size) is not int or fft_size < 2 or type(hop_size) is not int
+            or not 0 < hop_size <= fft_size // 2 or not 0 <= fade_ms <= 2000):
+        raise P.ProjectError("Recovery window, hop or fade is invalid.")
     n = len(arrays[0]); end_sample = n if end_sample is None else end_sample
     if not 0 <= start_sample < end_sample <= n:
         raise P.ProjectError("Recovery range is outside the audio.")
     if strength == 0:
         return arrays[0].copy(), arrays[1].copy(), arrays[2].copy(), {
-            "version": 1, "donor_rms": 0.0, "active_fraction": 0.0,
+            "version": 2, "donor_rms": 0.0, "active_fraction": 0.0,
+            "strength": 0.0, "alternate_model_count": len(alternate_values),
         }
 
     was_mono = arrays[0].ndim == 1
     work = [value[:, None] if value.ndim == 1 else value for value in arrays]
     music, lead_audio, backing_audio, *alternates = work
     donors_l, donors_b, active = [], [], []
-    nperseg = min(fft_size, n)
-    noverlap = max(0, nperseg - min(hop_size, nperseg))
+    nperseg = min(fft_size, max(2, n))
+    if n == 1:
+        work = [np.pad(value, ((0, 1), (0, 0))) for value in work]
+        music, lead_audio, backing_audio, *alternates = work
+    noverlap = nperseg - min(hop_size, max(1, nperseg // 2))
     for channel in range(music.shape[1]):
         spectra = []
         for value in (music, lead_audio, backing_audio, *alternates):
@@ -65,15 +72,22 @@ def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
         zi, zl, zb, *alternate_spectra = spectra
         zv = zl + zb
         ai, av = np.abs(zi), np.abs(zv)
+        donor_available = np.abs(zl) + np.abs(zb)
         masks = []
         for za in alternate_spectra:
             aa = np.abs(za)
             # Every alternate accompaniment must exceed the current one and
             # agree in phase with material actually recorded in removed stems.
-            excess = np.clip((aa - 1.15 * ai) / np.maximum(aa, 1e-8), 0.0, 1.0)
+            excess = np.maximum(aa - 1.15 * ai, 0.0)
             coherence = np.clip(np.real(za * np.conj(zv)) /
                                 np.maximum(aa * av, 1e-10), 0.0, 1.0)
-            candidate = np.clip(excess * coherence ** 2, 0.0, .85)
+            # Bound the transferred amplitude by the actual alternate excess.
+            # Dividing by aa amplifies tiny shared model leaks: a 10% vocal
+            # residue could otherwise authorize moving 85% of the full vocal.
+            # Use the sum of donor magnitudes so cancellation between lead and
+            # backing cannot hide large transfers on independent faders.
+            candidate = np.clip(excess * coherence ** 2 /
+                                np.maximum(donor_available, 1e-8), 0.0, .85)
             alternate_floor = np.maximum(1e-6, np.max(aa, axis=0, keepdims=True) * 1e-3)
             candidate *= aa >= alternate_floor
             masks.append(candidate)
@@ -102,14 +116,14 @@ def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
     donor_l *= (support * strength)[:, None]
     donor_b *= (support * strength)[:, None]
     donor = donor_l + donor_b
-    repaired_i = music.astype(np.float64) + donor
-    repaired_l = lead_audio.astype(np.float64) - donor_l
-    repaired_b = backing_audio.astype(np.float64) - donor_b
+    repaired_i = music[:n].astype(np.float64) + donor
+    repaired_l = lead_audio[:n].astype(np.float64) - donor_l
+    repaired_b = backing_audio[:n].astype(np.float64) - donor_b
     result = [value.astype(np.float32) for value in (repaired_i, repaired_l, repaired_b)]
     if was_mono:
         result = [value[:, 0] for value in result]
     diagnostics = {
-        "version": 1,
+        "version": 2,
         "donor_rms": float(np.sqrt(np.mean(donor ** 2))),
         "lead_donor_rms": float(np.sqrt(np.mean(donor_l ** 2))),
         "backing_donor_rms": float(np.sqrt(np.mean(donor_b ** 2))),

@@ -236,6 +236,14 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
 
 ## Current continuation point
 
+**11 September test update:** read the latest Music Repair acceptance entry in
+BUILD-STATUS before extending R2. Testing disproved the earlier optimistic
+Paloma donor result: the old mask amplified small shared vocal leakage. Version
+2 bounds donor amplitude; benchmark version 4 calibrates legacy stems first.
+Two songs and a control have now run, but automatic recovery has not passed its
+quality gate. Keep it offline. The repair workflow has Chrome/Firefox and real
+decoded-export evidence, plus fixes for solo audition and persistent range drafts.
+
 The GUI has preparation, timing-review, video-editing, music-repair and export
 pages, with a save-folder transition after preparation. Pending projects reopen
 in review; built projects open in video editing. Export is reached through the

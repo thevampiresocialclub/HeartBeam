@@ -88,6 +88,30 @@ def test_new_session_starts_with_no_project():
     assert at.button(key="step_video").disabled
 
 
+def test_repair_range_survives_scan_revision_and_is_applied_to_requested_passage(tmp_path, monkeypatch):
+    from heartbeam import editor as ED, timing_review as T
+    from tests.test_timing_review import pending
+    root = tmp_path/'repair-draft'; root.mkdir()
+    project, *_ = pending(root)
+    T.approve_and_build(project, root, allow_incomplete=True, separate_tracks=True)
+    P.save_project(project, root)
+    monkeypatch.setattr(ED, 'timeline_component', lambda: lambda **kw: None)
+    at = _fresh_app()
+    at.text_input(key='open_project_path').set_value(str(root))
+    at.button(key='open_project_btn').click().run()
+    at.button(key='step_repair').click().run()
+    next(w for w in at.number_input if w.label=='Start (ms)').set_value(100)
+    next(w for w in at.number_input if w.label=='End (ms)').set_value(800)
+    at.button(key=f'scan_music_{project.id}').click().run()
+    assert not at.exception
+    assert next(w for w in at.number_input if w.label=='Start (ms)').value == 100
+    assert next(w for w in at.number_input if w.label=='End (ms)').value == 800
+    next(b for b in at.button if b.label=='Apply repair').click().run()
+    assert not at.exception
+    repair = at.session_state['project'].music_repair.repairs[0]
+    assert (repair.start_ms, repair.end_ms) == (100, 800)
+
+
 def test_prepared_song_requires_review_and_explicit_build_before_video(tmp_path,monkeypatch):
     from heartbeam import editor as ED, timing_review as R
     from tests.test_timing_review import pending

@@ -96,9 +96,19 @@ def source_files(project: P.Project, project_dir: Path,
         path = (asset.resolve(project_dir) if asset else
                 karaoke_path if source_id == "karaoke" else None)
         available = path is not None and path.is_file()
+        reason = ""
+        if available and source_id == "instrumental":
+            from .instrument_repair import effective_instrumental
+            from .vocal_mix import _file_info
+            try:
+                stat = path.stat()
+                sr = _file_info(str(path), stat.st_size, stat.st_mtime_ns)[0]
+                path = effective_instrumental(project, project_dir, path, sr)
+            except (P.ProjectError, OSError, ValueError) as exc:
+                available, reason = False, str(exc)
         result.append({"id": source_id, "label": label, "path": path,
                        "available": available,
-                       "reason": "" if available else (
+                       "reason": "" if available else reason or (
                            "File is missing; relink it in the project sidebar." if asset else
                            "No saved track; link the audio cache from a generation run.")})
     return result

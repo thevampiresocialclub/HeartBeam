@@ -102,3 +102,43 @@ def test_recorded_reallocation_recovers_supported_leak_and_conserves_stem_sum():
         start_sample=sr // 2, end_sample=sr * 5 // 2, fade_ms=50)
     assert conservative[3]["alternate_model_count"] == 2
     assert conservative[3]["donor_rms"] < diagnostics["donor_rms"] * .05
+
+
+@pytest.mark.parametrize('leak', [.01, .1, .5])
+def test_shared_model_vocal_leak_cannot_authorize_a_larger_transfer(leak):
+    sr = 16000
+    t = np.arange(sr * 3) / sr
+    music = .1 * np.sin(2 * np.pi * 220 * t)
+    vocal = .08 * np.sin(2 * np.pi * 713 * t)
+    alternate = music + leak * vocal
+    fixed, _, _, _ = R.recorded_reallocation(
+        music, vocal, np.zeros_like(vocal), [alternate, alternate], sr,
+        start_sample=sr // 2, end_sample=sr * 5 // 2)
+    center = slice(sr, sr * 2)
+    returned = abs(np.vdot((fixed - music)[center], vocal[center]) /
+                   np.vdot(vocal[center], vocal[center]))
+    assert returned <= leak * 1.01
+
+
+def test_solo_instrumental_follows_apply_and_undo(tmp_path):
+    from heartbeam import editor_media as EM
+    p = _project(tmp_path)
+    p.vocal_mix.restoration_mode = M.MODE
+    raw = p.asset_by_role('instrumental_stem').resolve(tmp_path)
+    before = P.file_sha256(raw)
+    p.music_repair.repairs.append(R.create_level_repair(p, tmp_path, 500, 1500, gain_db=3))
+    solo = lambda: next(s for s in EM.source_files(p, tmp_path, raw) if s['id'] == 'instrumental')
+    assert solo()['path'] == M.checked(p, tmp_path)[0]['instrumental_stem'] != raw
+    p.music_repair.repairs[0].status = 'disabled'
+    assert solo()['path'] == raw and P.file_sha256(raw) == before
+
+
+def test_legacy_mix_cannot_silently_ignore_an_applied_repair(tmp_path):
+    from heartbeam import repair_ui as UI
+    p = _project(tmp_path)
+    with pytest.raises(P.ProjectError, match='separate lead and backing'):
+        UI._add_repair(p, tmp_path, 500, 1500, 3, 120)
+    assert not p.music_repair.repairs
+    p.music_repair.repairs.append(R.create_level_repair(p, tmp_path, 500, 1500, gain_db=3))
+    with pytest.raises(P.ProjectError, match='separate lead and backing'):
+        V.checked_references(p, tmp_path)

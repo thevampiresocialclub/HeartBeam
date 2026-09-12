@@ -189,6 +189,8 @@ def checked_references(project, root):
     if project.vocal_mix.restoration_mode == 'separated_stems':
         from .stem_mix import checked
         return checked(project, root)
+    if any(item.status == 'applied' for item in project.music_repair.repairs):
+        raise P.ProjectError('Applied instrumental repairs need separate lead and backing tracks. Enable them in Vocal mix or undo the repairs.')
     refs = project.vocal_mix.references
     if not refs or not refs.get("source_sha256"):
         raise P.ProjectError("Vocal mixing needs calibrated clean and original audio. Link this song's audio cache or prepare references from its saved stems; the normalized karaoke MP3 cannot be used as the clean reference.")

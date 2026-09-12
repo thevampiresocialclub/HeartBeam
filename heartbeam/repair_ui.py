@@ -47,6 +47,8 @@ def _set_status(project, suggestion_id, status):
 
 
 def _add_repair(project, root, start_ms, end_ms, gain_db, fade_ms, suggestion_id=None):
+    if project.vocal_mix.restoration_mode != "separated_stems":
+        raise P.ProjectError("Enable separate lead and backing tracks in Vocal mix before applying an instrumental repair.")
     item = R.create_level_repair(project, root, start_ms, end_ms,
                                  gain_db=gain_db, fade_ms=fade_ms)
     project.music_repair.repairs.append(item)
@@ -67,6 +69,12 @@ def _audition(project, start_ms, end_ms):
     st.session_state[f"phrase_audition_{project.id}"] = {
         "id": P.new_id("listen"), "start_ms": start_ms, "end_ms": end_ms,
     }
+
+
+def _remember_draft(draft_key, field, widget_key):
+    # Ordinary widget keys are cleared when an earlier command reruns before
+    # this part of the page mounts. A separate draft survives that cleanup.
+    st.session_state[draft_key][field] = st.session_state[widget_key]
 
 
 def controls(project, root, _karaoke):
@@ -112,15 +120,30 @@ def controls(project, root, _karaoke):
         st.info("Run the scan or enter a passage yourself. You can also continue without repairs.")
 
     chosen = st.session_state.get(f"repair_range_{project.id}", (0, 1000, None))
-    with st.form(f"manual_repair_{project.id}_{project.revision}"):
+    separate_tracks = project.vocal_mix.restoration_mode == "separated_stems"
+    if not separate_tracks:
+        st.info("To apply an instrumental repair, enable separate lead and backing tracks in Vocal mix. You can still scan or continue to export.")
+    # A Streamlit form batches its inputs until submission, so any playback or
+    # scan rerun discards the unfinished draft. Keep draft controls in session
+    # state immediately; only Apply writes a repair to the project.
+    seed = f"{project.id}_{chosen[0]}_{chosen[1]}_{chosen[2]}"
+    draft_key = f"repair_draft_{seed}"
+    draft = st.session_state.setdefault(draft_key, {
+        "start": int(chosen[0]), "end": int(chosen[1]), "lift": 2.0, "fade": 120})
+    def remember(field):
+        return dict(key=f"repair_{field}_{seed}", on_change=_remember_draft,
+                    args=(draft_key, field, f"repair_{field}_{seed}"))
+    with st.container():
         st.markdown("**Apply a local level repair**")
         cols = st.columns(2)
-        start_ms = cols[0].number_input("Start (ms)", min_value=0, value=int(chosen[0]), step=50)
-        end_ms = cols[1].number_input("End (ms)", min_value=1, value=int(chosen[1]), step=50)
+        start_ms = cols[0].number_input("Start (ms)", min_value=0, value=draft["start"], step=50, **remember("start"))
+        end_ms = cols[1].number_input("End (ms)", min_value=1, value=draft["end"], step=50, **remember("end"))
         cols = st.columns(2)
-        gain_db = cols[0].slider("Lift (dB)", 0.0, 6.0, 2.0, .5)
-        fade_ms = cols[1].number_input("Edge fade (ms)", 0, 1000, 120, 20)
-        if st.form_submit_button("Apply repair", disabled=not instrumental):
+        gain_db = cols[0].slider("Lift (dB)", 0.0, 6.0, draft["lift"], .5, **remember("lift"))
+        fade_ms = cols[1].number_input("Edge fade (ms)", 0, 1000, draft["fade"], 20, **remember("fade"))
+        st.caption("Press Enter after typing a number to confirm it.")
+        st.caption(f"Ready to apply: {start_ms / 1000:.2f}–{end_ms / 1000:.2f} sec · +{gain_db:g} dB · {fade_ms} ms fade")
+        if st.button("Apply repair", key=f"apply_repair_{project.id}", disabled=not instrumental or not separate_tracks):
             UI.change(project, lambda p: _add_repair(
                 p, root, int(start_ms), int(end_ms), float(gain_db), int(fade_ms), chosen[2]))
 

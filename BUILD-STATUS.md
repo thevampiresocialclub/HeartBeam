@@ -1525,3 +1525,66 @@ not evidence that the donor contains no vocal. Lossless comparison packs and
 model hashes live in `heartbeam-audio-research/r2-paloma-consensus-v2`, with a
 second candidate and a control beside it. R2 remains experimental pending
 listening and unrelated-song/ground-truth tests.
+
+## Follow-up: Music Repair acceptance and failed R2 quality gate, 11 September 2026
+
+The full Python suite passed **361 tests in 26.29 seconds** after six new
+regressions; the JavaScript suite passed **27 tests**. Additional direct signal
+checks exercised stereo, seven short input lengths, range boundaries, full-stem
+sum conservation, and lead/backing gains at 0%, 1%, 3%, 5%, 50% and 100%.
+
+Testing found and fixed these defects:
+
+- Solo **Instrumental** audition resolved the raw stem after a repair. It now
+  resolves the same repaired derivative as the live mix and export; Undo restores
+  the raw asset. A broken repair is displayed as unavailable, not silently bypassed.
+- An unfinished repair range could reset during a scan/playback rerun. Draft
+  controls now persist separately from Streamlit's disposable widget state.
+  Only Apply commits a project repair. The ready range is displayed explicitly.
+- A legacy clean/original mix could accept an instrumental repair and then ignore
+  it. Apply now requires separate tracks, and rendering rejects an incompatible
+  saved recipe rather than silently omitting its repairs.
+- The experimental recovery mask divided by the alternate model's magnitude.
+  A 10% shared vocal residue could therefore move approximately **85%** of the
+  original vocal into the instrumental. Version 2 bounds the transfer by the
+  alternate excess relative to the sum of donor magnitudes. The same controlled
+  case now transfers at most approximately 10%; this prevents amplification but
+  does not prove that shared vocal residue is safe to transfer.
+- Benchmark version 4 checks source hashes, rejects short alternate outputs,
+  calibrates the legacy partition in memory before comparison, and uses the
+  product's smooth instrumental-only +2 dB envelope as its level baseline.
+
+Chrome and installed **Firefox 155.0.1**, both headless on isolated port **8511**,
+passed: the separate stage and export gate, scan, apply while playing, synchronized
+waveform/ASS clocks, repaired solo playback, Undo, save/reopen, warning-only
+continuation, actual video rendering, and playback after export. Browser errors
+were empty. The played instrumental buffer measured `0.0226606574` amplitude for
+the expected `.018 * 10**(2/20)` repaired tone in both browsers.
+Firefox numeric typing was committed with **Enter**. Tab-only entry did not
+commit in that test; the page now instructs Enter and displays the accepted range.
+The first Firefox harness also required corrected selectors to distinguish the
+visible repair inputs from identically named hidden Timing-tab fields.
+
+Actual full and passage MP4 exports were decoded and measured. A +6 dB local
+repair multiplied the instrument by `1.9952623`, with lead/backing unchanged to
+about `1e-8` relative gain in the raw mix. Decoded AAC vocal/instrument ratios
+matched the expected mix within the test tolerance; WAV preview and export used
+the same repaired stem. Decoded durations include 32 ms of AAC frame padding.
+The original instrumental asset was unchanged.
+
+R2 **has not passed the quality gate**. Calibrated two-model experiments ran on
+two real songs and a control: Paloma at 182.550–183.200 s, Frost Children at
+97.450–97.950 s, and Paloma at 60.000–60.650 s. Recovered-only RMS relative to
+baseline was **-44.55 dB**, **-29.81 dB**, and **-42.05 dB**, respectively.
+The earlier strong Paloma donor result is superseded: it used the flawed mask
+and an uncalibrated legacy baseline. Current numbers do not establish a useful
+musical repair or absence of words/breaths. No perceptual listening verdict is
+claimed. A controlled legitimate instrumental rest with continuing vocals also
+triggered the energy detector, proving why flags must remain optional hints.
+
+Evidence lives under `C:/Users/young/Documents/Codex/2026-09-06/run/`:
+`repair-validation-acceptance/` (Chrome, signal and decoded exports),
+`repair-validation-firefox-final/firefox-enter/` (Firefox), and
+`repair-validation-20260911/` (before/after and calibrated real-song packs).
+Reproducers and the detailed report are in `heartbeam-audio-research/`.
+No owner project or model weights were changed by these experiments.

@@ -39,12 +39,12 @@ def _alternate(excerpt: np.ndarray, sr: int, model: str) -> tuple[np.ndarray, di
         instrumental, _ = load_audio(classified["instrumental"], sr=sr, mono=False)
         vocals, _ = load_audio(classified["vocals"], sr=sr, mono=False)
         n = min(len(excerpt), len(instrumental), len(vocals))
+        if n != len(excerpt):
+            raise RuntimeError("Alternate separator returned incomplete audio; no candidate was produced.")
         calibrated, report = C.calibrate_partition(
             excerpt[:n], {"instrumental": instrumental[:n], "vocals": vocals[:n]})
         result = np.zeros_like(excerpt)
         result[:n] = calibrated["instrumental"]
-        if n < len(result):
-            result[n:] = excerpt[n:]
         model_path = separator_dir() / model
         return result, {
             "model": model,
@@ -80,6 +80,8 @@ def main(argv=None):
         asset = project.asset_by_role(role)
         if not asset or not asset.resolve(args.project).is_file():
             raise P.ProjectError(f"project is missing {role}")
+        if P.file_sha256(asset.resolve(args.project)) != asset.sha256:
+            raise P.ProjectError(f"project audio changed: {role}")
         value, rate = sf.read(asset.resolve(args.project), dtype="float32", always_2d=True)
         if sr is not None and (rate != sr or value.shape != roles["original_audio"].shape):
             raise P.ProjectError("project audio does not share one sample basis")
@@ -96,6 +98,14 @@ def main(argv=None):
     pad = round(args.context_ms * sr / 1000)
     excerpt_start, excerpt_end = max(0, focus_start - pad), min(song_samples, focus_end + pad)
     excerpt = {key: value[excerpt_start:excerpt_end] for key, value in roles.items()}
+    # Legacy projects can predate common-gain calibration. Normalize their
+    # complete partition in memory before comparing it with alternate models.
+    calibrated, baseline_calibration = C.calibrate_partition(
+        excerpt["original_audio"],
+        {role: excerpt[role] for role in ("instrumental_stem", "lead_stem", "backing_stem")})
+    if baseline_calibration.corrected_error_db > -20:
+        raise P.ProjectError("Saved stems do not reconstruct the source closely enough for a calibrated recovery comparison.")
+    excerpt.update(calibrated)
     models = args.model or ["model_bs_roformer_ep_317_sdr_12.9755.ckpt"]
     alternates, model_info = [], []
     for model in models:
@@ -111,7 +121,16 @@ def main(argv=None):
     baseline = (excerpt["instrumental_stem"] + excerpt["lead_stem"] * envelope
                 + excerpt["backing_stem"] * project.vocal_mix.backing_value).astype(np.float32)
     repaired = (ri + rl * envelope + rb * project.vocal_mix.backing_value).astype(np.float32)
-    local = baseline.copy(); local[local_start:local_end] *= 10 ** (2 / 20)
+    # Compare the same smooth instrumental-only lift offered in the product.
+    lift = P.InstrumentRepair(
+        id="benchmark-lift", source_asset_id="benchmark", source_sha256="benchmark",
+        sample_rate=sr, channels=excerpt["instrumental_stem"].shape[1],
+        sample_count=len(baseline), start_ms=round(local_start * 1000 / sr),
+        end_ms=round(local_end * 1000 / sr), start_sample=local_start,
+        end_sample=local_end, gain_db=2.0, fade_ms=120)
+    local_music = R.apply_repairs(excerpt["instrumental_stem"], [lift], sr)
+    local = (local_music + excerpt["lead_stem"] * envelope
+             + excerpt["backing_stem"] * project.vocal_mix.backing_value).astype(np.float32)
     context = np.ones(len(baseline), dtype=bool); context[local_start:local_end] = False
     repaired, repaired_gain = _comparison_match(baseline, repaired, context)
     matched_alternates = [_comparison_match(baseline, value, context) for value in alternates]
@@ -134,11 +153,12 @@ def main(argv=None):
     original_sum = excerpt["instrumental_stem"] + excerpt["lead_stem"] + excerpt["backing_stem"]
     repaired_sum = ri + rl + rb
     manifest = {
-        "format": "heartbeam-instrument-repair-benchmark", "version": 2,
+        "format": "heartbeam-instrument-repair-benchmark", "version": 4,
         "project_id": project.id, "project_revision": project.revision,
         "source_sha256": project.asset_by_role("original_audio").sha256,
         "focus_ms": [start_ms, end_ms], "excerpt_ms": [round(excerpt_start * 1000 / sr), round(excerpt_end * 1000 / sr)],
         "models": model_info, "reallocation": diagnostics,
+        "baseline_calibration": baseline_calibration.to_dict(),
         "focus_metrics": {
             "baseline_rms": baseline_rms, "donor_rms": donor_rms,
             "donor_to_baseline_db": float(20 * np.log10(max(donor_rms / baseline_rms, 1e-12))) if baseline_rms else None,
