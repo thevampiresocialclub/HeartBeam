@@ -111,7 +111,15 @@ def test_prepared_song_requires_review_and_explicit_build_before_video(tmp_path,
     assert not at.exception
     assert at.session_state['workflow_step']=='video'
     assert R.approved(P.load_project(root))
+    assert not any(b.label=='Render video' for b in at.button)
+    assert at.button(key='step_export').disabled
+    at.button(key='step_repair').click().run()
+    assert at.session_state['workflow_step']=='repair'
+    assert not at.button(key='step_export').disabled
+    at.button(key=f'repair_to_export_{project.id}').click().run()
+    assert at.session_state['workflow_step']=='export'
     assert any(b.label=='Render video' for b in at.button)
+    at.button(key='step_review').click().run()
     for widget in at.text_input:
         assert widget.id in at.session_state, (widget.label, widget.id)
     p=at.session_state['project'];at.session_state['selected_word_id']=p.word_ids()[0]
@@ -199,7 +207,12 @@ def test_opening_a_project_resumes_the_song_without_a_run(tmp_path):
     first_word = project.lines[0].words[0]
     assert project.effective_timing(first_word.id).start_ms == 500
 
-    # And the video controls are reachable with no separation run.
+    # The song resumes in video editing, then passes through Music Repair before export.
+    assert at.session_state["workflow_step"] == "video"
+    assert at.button(key="step_export").disabled
+    at.button(key="step_repair").click().run()
+    assert "Music repair" in [s.value for s in at.subheader]
+    at.button(key=f"repair_to_export_{project.id}").click().run()
     assert "Karaoke video" in [s.value for s in at.subheader]
     assert any(b.label == "Render video" for b in at.button)
     assert at.session_state["out_dir"] is None
@@ -396,6 +409,9 @@ def test_import_existing_timings_and_audio_enters_editing(tmp_path):
     assert project is not None
     assert (dest / P.MANIFEST_NAME).exists()
     assert tj.exists(), "the user's original timings file must survive import"
+    assert at.session_state["workflow_step"] == "video"
+    at.button(key="step_repair").click().run()
+    at.button(key=f"repair_to_export_{project.id}").click().run()
     assert "Karaoke video" in [s.value for s in at.subheader]
 
 
@@ -439,6 +455,10 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
     at = _fresh_app()
     at.text_input(key="open_project_path").set_value(str(project_dir))
     at.button(key="open_project_btn").click().run()
+
+    project = at.session_state["project"]
+    at.button(key="step_repair").click().run()
+    at.button(key=f"repair_to_export_{project.id}").click().run()
 
     next(b for b in at.button if b.label == "Render video").click().run()
     assert not at.exception, at.exception

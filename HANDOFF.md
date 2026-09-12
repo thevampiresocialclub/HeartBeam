@@ -236,9 +236,11 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
 
 ## Current continuation point
 
-The GUI has preparation, timing-review and video-editing pages, with a save-folder
-transition after preparation. Pending projects reopen in review; built projects
-open in video editing. Individual word review does not block the build button.
+The GUI has preparation, timing-review, video-editing, music-repair and export
+pages, with a save-folder transition after preparation. Pending projects reopen
+in review; built projects open in video editing. Export is reached through the
+optional Music Repair review. Individual word or repair-suggestion review does
+not block the relevant continue button.
 The desktop monitor and inspector are separate scroll containers. The right-pane
 component hosts the existing live lyric/vocal DOM controls through
 `editor_assets/workstation.js`; it never creates another transport. Preserve
@@ -266,7 +268,15 @@ Deliberate limits: static TTF/OTF faces only; missing glyphs block final output;
 box/overflow guides are metric estimates, with libass providing actual text;
 no pixel identity claim across rasterizers/colour management. Browser video
 preview needs a supported codec. Media still occupies RAM, and undo history
-remains session-local. P07's controlled model sweep and listening work are next.
+remains session-local. P07 R0 and the first R1 product pass are implemented.
+`audio_calibration.py` puts new separator outputs on the decoded source basis;
+`audio_analysis.py` ranks local instrumental drops; `instrument_repair.py`
+applies only explicit, reversible level corrections; `repair_ui.py` owns the new
+step between video editing and export. Project schema 2 migrates schema 1 and
+keeps a pre-migration backup on first save. R2's controlled complementary-model
+and reallocation experiment is next. A volume dip is a review clue, not evidence
+of what musical content belongs there; do not auto-apply suggestions or call
+local gain missing-instrument reconstruction.
 Restart after cross-module updates so Streamlit cannot retain old imports.
 The owner already explicitly authorized restarting without saving in this session;
 do not repeat that approval request. The latest update was tested on isolated

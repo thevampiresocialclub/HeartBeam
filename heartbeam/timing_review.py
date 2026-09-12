@@ -54,8 +54,9 @@ def approve_and_build(project, root, *, keep_backing=True, allow_incomplete=Fals
         clean_path = V.render_mix(project, root, mastered=False)
     import soundfile as sf
     samples,sr = sf.read(clean_path,dtype='float32',always_2d=True)
-    mastered = V.master(samples,sr, target_lufs=recipe.get('target_lufs', -16.),
-                        peak_db=recipe.get('peak_db', -1.))
+    policy = V.mastering_policy(project)
+    mastered = V.master(samples, sr, target_lufs=policy['target_lufs'],
+                        peak_db=policy['peak_db'])
     digest = hashlib.sha256(mastered.tobytes()).hexdigest()[:20]
     path = root/P.AUDIO_DIR/f'karaoke-approved-{digest}.mp3'
     if not path.exists():

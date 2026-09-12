@@ -24,6 +24,16 @@ def test_independent_tracks_preserve_instrumental_and_precise_low_lead_levels():
     np.testing.assert_allclose(M.mix_arrays(instrumental, lead, backing, mix, sr), instrumental + lead + backing, atol=6e-8)
 
 
+def test_saved_recipe_is_the_single_mastering_policy_and_changes_cache_identity():
+    p = P.Project(id='p', name='song')
+    assert V.mastering_policy(p) == {'version': 1, 'target_lufs': -16.0, 'peak_db': -1.0}
+    p.vocal_mix.references = {'recipe': {'target_lufs': -14.0, 'peak_db': -2.0}}
+    first = V.mix_key(p)
+    assert V.mastering_policy(p) == {'version': 1, 'target_lufs': -14.0, 'peak_db': -2.0}
+    p.vocal_mix.references['recipe']['target_lufs'] = -13.0
+    assert V.mix_key(p) != first
+
+
 def test_lead_regions_do_not_change_backing_track():
     mix = P.VocalMix(restoration_mode=M.MODE, default_value=.03, backing_value=.4,
                     regions=[P.VocalRegion('r', 200, 500, .8)])

@@ -362,7 +362,8 @@ def _alignment_tools(project, root, audio_duration_ms):
                     change(project, lambda p: lyrics.apply_alignment(p, incoming.lines, only_unresolved=only_missing))
 
 
-def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=None, timing_review=False):
+def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=None,
+           repair_controls=None, timing_review=False, repair_mode=False):
     h = history(project)
     sources = media.build_sources(project, root, karaoke_path)
     if timing_review:
@@ -377,19 +378,26 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
     monitor = left.container(key="hb_monitor")
     inspector = right.container(key="hb_inspector")
     with inspector:
-        st.subheader("Lyric controls")
+        st.subheader("Repair controls" if repair_mode else "Lyric controls")
         E.inspector_component()(data={"project_id": project.id}, key=f"hb_inspector_{project.id}")
+        appearance_tab = lyrics_tab = timing_tab = vocals_tab = export_tab = repair_tab = None
         if timing_review:
             timing_tab, lyrics_tab, appearance_tab, export_tab = st.tabs(
                 ["Timing", "Lyrics", "Appearance", "Build karaoke"],
                 default="Timing", key=f"editor_tabs_{project.id}_review")
+        elif repair_mode:
+            repair_tab, vocals_tab, timing_tab = st.tabs(
+                ["Repair music", "Vocal mix", "Timing"],
+                default="Repair music", key=f"editor_tabs_{project.id}_repair")
         else:
-            appearance_tab, lyrics_tab, timing_tab, vocals_tab, export_tab = st.tabs(
-                ["Appearance", "Lyrics", "Timing", "Vocals", "Export"],
+            appearance_tab, lyrics_tab, timing_tab, vocals_tab = st.tabs(
+                ["Appearance", "Lyrics", "Timing", "Vocals"],
                 key=f"editor_tabs_{project.id}_video")
-        with appearance_tab:
-            appearance_selection = presentation_ui.scope_controls(project)
-            presentation_ui.display_controls(project)
+        appearance_selection = None
+        if appearance_tab:
+            with appearance_tab:
+                appearance_selection = presentation_ui.scope_controls(project)
+                presentation_ui.display_controls(project)
     selection = st.session_state.get(f"vocal_template_{project.id}")
     payload = E.build_payload(project, sources, duration, st.session_state.get("selected_word_id"))
     try:
@@ -416,10 +424,11 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
         path = Path(final[1])
         sources.append({**available[0], "id": "final", "label": "Final mix (mastered)",
                          "key": str(path), "src": media.register_media(path, f"final/{project.id}")})
-        with export_tab:
-            st.download_button("Download final vocal mix.wav", path.read_bytes(), "vocal-mix.wav", mime="audio/wav")
-            if path.with_suffix('.mp3').is_file():
-                st.download_button("Download current karaoke.mp3", path.with_suffix('.mp3').read_bytes(), "karaoke.mp3", mime="audio/mpeg")
+        if export_tab:
+            with export_tab:
+                st.download_button("Download final vocal mix.wav", path.read_bytes(), "vocal-mix.wav", mime="audio/wav")
+                if path.with_suffix('.mp3').is_file():
+                    st.download_button("Download current karaoke.mp3", path.with_suffix('.mp3').read_bytes(), "karaoke.mp3", mime="audio/mpeg")
     with monitor:
         st.subheader("Lyric timing preview" if timing_review else "Video preview")
         if timing_review:
@@ -465,12 +474,14 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
         with inspector.expander(f"Preview notes ({len(preview['warnings'])})"):
             for warning in preview["warnings"]:
                 st.write(warning)
-    with lyrics_tab:
-        if lyrics_editor:
-            lyrics_editor(project, root)
-    with timing_tab:
-        _timing_controls(project, duration)
-        _alignment_tools(project, root, duration)
+    if lyrics_tab:
+        with lyrics_tab:
+            if lyrics_editor:
+                lyrics_editor(project, root)
+    if timing_tab:
+        with timing_tab:
+            _timing_controls(project, duration)
+            _alignment_tools(project, root, duration)
     if not timing_review:
         with vocals_tab:
             selection = _vocal_controls(project, root, duration)
@@ -479,8 +490,14 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
     st.session_state[f"vocal_template_{project.id}"] = selection
     if selection_changed or template_changed:
         st.rerun()
-    with appearance_tab:
-        presentation_ui.controls(project, root, appearance_selection)
-    with export_tab:
-        if export_controls:
-            export_controls(project, root, karaoke_path)
+    if appearance_tab:
+        with appearance_tab:
+            presentation_ui.controls(project, root, appearance_selection)
+    if repair_tab:
+        with repair_tab:
+            if repair_controls:
+                repair_controls(project, root, karaoke_path)
+    if export_tab:
+        with export_tab:
+            if export_controls:
+                export_controls(project, root, karaoke_path)

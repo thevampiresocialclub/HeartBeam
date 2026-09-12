@@ -20,6 +20,9 @@ def checked(project, root):
         if count <= 0 or (basis and basis != (sr, channels, count)):
             raise P.ProjectError('Separated tracks must have the same sample rate, channels and length.')
         basis = (sr, channels, count); paths[role] = path
+    from .instrument_repair import effective_instrumental
+    paths['instrumental_stem'] = effective_instrumental(
+        project, root, paths['instrumental_stem'], basis[0])
     return paths, basis
 
 

@@ -211,11 +211,29 @@ def separate(
         instrumental, _ = load_audio(classified_a["instrumental"], sr=sr, mono=False)
 
     n = min(len(instrumental), len(lead), len(backing), len(vocals))
+    # audio-separator may normalise its input before inference.  Fit one common
+    # factor against the decoded source so every saved stem remains on the same
+    # basis.  Applying one factor also preserves lead/backing balance.
+    original, _ = load_audio(audio_path, sr=sr, mono=False)
+    n = min(n, len(original))
+    from .audio_calibration import calibrate_partition
+    calibrated, calibration = calibrate_partition(
+        original[:n], {"instrumental": instrumental[:n], "vocals": vocals[:n]},
+    )
+    gain = calibration.gain
+    instrumental = calibrated["instrumental"]
+    vocals = calibrated["vocals"]
+    lead = (lead[:n] * gain).astype(np.float32)
+    backing = (backing[:n] * gain).astype(np.float32)
+    log.info("stem calibration: gain=%+.3f dB error %.2f -> %.2f dB (%s)",
+             calibration.gain_db, calibration.raw_error_db,
+             calibration.corrected_error_db, calibration.reason)
     return {
-        "instrumental": instrumental[:n],
-        "lead": lead[:n],
-        "backing": backing[:n],
-        "vocals": vocals[:n],
+        "instrumental": instrumental,
+        "lead": lead,
+        "backing": backing,
+        "vocals": vocals,
         "sr": sr,
         "preset": preset.name,
+        "calibration": calibration.to_dict(),
     }

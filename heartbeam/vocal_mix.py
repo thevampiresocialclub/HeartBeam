@@ -319,6 +319,19 @@ def rebuild_clean(project, root, recipe=None):
     return path
 
 
+MASTERING_VERSION = 1
+
+
+def mastering_policy(project):
+    """Return the one saved policy used by approved audio, preview and export."""
+    recipe = project.vocal_mix.references.get("recipe") or {}
+    return {
+        "version": MASTERING_VERSION,
+        "target_lufs": recipe.get("target_lufs", -16.0),
+        "peak_db": recipe.get("peak_db", -1.0),
+    }
+
+
 def master(samples, sr, *, target_lufs=-16., peak_db=-1.):
     """One final loudness/4x oversampled peak stage, after the whole mix."""
     import pyloudnorm as pyln
@@ -336,7 +349,11 @@ def master(samples, sr, *, target_lufs=-16., peak_db=-1.):
 
 
 def mix_key(project, *, mastered=True):
-    spec = {"references": project.vocal_mix.references, "mix": asdict(project.vocal_mix), "mastered": mastered}
+    spec = {"references": project.vocal_mix.references, "mix": asdict(project.vocal_mix),
+            "music_repairs": [asdict(item) for item in project.music_repair.repairs],
+            "mastered": mastered}
+    if mastered:
+        spec["mastering_policy"] = mastering_policy(project)
     if project.vocal_mix.restoration_mode == 'separated_stems':
         from .stem_mix import ROLES
         spec['stems'] = [(a.id, a.role, a.sha256) for a in project.assets if a.role in ROLES]
@@ -357,7 +374,9 @@ def render_mix(project, root, *, mastered=True):
             original = sf.read(str(paths["original_audio"]), dtype="float32", always_2d=True)[0]
             result = mix_arrays(clean, original, project.vocal_mix, sr)
         if mastered:
-            result = master(result, sr)
+            policy = mastering_policy(project)
+            result = master(result, sr, target_lufs=policy["target_lufs"],
+                            peak_db=policy["peak_db"])
         destination.parent.mkdir(parents=True, exist_ok=True)
         import os, tempfile
         fd, temporary = tempfile.mkstemp(dir=destination.parent, suffix=".wav")

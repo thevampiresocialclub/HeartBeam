@@ -19,13 +19,15 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | **P04 Section vocals** | **Complete; verification and limits below** |
 | **P05 Visual lyric placement and styling** | **Complete; verification and limits below** |
 | **P06 Preview and export** | **Complete; verification and limits below** |
-| P07 Quality/model work | Not started |
+| P07/R0 Reliable audio baseline | **Implemented; verification below** |
+| P07/R1 Find possible thinning | **First product pass implemented; listening validation remains** |
+| P07/R2 Recorded-instrument recovery | In progress |
 
 **P01 through P06 are implemented.** See the latest sections below for current verification; earlier sections are historical snapshots.
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**Latest full Python run: 344 passed. Current JavaScript tests: 27 passed.** See
+**Latest full Python run: 354 passed. Current JavaScript tests: 27 passed.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -1460,3 +1462,39 @@ console errors were observed. A second render was cancelled in the browser;
 the status automatically changed to cancelled and kept the previous download.
 Firefox was not directly exercised in this turn.
 The server was not restarted; another user-started audio preparation was active.
+
+## Follow-up: separate Music Repair stage and audio baseline, 11 September 2026
+
+HeartBeam now uses five explicit stages: **Prepare Audio → Review Timing → Edit
+Video → Repair Music → Export**. Video Editing no longer embeds export controls.
+Export becomes available from Music Repair, where the user can scan, review,
+skip, apply a bounded local level correction, undo it, or continue with a
+warning. Unreviewed suggestions do not change audio and do not block export.
+
+R0 records and applies one least-squares gain to the complete instrumental plus
+vocals partition after separation. The same factor is applied to nested lead and
+backing stems, preserving their balance. The calibration result is retained in
+cache provenance. One saved mastering policy now identifies and drives approved
+audio, final preview mixes and video export.
+
+R1's first CPU detector compares 200 ms instrumental energy with its local
+context while requiring the original recording to remain steadier. It rejects
+shared rests and ranks possible passages for listening; its score is not a
+damage probability. The existing Paloma review copy produced the same 11
+volume-only candidates as the prior research probe, headed by 182.55–183.20 s.
+That agreement proves reproducibility, not that all 11 passages are damaged.
+
+Accepted local-level repairs are stored on schema 2 with immutable source asset
+identity, hash, sample basis, millisecond and sample bounds, method, strength,
+fade and provenance. Schema-1 projects migrate on read; the first save preserves
+`project.schema-1.backup.json`. Applied repairs create a content-addressed
+lossless instrumental derivative. Browser preview and export resolve that same
+derivative through the shared stem mixer. Source changes and overlapping applied
+repairs fail clearly.
+
+Verification at this checkpoint: full Python suite **354 passed in 25.62
+seconds**; the focused follow-up suite passed **36 tests**. JavaScript transport
+suite **27 passed** and `git diff --check` passed. No
+listening test has yet shown that local gain restores a missing instrument. R2
+must compare complementary separator evidence and conservative reallocation;
+the UI labels gain repair accordingly and does not claim reconstruction.

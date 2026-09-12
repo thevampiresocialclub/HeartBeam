@@ -38,7 +38,7 @@ from typing import Any, Iterable
 
 #: Editor project format. Independent of timings.SCHEMA_VERSION -- a legacy
 #: timings.json is imported into a project, never read as one.
-PROJECT_SCHEMA_VERSION = 1
+PROJECT_SCHEMA_VERSION = 2
 
 MANIFEST_NAME = "project.json"
 AUTOSAVE_DIR = "autosave"
@@ -238,6 +238,50 @@ class ExportRecord:
 
 
 @dataclass
+class RepairSuggestion:
+    """A possible thin passage. Suggestions never alter audio by themselves."""
+    id: str
+    start_ms: int
+    end_ms: int
+    score: float
+    reason: str
+    status: str = "unreviewed"       # unreviewed | reviewed | skipped
+    metrics: dict[str, Any] = field(default_factory=dict)
+    source_revision: int = 0
+
+
+@dataclass
+class InstrumentRepair:
+    """One accepted, reversible repair on the immutable instrumental basis."""
+    id: str
+    source_asset_id: str
+    source_sha256: str
+    sample_rate: int
+    channels: int
+    sample_count: int
+    start_ms: int
+    end_ms: int
+    start_sample: int
+    end_sample: int
+    method: str = "local_level"
+    status: str = "applied"          # applied | disabled
+    gain_db: float = 0.0
+    strength: float = 1.0
+    fade_ms: int = 120
+    source_revision: int = 0
+    provenance: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class MusicRepair:
+    analysis_version: int = 1
+    source_asset_id: str | None = None
+    source_sha256: str | None = None
+    suggestions: list[RepairSuggestion] = field(default_factory=list)
+    repairs: list[InstrumentRepair] = field(default_factory=list)
+
+
+@dataclass
 class Project:
     """The authoritative manifest."""
     id: str
@@ -263,6 +307,7 @@ class Project:
     presentation: Presentation = field(default_factory=Presentation)
     vocal_mix: VocalMix = field(default_factory=VocalMix)
     provenance: Provenance = field(default_factory=Provenance)
+    music_repair: MusicRepair = field(default_factory=MusicRepair)
     exports: list[ExportRecord] = field(default_factory=list)
 
     #: Path to the untouched imported timing artifact, kept for comparison.
@@ -346,6 +391,7 @@ class Project:
             "presentation": asdict(self.presentation),
             "vocal_mix": asdict(self.vocal_mix),
             "provenance": asdict(self.provenance),
+            "music_repair": asdict(self.music_repair),
             "exports": [asdict(e) for e in self.exports],
             "imported_timings_path": self.imported_timings_path,
         }
@@ -353,7 +399,7 @@ class Project:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "Project":
         sv = int(d.get("project_schema_version", -1))
-        if sv != PROJECT_SCHEMA_VERSION:
+        if sv not in (1, PROJECT_SCHEMA_VERSION):
             raise ProjectError(
                 f"unsupported project_schema_version {sv} "
                 f"(this build reads {PROJECT_SCHEMA_VERSION})"
@@ -369,10 +415,11 @@ class Project:
             for ln in d.get("lines", [])
         ]
         vm = d.get("vocal_mix", {})
+        mr = d.get("music_repair", {})
         return cls(
             id=d["id"],
             name=d["name"],
-            schema_version=sv,
+            schema_version=PROJECT_SCHEMA_VERSION,
             revision=int(d.get("revision", 0)),
             created_at=float(d.get("created_at", time.time())),
             modified_at=float(d.get("modified_at", time.time())),
@@ -399,6 +446,13 @@ class Project:
                 backing_value=vm.get("backing_value", 1.0),
             ),
             provenance=Provenance(**d.get("provenance", {})),
+            music_repair=MusicRepair(
+                analysis_version=int(mr.get("analysis_version", 1)),
+                source_asset_id=mr.get("source_asset_id"),
+                source_sha256=mr.get("source_sha256"),
+                suggestions=[RepairSuggestion(**item) for item in mr.get("suggestions", [])],
+                repairs=[InstrumentRepair(**item) for item in mr.get("repairs", [])],
+            ),
             exports=[ExportRecord(**e) for e in d.get("exports", [])],
             imported_timings_path=d.get("imported_timings_path"),
         )
@@ -457,10 +511,16 @@ def _save_locked(project, root, *, bump):
     if bump:
         project.revision += 1
         project.modified_at = time.time()
+    loaded_schema = getattr(project, "_loaded_schema_version", PROJECT_SCHEMA_VERSION)
+    if loaded_schema == 1 and manifest.exists():
+        legacy = root / "project.schema-1.backup.json"
+        if not legacy.exists():
+            shutil.copy2(manifest, legacy)
     text = json.dumps(project.to_dict(), indent=2, ensure_ascii=False)
     manifest = root / MANIFEST_NAME
     _atomic_write(manifest, text)
     project._disk_hash = file_sha256(manifest)
+    project._loaded_schema_version = PROJECT_SCHEMA_VERSION
 
     autosave = root / AUTOSAVE_DIR
     autosave.mkdir(parents=True, exist_ok=True)
@@ -485,6 +545,7 @@ def load_project(project_dir: str | Path) -> Project:
     except json.JSONDecodeError as exc:
         raise ProjectError(f"{manifest} is not valid JSON: {exc}") from exc
     project = Project.from_dict(data)
+    project._loaded_schema_version = int(data.get("project_schema_version", -1))
     project._disk_hash = file_sha256(manifest)
     return project
 

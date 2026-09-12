@@ -337,7 +337,8 @@ def main(argv: list[str] | None = None) -> int:
         cache_mod.write_cache(args.out/'cache', dict(original=original, lead=lead, backing=backing,
             instrumental=instrumental, vocals=vocals, clean=original.copy()), sample_rate=sr,
             source_sha256=cache_mod.file_sha256(args.song), settings=recipe,
-            provenance=dict(separator_preset=args.separator,aligner=aligner_id,whisper_model=args.whisper_model),
+            provenance=dict(separator_preset=args.separator,aligner=aligner_id,whisper_model=args.whisper_model,
+                            stem_calibration=stems.get('calibration')),
             audio_format=args.cache_format)
         prepared = timings_mod.Timings(timings_mod.Source(str(args.song),str(args.lyrics),sr,n/sr),
                      timings_mod.Models(args.separator,aligner_id),ar.lines,alignment=ar.diagnostics)
@@ -431,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
                     "separator_preset": args.separator,
                     "aligner": aligner_id,
                     "whisper_model": args.whisper_model,
+                    "stem_calibration": stems.get("calibration"),
                 },
                 audio_format=args.cache_format,
             )
