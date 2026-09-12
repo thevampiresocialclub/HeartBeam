@@ -27,7 +27,7 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**Latest full Python run: 354 passed. Current JavaScript tests: 27 passed.** See
+**Latest full Python run: 355 passed. Current JavaScript tests: 27 passed.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -1492,9 +1492,36 @@ lossless instrumental derivative. Browser preview and export resolve that same
 derivative through the shared stem mixer. Source changes and overlapping applied
 repairs fail clearly.
 
-Verification at this checkpoint: full Python suite **354 passed in 25.62
-seconds**; the focused follow-up suite passed **36 tests**. JavaScript transport
+Verification at this checkpoint: full Python suite **355 passed in 25.58
+seconds**; the focused repair/workflow suite passed **36 tests**. JavaScript transport
 suite **27 passed** and `git diff --check` passed. No
 listening test has yet shown that local gain restores a missing instrument. R2
 must compare complementary separator evidence and conservative reallocation;
 the UI labels gain repair accordingly and does not claim reconstruction.
+
+Live browser verification on 8505 opened the isolated
+`music-repair-ui-proof-589ca94` project. Video Editing showed Export disabled;
+Music Repair retained the one synchronized workstation transport and exposed
+**Find thin spots**, a manual range, bounded lift/fade controls and **Continue to
+export**. The real 230.5-second tracks produced 11 ranked passages. Continuing
+with all 11 unreviewed opened the separate Export page, displayed the warning,
+kept **Render video** enabled and did not apply or save any suggestion.
+
+R2 now has an offline two-model consensus prototype and
+`tools/benchmark_instrument_repair.py`. BS-RoFormer and UVR MDX Inst HQ3 each
+estimate accompaniment from a short source excerpt. A time-frequency
+intersection retains only material both models support and filters that donor
+from the current lead/backing recordings; alternate model audio is never mixed
+into the performance. The donor is added to instrumental and subtracted from
+the originating vocal stem. Synthetic tests verify model veto, range support,
+zero-strength identity and exact stem-sum conservation.
+
+On the highest Paloma volume flag (182.55–183.20 seconds), the two-model donor
+has about the same RMS as the quiet baseline accompaniment inside the focus
+range (0.008 dB donor/baseline ratio). A non-flagged 60.00–60.65-second control
+produced a donor 26.69 dB below its baseline. Full-fader stem accounting on the
+candidate differs by at most `7.45e-9`. These are encouraging pilot measurements,
+not evidence that the donor contains no vocal. Lossless comparison packs and
+model hashes live in `heartbeam-audio-research/r2-paloma-consensus-v2`, with a
+second candidate and a control beside it. R2 remains experimental pending
+listening and unrelated-song/ground-truth tests.

@@ -68,3 +68,37 @@ def test_schema_one_migrates_and_keeps_recoverable_backup(tmp_path):
     P.save_project(migrated, tmp_path, bump=False)
     assert (tmp_path / "project.schema-1.backup.json").is_file()
     assert json.loads(manifest.read_text(encoding="utf-8"))["project_schema_version"] == 2
+
+
+def test_recorded_reallocation_recovers_supported_leak_and_conserves_stem_sum():
+    sr = 8000
+    t = np.arange(sr * 3, dtype=np.float32) / sr
+    stable = .10 * np.sin(2 * np.pi * 220 * t)
+    leaked_instrument = .05 * np.sin(2 * np.pi * 440 * t)
+    vocal = .08 * np.sin(2 * np.pi * 713 * t)
+    instrumental = stable
+    lead = vocal + leaked_instrument
+    backing = np.zeros_like(lead)
+    alternate = stable + leaked_instrument
+    ri, rl, rb, diagnostics = R.recorded_reallocation(
+        instrumental, lead, backing, alternate, sr, start_sample=sr // 2,
+        end_sample=sr * 5 // 2, fade_ms=50)
+    before = instrumental + lead + backing
+    np.testing.assert_allclose(ri + rl + rb, before, atol=2e-7)
+    center = slice(sr, sr * 2)
+    donor = ri - instrumental
+    recovered = abs(np.vdot(donor[center], leaked_instrument[center]))
+    vocal_leak = abs(np.vdot(donor[center], vocal[center]))
+    assert recovered > vocal_leak * 20
+    assert diagnostics["donor_rms"] > 0
+    assert diagnostics["alternate_model_count"] == 1
+    np.testing.assert_array_equal(ri[:sr // 2], instrumental[:sr // 2])
+    zero = R.recorded_reallocation(instrumental, lead, backing, alternate, sr, strength=0)
+    np.testing.assert_array_equal(zero[0], instrumental)
+
+    # A second model that does not support the leaked instrument should veto it.
+    conservative = R.recorded_reallocation(
+        instrumental, lead, backing, [alternate, stable], sr,
+        start_sample=sr // 2, end_sample=sr * 5 // 2, fade_ms=50)
+    assert conservative[3]["alternate_model_count"] == 2
+    assert conservative[3]["donor_rms"] < diagnostics["donor_rms"] * .05

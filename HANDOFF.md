@@ -274,7 +274,13 @@ remains session-local. P07 R0 and the first R1 product pass are implemented.
 applies only explicit, reversible level corrections; `repair_ui.py` owns the new
 step between video editing and export. Project schema 2 migrates schema 1 and
 keeps a pre-migration backup on first save. R2's controlled complementary-model
-and reallocation experiment is next. A volume dip is a review clue, not evidence
+and reallocation experiment has an offline first prototype in
+`tools/benchmark_instrument_repair.py`. `recorded_reallocation()` intersects
+BS-RoFormer and MDX Inst HQ3 evidence, filters the donor from existing vocal
+stems and conserves the full stem sum. Paloma listening packs are under
+`C:/Users/young/Documents/Codex/2026-09-06/run/heartbeam-audio-research/`.
+Do not expose it as an accepted repair method until listening and independent
+vocal-leakage checks pass. A volume dip is a review clue, not evidence
 of what musical content belongs there; do not auto-apply suggestions or call
 local gain missing-instrument reconstruction.
 Restart after cross-module updates so Streamlit cannot retain old imports.

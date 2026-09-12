@@ -169,7 +169,7 @@ This sidesteps two real traps:
 .\.venv\Scripts\heartbeam-gui.exe     # or just `heartbeam-gui` once activated
 ```
 
-Opens a local Streamlit app at <http://localhost:8501> with three steps:
+Opens a local Streamlit app at <http://localhost:8501> with five steps:
 
 1. **Prepare audio:** choose a song, paste its lyrics and pick a genre profile.
    Preparation saves the separated tracks and suggested lyric timing without
@@ -184,10 +184,16 @@ Opens a local Streamlit app at <http://localhost:8501> with three steps:
    song; it does not rerun separation or depend on lyric timing to mute vocals.
 3. **Edit video:** the desktop workstation keeps Play/Pause, video preview and
    waveform together on the left. The right pane has live lyric selection and
-   **Appearance**, **Lyrics**, **Timing**, **Vocals** and **Export** tabs. Each
+   **Appearance**, **Lyrics**, **Timing** and **Vocals** tabs. Each
    pane scrolls independently. A single Play button drives audio, highlighting,
-   video backgrounds and the waveform. Use **Save project** in the top bar to
-   keep edits, then **Render video** in Export to create the MP4.
+   video backgrounds and the waveform.
+4. **Repair music:** optionally scan for accompaniment that becomes unusually
+   thin while the original stays steadier. Listen before applying a bounded,
+   reversible level correction, or skip the step. Suggestions never change the
+   song automatically and unreviewed suggestions only produce a warning.
+5. **Export:** use **Save project** in the top bar to keep edits, then render a
+   passage or the full MP4. Export uses only accepted repairs and the saved vocal
+   levels; skipped suggestions are not applied.
 
 In either editing page, **click or drag the waveform to seek**. The playhead,
 played portion, lyrics, video and time display follow the same audio clock.

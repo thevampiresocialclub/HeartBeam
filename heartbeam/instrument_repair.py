@@ -11,8 +11,113 @@ import tempfile
 
 import numpy as np
 import soundfile as sf
+from scipy import signal
 
 from . import project as P
+
+
+def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
+                          backing: np.ndarray, alternate_instrumental,
+                          sample_rate: int, *, start_sample: int = 0,
+                          end_sample: int | None = None, strength: float = 1.0,
+                          fade_ms: int = 120, fft_size: int = 2048,
+                          hop_size: int = 512) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """Move alternate-model-supported material out of removed vocal stems.
+
+    The donor is always filtered from the current lead/backing recordings. The
+    alternate estimate supplies evidence and never gets mixed into the song,
+    which preserves the original performance and exact stem accounting.
+    """
+    alternate_values = (list(alternate_instrumental)
+                        if isinstance(alternate_instrumental, (list, tuple))
+                        else [alternate_instrumental])
+    if not alternate_values:
+        raise P.ProjectError("Recovery needs at least one alternate instrumental estimate.")
+    arrays = [np.asarray(value, dtype=np.float32)
+              for value in (instrumental, lead, backing, *alternate_values)]
+    if any(value.shape != arrays[0].shape for value in arrays[1:]) or arrays[0].ndim not in (1, 2):
+        raise P.ProjectError("Recovery tracks must share one mono or multichannel sample basis.")
+    if not arrays[0].size or any(not np.isfinite(value).all() for value in arrays):
+        raise P.ProjectError("Recovery tracks must be non-empty and finite.")
+    if sample_rate <= 0 or not 0.0 <= strength <= 1.0:
+        raise P.ProjectError("Recovery sample rate or strength is invalid.")
+    n = len(arrays[0]); end_sample = n if end_sample is None else end_sample
+    if not 0 <= start_sample < end_sample <= n:
+        raise P.ProjectError("Recovery range is outside the audio.")
+    if strength == 0:
+        return arrays[0].copy(), arrays[1].copy(), arrays[2].copy(), {
+            "version": 1, "donor_rms": 0.0, "active_fraction": 0.0,
+        }
+
+    was_mono = arrays[0].ndim == 1
+    work = [value[:, None] if value.ndim == 1 else value for value in arrays]
+    music, lead_audio, backing_audio, *alternates = work
+    donors_l, donors_b, active = [], [], []
+    nperseg = min(fft_size, n)
+    noverlap = max(0, nperseg - min(hop_size, nperseg))
+    for channel in range(music.shape[1]):
+        spectra = []
+        for value in (music, lead_audio, backing_audio, *alternates):
+            _, times, z = signal.stft(value[:, channel], fs=sample_rate,
+                                      nperseg=nperseg, noverlap=noverlap,
+                                      boundary="zeros", padded=True)
+            spectra.append(z)
+        zi, zl, zb, *alternate_spectra = spectra
+        zv = zl + zb
+        ai, av = np.abs(zi), np.abs(zv)
+        masks = []
+        for za in alternate_spectra:
+            aa = np.abs(za)
+            # Every alternate accompaniment must exceed the current one and
+            # agree in phase with material actually recorded in removed stems.
+            excess = np.clip((aa - 1.15 * ai) / np.maximum(aa, 1e-8), 0.0, 1.0)
+            coherence = np.clip(np.real(za * np.conj(zv)) /
+                                np.maximum(aa * av, 1e-10), 0.0, 1.0)
+            candidate = np.clip(excess * coherence ** 2, 0.0, .85)
+            alternate_floor = np.maximum(1e-6, np.max(aa, axis=0, keepdims=True) * 1e-3)
+            candidate *= aa >= alternate_floor
+            masks.append(candidate)
+        # Intersection is intentionally conservative: one dissenting model
+        # removes the bin instead of averaging a guess into the accompaniment.
+        mask = np.minimum.reduce(masks)
+        frame_samples = np.rint(times * sample_rate).astype(np.int64)
+        mask[:, (frame_samples < start_sample) | (frame_samples >= end_sample)] = 0.0
+        donors = []
+        for stem in (zl, zb):
+            _, donor = signal.istft(stem * mask, fs=sample_rate,
+                                    nperseg=nperseg, noverlap=noverlap,
+                                    input_onesided=True, boundary=True)
+            donors.append(np.pad(donor[:n], (0, max(0, n - len(donor))))[:n])
+        donors_l.append(donors[0]); donors_b.append(donors[1])
+        active.append(float(np.mean(mask > .05)))
+    donor_l = np.stack(donors_l, axis=1)
+    donor_b = np.stack(donors_b, axis=1)
+    support = np.zeros(n, dtype=np.float64); support[start_sample:end_sample] = 1.0
+    width = min(round(fade_ms * sample_rate / 1000), (end_sample - start_sample) // 2)
+    if width:
+        phase = np.linspace(0.0, math.pi, width, endpoint=False)
+        ramp = .5 - .5 * np.cos(phase)
+        support[start_sample:start_sample + width] = ramp
+        support[end_sample - width:end_sample] = ramp[::-1]
+    donor_l *= (support * strength)[:, None]
+    donor_b *= (support * strength)[:, None]
+    donor = donor_l + donor_b
+    repaired_i = music.astype(np.float64) + donor
+    repaired_l = lead_audio.astype(np.float64) - donor_l
+    repaired_b = backing_audio.astype(np.float64) - donor_b
+    result = [value.astype(np.float32) for value in (repaired_i, repaired_l, repaired_b)]
+    if was_mono:
+        result = [value[:, 0] for value in result]
+    diagnostics = {
+        "version": 1,
+        "donor_rms": float(np.sqrt(np.mean(donor ** 2))),
+        "lead_donor_rms": float(np.sqrt(np.mean(donor_l ** 2))),
+        "backing_donor_rms": float(np.sqrt(np.mean(donor_b ** 2))),
+        "active_fraction": float(np.mean(active)),
+        "strength": strength,
+        "alternate_model_count": len(alternates),
+    }
+    return *result, diagnostics
 
 
 def _applied(project) -> list[P.InstrumentRepair]:
@@ -104,4 +209,3 @@ def effective_instrumental(project, root, source_path: Path, sample_rate: int) -
     finally:
         Path(temporary).unlink(missing_ok=True)
     return target
-

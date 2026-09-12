@@ -24,7 +24,8 @@ when it finishes. Letter spacing and line height are editable. Missing word
 timings are estimated from surrounding words or a valid phrase window by default,
 with visible labels and an opt-out. Raw model data and manual timings stay intact.
 Entirely unanchored phrases still need a rough window before they can highlight.
-Preparation, timing review and video editing are separate pages. Preparation
+Preparation, timing review, video editing, optional music repair and export are
+separate pages. Preparation
 saves the separated tracks and timing proposals; the removal mix waits for the
 user's explicit **Build karaoke and continue** action. A named project can be
 saved before review. Individual word approval is optional: unresolved words and
@@ -39,7 +40,8 @@ with warnings. Timing approval is not required to render the saved audio mix.
 Never present estimated timing as an acoustic match or automatic user approval. Lyric, timing,
 phrase-window or linked-source changes invalidate that build approval. The desktop editor is a workstation with
 playback, video and waveform on the left and independently scrolling lyric,
-appearance, timing, vocal and export controls on the right. Play must be visible
+appearance, timing, vocal and music-repair controls on the right. Export has its
+own final page. Play must be visible
 at the top and all preview surfaces must follow the same audio clock.
 The waveform is the song-position control: click or drag to seek without
 changing lyric timing. Its playhead follows playback, including when zoomed,
@@ -50,7 +52,10 @@ words. Missing or ambiguous words stay visible for review. A user can bound and
 loop one phrase, retry selected lines, and keep manual timing corrections. The
 number of lyric rows on screen remains a presentation setting. Model failure
 must not discard completed separation or lyric text.
-P07 covers broader controlled audio-quality/model evaluation.
+P07 R0 and the first R1 pass add calibrated stem gain, one mastering policy, a
+CPU thin-spot scan and explicit local level repair. The experimental R2
+recorded-component reallocation remains outside the product until listening
+tests show musical improvement without returned vocals.
 Read BUILD-STATUS.md for the current verification record.
 
 ## Product character and principles
