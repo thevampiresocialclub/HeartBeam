@@ -21,7 +21,8 @@ def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
                           sample_rate: int, *, start_sample: int = 0,
                           end_sample: int | None = None, strength: float = 1.0,
                           fade_ms: int = 120, fft_size: int = 2048,
-                          hop_size: int = 512) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+                          hop_size: int = 512, donor_instrumental=None,
+                          min_donor_purity: float = .8) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
     """Move alternate-model-supported material out of removed vocal stems.
 
     The donor is always filtered from the current lead/backing recordings. The
@@ -33,8 +34,15 @@ def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
                         else [alternate_instrumental])
     if not alternate_values:
         raise P.ProjectError("Recovery needs at least one alternate instrumental estimate.")
+    guard_values = ([] if donor_instrumental is None else
+                    list(donor_instrumental) if isinstance(donor_instrumental, (list, tuple))
+                    else [donor_instrumental])
+    if donor_instrumental is not None and not guard_values:
+        raise P.ProjectError("An enabled vocal rejection pass needs donor estimates.")
+    if not 0 < min_donor_purity <= 1:
+        raise P.ProjectError("Donor purity must be greater than zero and at most one.")
     arrays = [np.asarray(value, dtype=np.float32)
-              for value in (instrumental, lead, backing, *alternate_values)]
+              for value in (instrumental, lead, backing, *alternate_values, *guard_values)]
     if any(value.shape != arrays[0].shape for value in arrays[1:]) or arrays[0].ndim not in (1, 2):
         raise P.ProjectError("Recovery tracks must share one mono or multichannel sample basis.")
     if not arrays[0].size or any(not np.isfinite(value).all() for value in arrays):
@@ -49,27 +57,31 @@ def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
         raise P.ProjectError("Recovery range is outside the audio.")
     if strength == 0:
         return arrays[0].copy(), arrays[1].copy(), arrays[2].copy(), {
-            "version": 2, "donor_rms": 0.0, "active_fraction": 0.0,
+            "version": 3, "donor_rms": 0.0, "active_fraction": 0.0,
             "strength": 0.0, "alternate_model_count": len(alternate_values),
+            "donor_guard_count": len(guard_values),
         }
 
     was_mono = arrays[0].ndim == 1
     work = [value[:, None] if value.ndim == 1 else value for value in arrays]
-    music, lead_audio, backing_audio, *alternates = work
     donors_l, donors_b, active = [], [], []
     nperseg = min(fft_size, max(2, n))
     if n == 1:
         work = [np.pad(value, ((0, 1), (0, 0))) for value in work]
-        music, lead_audio, backing_audio, *alternates = work
+    music, lead_audio, backing_audio = work[:3]
+    alternates = work[3:3 + len(alternate_values)]
+    guards = work[3 + len(alternate_values):]
     noverlap = nperseg - min(hop_size, max(1, nperseg // 2))
     for channel in range(music.shape[1]):
         spectra = []
-        for value in (music, lead_audio, backing_audio, *alternates):
+        for value in (music, lead_audio, backing_audio, *alternates, *guards):
             _, times, z = signal.stft(value[:, channel], fs=sample_rate,
                                       nperseg=nperseg, noverlap=noverlap,
                                       boundary="zeros", padded=True)
             spectra.append(z)
-        zi, zl, zb, *alternate_spectra = spectra
+        zi, zl, zb = spectra[:3]
+        alternate_spectra = spectra[3:3 + len(alternates)]
+        guard_spectra = spectra[3 + len(alternates):]
         zv = zl + zb
         ai, av = np.abs(zi), np.abs(zv)
         donor_available = np.abs(zl) + np.abs(zb)
@@ -94,6 +106,18 @@ def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
         # Intersection is intentionally conservative: one dissenting model
         # removes the bin instead of averaging a guess into the accompaniment.
         mask = np.minimum.reduce(masks)
+        for zg in guard_spectra:
+            # Each guard is an instrumental estimate from the REMOVED vocals,
+            # rather than another estimate of the full recording. Refuse bins
+            # where its residual still dominates (including weak vocal bleed).
+            # This is an experimental classifier gate, not a voice-free proof.
+            ag, remainder = np.abs(zg), np.abs(zv - zg)
+            purity = ag / np.maximum(ag + remainder, 1e-8)
+            coherence = np.clip(np.real(zg * np.conj(zv)) /
+                                np.maximum(ag * av, 1e-10), 0., 1.)
+            guard_mask = np.clip(ag / np.maximum(donor_available, 1e-8), 0., .85)
+            guard_mask *= coherence ** 2 * (purity >= min_donor_purity)
+            mask = np.minimum(mask, guard_mask)
         frame_samples = np.rint(times * sample_rate).astype(np.int64)
         mask[:, (frame_samples < start_sample) | (frame_samples >= end_sample)] = 0.0
         donors = []
@@ -123,13 +147,15 @@ def recorded_reallocation(instrumental: np.ndarray, lead: np.ndarray,
     if was_mono:
         result = [value[:, 0] for value in result]
     diagnostics = {
-        "version": 2,
+        "version": 3,
         "donor_rms": float(np.sqrt(np.mean(donor ** 2))),
         "lead_donor_rms": float(np.sqrt(np.mean(donor_l ** 2))),
         "backing_donor_rms": float(np.sqrt(np.mean(donor_b ** 2))),
         "active_fraction": float(np.mean(active)),
         "strength": strength,
         "alternate_model_count": len(alternates),
+        "donor_guard_count": len(guards),
+        "min_donor_purity": min_donor_purity if guards else None,
     }
     return *result, diagnostics
 

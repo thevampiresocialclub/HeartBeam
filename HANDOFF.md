@@ -1,7 +1,7 @@
 # HeartBeam handoff
 
-**Updated:** 10 September 2026 by Codex, including warning-only video export for
-estimated, missing and conflicting timing. Independent lead/backing mixing remains.
+**Updated:** 12 September 2026 by Codex, including the offline removed-vocal
+screening experiment and verified MP3 comparison pack. Recovery remains experimental.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
@@ -235,6 +235,22 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
     whether content is dirty. Undo back to saved content should show saved.
 
 ## Current continuation point
+
+**12 September update:** R2 now compares an additional separation pass on the
+removed vocal stems, both as a veto on full-mix consensus and as the source of
+recovery proposals. A fixed 80% instrumental-purity gate rejects weak shared
+vocal residue in controlled tones, but the real-song candidates abstain almost
+entirely. Full common model misclassification still defeats it; this is not a
+voice-free guarantee. Do not lower the threshold just to make a demo audible.
+Read the latest BUILD-STATUS entry and external `R2-SCREENING-REPORT.md`.
+The owner specifically wants **openable comparison MP3 files with every audio
+quality milestone**. Preserve this requirement in future work. The current pack
+has 66 MP3s: two songs and a control, consistent-gain and matched-loudness versions,
+boosted recovered-only diagnostics, and 0/1/3/5% lead-stem reference mixes.
+Start at `C:/Users/young/Documents/Codex/2026-09-06/run/heartbeam-listening-20260912/START-HERE.md`.
+The benchmark accepts `--donor-guard --mute-vocals --mp3`; mute is in-memory only.
+The quality gate is still open; next obtain listening labels for baseline/lift/
+alternate separators and confirmed missing instruments before product integration.
 
 **11 September test update:** read the latest Music Repair acceptance entry in
 BUILD-STATUS before extending R2. Testing disproved the earlier optimistic

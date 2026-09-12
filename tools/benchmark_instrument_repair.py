@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import time
 
 import numpy as np
 import soundfile as sf
@@ -26,6 +27,7 @@ def _hash(path: Path) -> str:
 
 
 def _alternate(excerpt: np.ndarray, sr: int, model: str) -> tuple[np.ndarray, dict]:
+    started = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="heartbeam_repair_benchmark_") as raw:
         folder = Path(raw)
         source = folder / "excerpt.wav"
@@ -43,6 +45,8 @@ def _alternate(excerpt: np.ndarray, sr: int, model: str) -> tuple[np.ndarray, di
             raise RuntimeError("Alternate separator returned incomplete audio; no candidate was produced.")
         calibrated, report = C.calibrate_partition(
             excerpt[:n], {"instrumental": instrumental[:n], "vocals": vocals[:n]})
+        if report.corrected_error_db > -20:
+            raise RuntimeError("Alternate output could not be calibrated to its input; no candidate was produced.")
         result = np.zeros_like(excerpt)
         result[:n] = calibrated["instrumental"]
         model_path = separator_dir() / model
@@ -51,6 +55,7 @@ def _alternate(excerpt: np.ndarray, sr: int, model: str) -> tuple[np.ndarray, di
             "model_sha256": _hash(model_path) if model_path.is_file() else None,
             "calibration": report.to_dict(),
             "output_samples": n,
+            "elapsed_seconds": round(time.perf_counter() - started, 3),
         }
 
 
@@ -72,8 +77,18 @@ def main(argv=None):
     parser.add_argument("--end-ms", type=int)
     parser.add_argument("--context-ms", type=int, default=3000)
     parser.add_argument("--strength", type=float, default=1.0)
+    parser.add_argument("--donor-guard", action="store_true", help="also classify instrumental material inside removed vocals")
+    parser.add_argument("--mp3", action="store_true", help="write verified listening MP3s in consistent-gain and matched-loudness folders")
+    parser.add_argument("--mute-vocals", action="store_true", help="mute both vocal stems for controlled comparisons; does not edit the project")
     args = parser.parse_args(argv)
+    if args.out.exists() and any(args.out.iterdir()):
+        raise P.ProjectError("Choose an empty experiment folder to preserve previous results.")
     project = P.load_project(args.project)
+    source_manifest_sha256 = P.file_sha256(args.project / P.MANIFEST_NAME)
+    if args.mute_vocals:
+        project.vocal_mix.default_value = 0.
+        project.vocal_mix.backing_value = 0.
+        project.vocal_mix.regions = []
     roles = {}
     sr = None
     for role in ("original_audio", "instrumental_stem", "lead_stem", "backing_stem"):
@@ -117,6 +132,26 @@ def main(argv=None):
         excerpt["instrumental_stem"], excerpt["lead_stem"], excerpt["backing_stem"],
         alternates, sr, start_sample=local_start, end_sample=local_end,
         strength=args.strength)
+    variants = {"consensus": (ri, rl, rb, diagnostics)}
+    guard_info = []
+    if args.donor_guard:
+        guards = []
+        for model in models:
+            value, info = _alternate(excerpt["lead_stem"] + excerpt["backing_stem"], sr, model)
+            guards.append(value); guard_info.append(info)
+            S.release_models()
+        # Freeze the 80% purity threshold before examining real-song outputs.
+        options = dict(start_sample=local_start, end_sample=local_end,
+                       strength=args.strength, donor_instrumental=guards,
+                       min_donor_purity=.8)
+        variants["vocal-screened"] = R.recorded_reallocation(
+            excerpt["instrumental_stem"], excerpt["lead_stem"], excerpt["backing_stem"],
+            alternates, sr, **options)
+        # Separate experimental arm: ask the donor passes where music was
+        # misplaced, without requiring the full-mix models to agree first.
+        variants["donor-first"] = R.recorded_reallocation(
+            excerpt["instrumental_stem"], excerpt["lead_stem"], excerpt["backing_stem"],
+            [excerpt["instrumental_stem"] + value for value in guards], sr, **options)
     envelope = V.envelope_array(V.compile_envelope(project.vocal_mix, sr, song_samples), song_samples)[excerpt_start:excerpt_end, None]
     baseline = (excerpt["instrumental_stem"] + excerpt["lead_stem"] * envelope
                 + excerpt["backing_stem"] * project.vocal_mix.backing_value).astype(np.float32)
@@ -144,6 +179,10 @@ def main(argv=None):
     }
     for index, (value, _) in enumerate(matched_alternates, 1):
         files[f"alternate-{index}-instrumental.wav"] = value
+    for name, (vi, vl, vb, _) in variants.items():
+        if name == "consensus": continue
+        files[f"{name}.wav"] = (vi + vl * envelope + vb * project.vocal_mix.backing_value).astype('float32')
+        files[f"{name}-donor.wav"] = vi - excerpt["instrumental_stem"]
     for name, value in files.items():
         sf.write(args.out / name, value, sr, subtype="FLOAT")
     focus = slice(local_start, local_end)
@@ -153,12 +192,15 @@ def main(argv=None):
     original_sum = excerpt["instrumental_stem"] + excerpt["lead_stem"] + excerpt["backing_stem"]
     repaired_sum = ri + rl + rb
     manifest = {
-        "format": "heartbeam-instrument-repair-benchmark", "version": 4,
+        "format": "heartbeam-instrument-repair-benchmark", "version": 5,
         "project_id": project.id, "project_revision": project.revision,
         "source_sha256": project.asset_by_role("original_audio").sha256,
         "focus_ms": [start_ms, end_ms], "excerpt_ms": [round(excerpt_start * 1000 / sr), round(excerpt_end * 1000 / sr)],
         "models": model_info, "reallocation": diagnostics,
         "baseline_calibration": baseline_calibration.to_dict(),
+        "donor_models": guard_info,
+        "muted_vocals_for_comparison": args.mute_vocals,
+        "variants": {},
         "focus_metrics": {
             "baseline_rms": baseline_rms, "donor_rms": donor_rms,
             "donor_to_baseline_db": float(20 * np.log10(max(donor_rms / baseline_rms, 1e-12))) if baseline_rms else None,
@@ -169,6 +211,31 @@ def main(argv=None):
         "files": {name: P.file_sha256(args.out / name) for name in files},
         "warning": "Experimental listening material; no candidate was applied to the project.",
     }
+    for name, (vi, vl, vb, info) in variants.items():
+        vrms = float(np.sqrt(np.mean(np.square((vi-excerpt['instrumental_stem'])[focus],dtype=np.float64))))
+        manifest['variants'][name] = {'diagnostics': info, 'focus_donor_rms': vrms,
+            'donor_to_baseline_db': float(20*np.log10(max(vrms/baseline_rms,1e-15))) if baseline_rms else None,
+            'max_stem_sum_error': float(np.max(np.abs((vi+vl+vb)-original_sum)))}
+    if args.mp3:
+        from heartbeam.listening_pack import write_comparisons
+        conditions = {'01-current-karaoke': baseline, '02-local-lift': local,
+                      '03-consensus-recovery': repaired}
+        donors = {'consensus-donor': donor}
+        for index,name in [(4,'vocal-screened'),(5,'donor-first')]:
+            if name in variants:
+                conditions[f'{index:02d}-{name}-recovery'] = files[f'{name}.wav']
+                donors[f'{name}-donor'] = files[f'{name}-donor.wav']
+        for index,value in enumerate(alternates,1):
+            conditions[f'{index+5:02d}-alternate-separator-{index}'] = value
+        mp3 = write_comparisons(args.out/'mp3',conditions,sr,
+                original=excerpt['original_audio'], donors=donors,
+                guide_vocal=excerpt['lead_stem'] if args.mute_vocals else None,
+                details={'song':project.name,'focus_ms':[start_ms,end_ms],
+                         'excerpt_ms':manifest['excerpt_ms'], 'models':models,
+                         'vocals_muted':args.mute_vocals})
+        manifest['mp3_files'] = len(mp3['files'])
+    if P.file_sha256(args.project / P.MANIFEST_NAME) != source_manifest_sha256:
+        raise P.ProjectError('Source project changed during the benchmark; repeat on a stable copy.')
     (args.out / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     print(json.dumps(manifest, indent=2))
 

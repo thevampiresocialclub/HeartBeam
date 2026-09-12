@@ -1588,3 +1588,59 @@ Evidence lives under `C:/Users/young/Documents/Codex/2026-09-06/run/`:
 `repair-validation-20260911/` (before/after and calibrated real-song packs).
 Reproducers and the detailed report are in `heartbeam-audio-research/`.
 No owner project or model weights were changed by these experiments.
+
+## Follow-up: removed-vocal screening and MP3 comparisons, 12 September 2026
+
+The offline R2 experiment now runs each cached separator on the removed
+lead+backing audio as well as the original mix. Version 3 of
+`recorded_reallocation()` supports an optional 80% instrumental-purity veto.
+One arm adds this veto to full-mix consensus; another lets the removed-vocal
+passes propose the recovery themselves. Actual transferred audio still comes
+from the recorded donor stems and is subtracted from the respective vocal stem.
+This is not integrated into the product's accepted repair methods.
+
+Controlled orthogonal-tone trials with 1%, 3%, 5% and 10% shared voice residue
+returned about 85% of a deliberately misplaced instrument and less than
+`1e-7` of the vocal amplitude. A deliberately incorrect model classification
+of the entire voice returned about 85% of that voice. The gate therefore fixes
+the weak-residue example, but cannot certify model semantics or voice-free audio.
+An indistinguishable 50/50 shared-waveform case abstains. Stereo tests verify
+range support, full-stem conservation and independent vocal-fader accounting.
+
+Three real-song trials used seven seconds of context on each side and muted
+both vocal stems in memory. These differ from the earlier three-second-context
+experiments; their numeric differences are not evidence of improvement.
+
+| Passage | Consensus donor/baseline RMS | With vocal screening | Donor-first screening |
+|---|---:|---:|---:|
+| Paloma 182.550–183.200 s | -37.04 dB | zero | -98.98 dB |
+| Frost Children 97.450–97.950 s | -24.90 dB | zero | -100.93 dB |
+| Paloma control 60.000–60.650 s | -44.47 dB | zero | zero |
+
+The screened candidates therefore establish abstention, not useful repair.
+No real-song perceptual improvement or absence of returned vocals is claimed.
+The maximum full-fader stem-sum error across variants was `1.20e-7`.
+Four model calls per passage took 45.37, 28.02 and 26.93 seconds, including model
+loading/calibration but excluding MP3 output. ONNX ran without CUDA acceleration.
+Existing cached weights were used; no audio was uploaded or new weights fetched.
+
+`heartbeam/listening_pack.py` creates 320 kbps MP3s with one common gain and a
+separate matched-loudness set. It records gains and source hashes, uses common
+peak protection without a per-condition limiter, and decodes every output to
+verify samples, duration and oversampled peak. The 66-file listening pack includes
+seven conditions per song, original context, boosted donor-only diagnostics and
+known 0/1/3/5% lead-stem controls. All decoded durations were exact (14.65 s for
+Paloma, 14.50 s for Frost), maximum decoded peak was -1.99 dBFS, and matched
+condition loudness spread was below 0.004 LU. The ZIP passed integrity checks.
+Project manifests were unchanged during the experiments and input hashes checked.
+
+Verification: **368 Python tests passed in 34.49 seconds**, including seven new
+screening/MP3 regressions; `git diff --check` passed. No browser or JavaScript code
+changed. The prior 27-test JavaScript and Chrome/Firefox acceptance evidence
+remains the last UI verification; it was not rerun for this offline experiment.
+
+Evidence and user-openable audio: `heartbeam-listening-20260912/` and
+`HeartBeam-MP3-Comparisons-20260912.zip` under the shared run workspace.
+`heartbeam-audio-research/R2-SCREENING-REPORT.md` records the next decision gate.
+The owner explicitly requests comparison MP3 outputs with future audio-quality
+work. Do not substitute test metrics or WAV-only references for those files.
