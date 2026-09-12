@@ -31,6 +31,7 @@ class ExportJob:
     warnings: list[str] = field(default_factory=list)
     allow_timing_issues: bool = True
     status_warning: str | None = None
+    output_filename: str = "karaoke.mp4"
     _cancel: threading.Event = field(default_factory=threading.Event, repr=False)
     _last_saved_at: float = field(default=0.0, repr=False)
 
@@ -224,7 +225,9 @@ def preflight(project, root, karaoke, selection_ms=None, *, allow_timing_issues=
     return duration_ms, compiled["warnings"]
 
 
-def start(project, root, karaoke, selection_ms=None, *, allow_timing_issues=True):
+def start(project, root, karaoke, selection_ms=None, *, allow_timing_issues=True, output_name="karaoke.mp4"):
+    from .export_names import video_filename
+    output_name = video_filename(output_name)
     snapshot, root = copy.deepcopy(project), Path(root).resolve()
     _, warnings = preflight(snapshot, root, karaoke, selection_ms, allow_timing_issues=allow_timing_issues)
     kind = "selection" if selection_ms else "full"
@@ -233,7 +236,8 @@ def start(project, root, karaoke, selection_ms=None, *, allow_timing_issues=True
             if old.project_id == snapshot.id and old.status in ("queued", "running"):
                 raise P.ProjectError("An export for this project is already running.")
         job = ExportJob(P.new_id("export"), snapshot.id, snapshot.revision, kind,
-                        selection_ms=selection_ms, warnings=warnings, allow_timing_issues=allow_timing_issues)
+                        selection_ms=selection_ms, warnings=warnings, allow_timing_issues=allow_timing_issues,
+                        output_filename=output_name)
         _jobs[job.id] = job
         try:
             _save(root, job)
@@ -275,8 +279,13 @@ def _run(job, snapshot, root, karaoke):
                                                message=f"Encoding video… {round(fraction * 100)}%"),
             cancel=job._cancel)
         to_json(timings, temporary / "timings.json")
+        named_path = temporary / job.output_filename
+        if path.name != job.output_filename:
+            path.rename(named_path)
+            path = named_path
         manifest = {"format": "heartbeam-export", "version": 1, "job_id": job.id,
                     "kind": job.kind, "source_revision": snapshot.revision,
+                    "output_filename": path.name,
                     "selection_ms": job.selection_ms, "allow_timing_issues": job.allow_timing_issues,
                     "audio_sha256": P.file_sha256(audio),
                     "asset_ids": [{"id": a.id, "sha256": a.sha256, "role": a.role} for a in snapshot.assets],

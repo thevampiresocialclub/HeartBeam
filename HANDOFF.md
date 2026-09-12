@@ -16,6 +16,23 @@ Do not resume that roadmap automatically. See
 instructions and retained fixes. Audio-quality work still needs openable MP3
 comparisons, as requested by the owner.
 
+**12 September UI update:** implemented the owner's sequential preparation page,
+File popover, separate online-search result dialog, compact playback, responsive
+preview and fixed three-row lyric selector above scrolling settings. Automatic
+device selection is the default; CUDA/RTX 5070 was confirmed locally. New GUI
+sessions use Documents/HeartBeam/Sessions; named projects default to Projects.
+Old projects/caches are not moved. Video names default to the original input
+basename plus `_karaoke.mp4`; custom names survive page changes and completed
+exports are rediscovered on reopen. See `docs/UI-WORKSTATION-UPDATE.md` for the
+plan and exact browser/test evidence, and `docs/FILES-AND-DISTRIBUTION.md` for
+distribution boundaries. Latest full checks: 372 Python and 28 JavaScript tests.
+Firefox and a clean Windows installer run remain unverified for this update.
+
+Two layout details matter: Streamlit wraps nested containers in an extra flex
+element, so both that wrapper and the settings container must allow shrinking.
+The ASS renderer has no video element as its clock: resize must receive explicit
+pixel dimensions. Keep the preview's single audio clock and canvas aspect ratio.
+
 P03, P04, P05 and **P06, dependable preview/export**, are implemented. The owner's
 follow-up timing system is now implemented too; read `docs/TIMING_SYSTEM.md`.
 It adds optional LRCLIB lookup, complete-vocal matching, phrase-local refinement,

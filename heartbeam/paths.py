@@ -19,10 +19,51 @@ Layout under the root (see scripts/fetch_models.py, which populates it):
 from __future__ import annotations
 
 import os
+import re
+import tempfile
 from pathlib import Path
 
 #: Set this to relocate every cache at once — the one knob users need.
 ROOT_ENV = "HEARTBEAM_MODEL_ROOT"
+
+
+def data_root() -> Path:
+    """User work lives outside the installation and OS temporary directory."""
+    configured = os.environ.get("HEARTBEAM_DATA_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    documents = Path.home() / "Documents"
+    if os.name == "nt":
+        # Honour redirected Documents folders (including OneDrive).
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as key:
+                documents = Path(os.path.expandvars(winreg.QueryValueEx(key, "Personal")[0]))
+        except OSError:
+            pass
+    return documents / "HeartBeam"
+
+
+def projects_dir() -> Path:
+    return data_root() / "Projects"
+
+
+def safe_file_stem(value: str, fallback="Untitled song") -> str:
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', value).strip(' .')[:120].rstrip(' .')
+    if not stem:
+        stem = fallback
+    if stem.split('.')[0].upper() in {'CON', 'PRN', 'AUX', 'NUL',
+            *(f'COM{i}' for i in range(1, 10)), *(f'LPT{i}' for i in range(1, 10))}:
+        stem = '_' + stem
+    return stem
+
+
+def new_session(song_name: str) -> Path:
+    """Keep resumable preparation output until the user deliberately removes it."""
+    folder = data_root() / "Sessions"
+    folder.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=safe_file_stem(song_name) + '-', dir=folder))
 
 
 def model_root() -> Path:

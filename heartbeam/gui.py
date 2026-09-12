@@ -12,13 +12,13 @@ That opens http://localhost:8501 in your browser.
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -33,6 +33,7 @@ from heartbeam import editor_ui as ui
 from heartbeam.project_lock import WriterLease
 from heartbeam.models import PRESETS, PRIMARY_PRESETS, resolve_default
 from heartbeam.style import toml_string
+from heartbeam.paths import new_session, projects_dir, safe_file_stem, data_root
 
 # Milestone log-line patterns -> (progress 0-1, friendly label)
 _MILESTONES: list[tuple[re.Pattern, float, str]] = [
@@ -282,7 +283,7 @@ def _open_project(path: Path) -> tuple[bool, str]:
 
 def _latest_project_video(project, root):
     """Restore a completed export from its saved snapshot after reopening."""
-    files = sorted((root / prj.EXPORTS_DIR).glob("rev-*/karaoke.mp4"),
+    files = sorted((root / prj.EXPORTS_DIR).glob("rev-*/*.mp4"),
                    key=lambda p: p.stat().st_mtime_ns, reverse=True)
     for path in files:
         try:
@@ -395,15 +396,14 @@ def _render_missing_assets(project, project_dir: Path) -> None:
 
 
 def _project_controls() -> None:
-    """Sidebar: New / Open / Save / Save As, plus state and missing assets."""
-    with st.sidebar:
-        st.subheader("Project")
+    """File menu: Open / Save / Save As, plus state and missing assets."""
+    with st.popover("File", width="content", disabled=st.session_state.get('running', False)):
         project = st.session_state.get("project")
         project_dir = st.session_state.get("project_dir")
 
         if project is None:
             st.caption(
-                "No project open. Generate a song below, or open an existing "
+                "No project open. Prepare a song below, or open an existing "
                 "project folder."
             )
         else:
@@ -450,7 +450,8 @@ def _project_controls() -> None:
                     st.session_state.project_dir = Path(save_as)
                     _activate_writer(Path(save_as))
                     _mark_saved(copy)
-                    st.success(f"Saved a copy to {save_as}")
+                    st.session_state.project_message = f"Saved a copy to {save_as}"
+                    st.rerun()
                 except (OSError, prj.ProjectError) as exc:
                     st.error(f"Could not save a copy: {exc}")
 
@@ -503,9 +504,13 @@ def _project_controls() -> None:
         message = st.session_state.pop("project_message", None)
         if message:
             st.info(message)
+        with st.expander("File locations"):
+            st.caption(f"Projects: {projects_dir()}")
+            st.caption(f"Preparation sessions: {data_root() / 'Sessions'}")
+            st.caption("Videos are saved inside each project's exports folder. Existing projects can stay in their current folders.")
 
 
-def _lyrics_input() -> str:
+def _lyrics_input(imported=None) -> str:
     """Lyrics text area, with optional .txt import.
 
     P02.1: typing or pasting must be enough. The file uploader stays as a
@@ -513,18 +518,14 @@ def _lyrics_input() -> str:
     The CLI still wants a path, but writing that temp file is our problem, not
     the user's.
     """
-    st.markdown("**Lyrics**")
-    imported = st.file_uploader(
-        "Import a .txt (optional)", type=["txt"], key="lyrics_import",
-        help="Optional. You can simply paste the lyrics below instead.",
-    )
-    if imported is not None and not st.session_state.get("lyrics_import_done"):
+    fingerprint = (getattr(imported, 'file_id', None), hashlib.sha256(imported.getvalue()).hexdigest()) if imported is not None else None
+    if imported is not None and fingerprint != st.session_state.get("lyrics_import_fingerprint"):
         try:
             st.session_state.lyrics_text = imported.getvalue().decode("utf-8")
         except UnicodeDecodeError:
             st.session_state.lyrics_text = imported.getvalue().decode(
                 "latin-1", errors="replace")
-        st.session_state.lyrics_import_done = True
+    st.session_state.lyrics_import_fingerprint = fingerprint
 
     text = st.text_area(
         "One phrase per line", key="lyrics_text", height=220,
@@ -666,7 +667,6 @@ def main() -> None:
         st.session_state.project_dir = None
         st.session_state.project_saved_snapshot = None
 
-    _project_controls()
     project = st.session_state.get("project")
     from heartbeam.timing_review import approved
     step = st.session_state.setdefault("workflow_step", "video" if project else "separation")
@@ -676,8 +676,10 @@ def main() -> None:
     if project and step in ("video", "export") and not approved(project):
         step = st.session_state.workflow_step = "review"
     with st.container(key="hb_workflow"):
-        title, back, review_step, next_step, export_step, save = st.columns([1.5, 1.1, 1.2, 1.1, 1.0, .8])
+        title, file_menu, back, review_step, next_step, export_step = st.columns([1.2, .55, 1.1, 1.2, 1.1, .9], vertical_alignment="center")
         title.title("HeartBeam")
+        with file_menu:
+            _project_controls()
         if back.button("1 · Prepare audio", key="step_separation", disabled=step == "separation" or st.session_state.running):
             st.session_state.workflow_step = "separation"
             st.rerun()
@@ -690,25 +692,15 @@ def main() -> None:
         if export_step.button("4 · Export", key="step_export", disabled=not project or not approved(project) or step == "export" or st.session_state.running):
             st.session_state.workflow_step = "export"
             st.rerun()
-        if project and save.button("Save project", key="workstation_save", disabled=st.session_state.get("project_readonly", False) or st.session_state.running):
-            try:
-                prj.save_project(project, st.session_state.project_dir, bump=False)
-                _mark_saved(project)
-                st.rerun()
-            except (prj.ProjectError, OSError) as exc:
-                st.error(f"Could not save: {exc}")
     if step in ("video", "review") and project:
-        labels = {"review": "Check lyric timing before building karaoke",
-                  "video": "Video editing workstation"}
-        label = labels[step]
-        st.caption(f"{project.name} · {label} · {'Unsaved changes' if _is_dirty() else 'Saved'}")
+        st.caption(f"{project.name} · {'Unsaved changes' if _is_dirty() else 'Saved'}")
         audio, _ = _project_media(project, st.session_state.project_dir)
         if not audio:
-            st.warning("Relink the original audio in Project settings to load playback.")
+            st.warning("Relink the original audio in the File menu to load playback.")
             if not st.session_state.get("project_readonly"):
                 _lyrics_editor(project, st.session_state.project_dir)
         elif st.session_state.get("project_readonly"):
-            st.info("This project is open in another editor. Use Save a copy in Project settings to edit independently.")
+            st.info("This project is open in another editor. Use Save a copy in the File menu to edit independently.")
             st.audio(str(audio))
         else:
             _timing_editor(project, st.session_state.project_dir, audio, stage=step)
@@ -722,15 +714,16 @@ def main() -> None:
     else:
         with st.container(key="hb_separation"):
             st.subheader("1 · Prepare audio")
-            st.caption("Choose your song and lyrics. Prepare the tracks, save the project, then check the lyric timing before building karaoke audio.")
-            _separation_result()
             _separation_page()
 
 
 def _separation_page() -> None:
 
     # --- Inputs ---
-    song_up = st.file_uploader("Song (mp3 / wav / flac / ogg)", type=["mp3", "wav", "flac", "ogg", "m4a"])
+    uploads = st.columns(2)
+    song_up = uploads[0].file_uploader("Song audio", type=["mp3", "wav", "flac", "ogg", "m4a"], accept_multiple_files=False, key="song_upload")
+    imported = uploads[1].file_uploader("Lyrics file (optional)", type=["txt"], accept_multiple_files=False, key="lyrics_import",
+                                      help="You can paste or type lyrics below instead.")
     from heartbeam.lyrics_lookup_ui import controls as lookup_controls
     from heartbeam.lyrics_lookup import audio_metadata
     upload_key = f'{song_up.name}_{song_up.size}' if song_up else 'empty'
@@ -742,12 +735,20 @@ def _separation_page() -> None:
             defaults.update(artist=artist, title=re.sub(r'\s*\(Official.*?\)', '', title, flags=re.I))
         else:
             defaults['title'] = name
-    candidate = lookup_controls(f'generate_{upload_key}', defaults)
+    candidate = lookup_controls(f'generate_{upload_key}', defaults, inline=True)
     if candidate:
         st.session_state.lyrics_text = candidate['lyrics']
         st.session_state.generation_candidate = (upload_key, candidate)
         st.rerun()
-    lyrics_text = _lyrics_input()
+    lyrics_text = _lyrics_input(imported)
+
+    lyric_line_count, _ = lyr.count_lyrics(lyrics_text)
+    ready = song_up is not None and lyric_line_count > 0
+    run_clicked = st.button("Prepare audio and match lyrics", type="primary",
+                            disabled=not ready or st.session_state.running)
+    progress_slot = st.container(key="hb_prepare_result")
+    with progress_slot:
+        _separation_result()
 
     primary = list(PRIMARY_PRESETS)
     genre = st.selectbox(
@@ -756,18 +757,20 @@ def _separation_page() -> None:
         index=primary.index("pop"),
         help="Each profile picks the right separator stack AND mix/mask tuning for that genre.",
     )
-    st.markdown(_format_preset_summary(genre))
 
     # --- Advanced ---
     extra_flags: list[str] = ["--prepare-only"]
-    with st.expander("Advanced (overrides preset defaults)"):
+    with st.expander("Advanced settings"):
+        st.caption("Automatic uses the available NVIDIA GPU, with CPU alignment on small GPUs to avoid running out of memory.")
+        st.markdown(_format_preset_summary(genre))
         cols = st.columns(2)
         with cols[0]:
             align_device = st.selectbox(
                 "Alignment device",
-                options=["cpu", "auto", "cuda"],
+                options=["auto", "cuda", "cpu"],
                 index=0,
-                help="WhisperX device. cpu avoids OOM on small GPUs.",
+                format_func=lambda value: {"auto": "Automatic (recommended)", "cuda": "NVIDIA GPU (CUDA)", "cpu": "CPU"}[value],
+                help="Automatic chooses the device and checks available GPU memory.",
             )
             override_strategy = st.selectbox(
                 "Mix strategy",
@@ -802,31 +805,28 @@ def _separation_page() -> None:
             extra_flags += ["--backing-boost", str(override_boost)]
 
     # --- Run ---
-    lyric_line_count, _ = lyr.count_lyrics(lyrics_text)
-    ready = song_up is not None and lyric_line_count > 0
-    run_clicked = st.button(
-        "Prepare audio and match lyrics", type="primary", disabled=not ready or st.session_state.running,
-    )
-
     if run_clicked and ready and not st.session_state.running:
-        # Drop uploads into a per-run dir under the system temp.
-        run_root = Path(tempfile.mkdtemp(prefix="heartbeam_gui_"))
-        song_path = run_root / song_up.name
-        # The CLI takes a path; materialising one is our problem, not the
-        # user's. P02.1: nobody should have to create a .txt to use HeartBeam.
-        lyrics_path = run_root / "lyrics.txt"
-        out_dir = run_root / "out"
-        out_dir.mkdir()
-        song_path.write_bytes(song_up.getbuffer())
-        lyrics_path.write_text(lyrics_text, encoding="utf-8")
-        selected_candidate = st.session_state.get('generation_candidate')
-        if selected_candidate and selected_candidate[0] == upload_key:
-            candidate_path = run_root / 'lyrics-candidate.json'
-            candidate_path.write_text(json.dumps(selected_candidate[1]), encoding='utf-8')
-            extra_flags += ['--lyrics-candidate', str(candidate_path)]
+        try:
+            run_root = new_session(Path(song_up.name).stem)
+            song_path = run_root / Path(song_up.name).name
+            song_path.write_bytes(song_up.getbuffer())
+            # Materialising the CLI's lyric file is our job, not the user's.
+            lyrics_path = run_root / "lyrics.txt"
+            out_dir = run_root / "out"
+            out_dir.mkdir()
+            lyrics_path.write_text(lyrics_text, encoding="utf-8")
+            selected_candidate = st.session_state.get('generation_candidate')
+            if selected_candidate and selected_candidate[0] == upload_key:
+                candidate_path = run_root / 'lyrics-candidate.json'
+                candidate_path.write_text(json.dumps(selected_candidate[1]), encoding='utf-8')
+                extra_flags += ['--lyrics-candidate', str(candidate_path)]
+        except OSError as exc:
+            progress_slot.error(f"Could not store this song in {data_root()}: {exc}")
+            return
 
         st.session_state.log_lines = []
         st.session_state.status = {"progress": 0.0, "label": "Starting", "done": False, "returncode": None}
+        st.session_state.pop('prepare_error', None)
         st.session_state.out_dir = out_dir
         st.session_state.song_name = Path(song_up.name).stem
         st.session_state.separation_project_id = None
@@ -845,8 +845,8 @@ def _separation_page() -> None:
     # --- Progress / Output ---
     if st.session_state.running:
         status = st.session_state.status
-        st.progress(status["progress"], text=f"{status['label']} ({status['progress'] * 100:.0f}%)")
-        with st.expander("Live log", expanded=False):
+        progress_slot.progress(status["progress"], text=f"{status['label']} ({status['progress'] * 100:.0f}%)")
+        with progress_slot.expander("Live log", expanded=False):
             st.code("".join(st.session_state.log_lines[-200:]), language="text")
         if status["done"]:
             st.session_state.running = False
@@ -860,13 +860,19 @@ def _separation_page() -> None:
                 if adopted:
                     st.session_state.project_message = "Audio tracks are ready. Save your project and review lyric timing."
             else:
-                st.error(f"heartbeam exited with code {status['returncode']}. See log above.")
+                st.session_state.prepare_error = f"Audio preparation stopped (code {status['returncode']}). See the preparation log."
             st.rerun()
         else:
             time.sleep(1.0)
             st.rerun()
 
 def _separation_result() -> None:
+    failure = st.session_state.get('prepare_error')
+    if failure:
+        st.error(failure)
+        with st.expander('Preparation log'):
+            st.code(''.join(st.session_state.log_lines[-200:]), language='text')
+        return
     project = st.session_state.get("project")
     if not project or st.session_state.running:
         return
@@ -880,8 +886,8 @@ def _separation_result() -> None:
         if audio:
             st.audio(str(audio))
         generated = st.session_state.get("separation_project_id") == project.id
-        safe_name = re.sub(r'[^\w .-]', '_', project.name).strip(" .") or "Untitled song"
-        default = Path.home() / "Documents" / "HeartBeam Projects" / f"{safe_name}-{project.id[-6:]}" if generated else root
+        safe_name = safe_file_stem(project.name)
+        default = projects_dir() / f"{safe_name}-{project.id[-6:]}" if generated else root
         destination = st.text_input("Save project folder", str(default), key=f"next_save_{project.id}")
         if st.button("Save project and review timing" if pending else "Save project and edit video", key="save_and_edit", type="primary", disabled=st.session_state.get("project_readonly", False)):
             try:

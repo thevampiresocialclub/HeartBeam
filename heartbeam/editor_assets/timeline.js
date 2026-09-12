@@ -118,7 +118,7 @@ export default function (component) {
       <label>Vocal level <input class="hb-vocal-level" type="range" min="0" max="100" step="1" value="0"><output class="hb-vocal-value">0%</output></label>
       <p>0% = processed karaoke · 100% = original vocal level. Separation may also affect backing vocals. Draft audition has fixed headroom; final audio is mastered once.</p></div>
     <div class="hb-hint" role="status" aria-live="polite"></div>
-    <details class="hb-lyrics" open><summary>Lyrics — select a word to seek</summary><div class="hb-lines"></div></details>`;
+    <details class="hb-lyrics" open><summary>Lyrics · select a word to seek</summary><div class="hb-lines" tabindex="0" aria-label="Lyric lines, scroll for more"></div></details>`;
   parent.appendChild(root);
   const controls = document.createElement('div');
   controls.className = 'hb-editor hb-live-controls'; controls.tabIndex = 0;
@@ -128,7 +128,7 @@ export default function (component) {
   const audio = new HBTransport();
   const canvas = $('.hb-canvas'), ctx = canvas.getContext('2d'), scroll = $('.hb-scroll');
   const sourceSelect = $('.hb-source'), playButton = $('[data-act="play"]');
-  const hint = 'Click or drag the waveform to seek. Drag lyric blocks below it to edit timing. With the waveform focused, arrows seek; with a word selected, arrows nudge timing. Space plays. Ctrl+Z undoes.';
+  const hint = 'Waveform seeks. Drag word edges to adjust timing. Space plays; Ctrl+Z undoes.';
   const state = { words: [], sources: [], durationMs: 0, selectedId: null,
     zoom: 1, looping: false, drag: null, sourceId: null, sourceKey: null,
     peaks: {mins: [], maxs: []}, busy: false, pending: null, switchEpoch: 0,
@@ -205,6 +205,7 @@ export default function (component) {
     render();
   }
   function select(word, notify = false, shouldSeek = false) {
+    if (word?.id !== state.selectedId) revealWord(word?.id);
     if (word?.id !== state.selectedId) state.phraseLoop = null;
     state.selectedId = word?.id || null;
     if (word?.start_ms == null && !state.phraseLoop) state.looping = false;
@@ -218,6 +219,17 @@ export default function (component) {
     if (notify && word) bridge.setStateValue('selection', {
       word_id: word.id, nonce: `${Date.now()}:${++selectionSequence}`,
     });
+  }
+  function revealWord(id) {
+    const button = wordButtons.get(id);
+    if (!button) return;
+    const list = $('.hb-lines'), line = button.parentElement;
+    const listBox = list.getBoundingClientRect(), row = line.getBoundingClientRect();
+    if (row.top < listBox.top || row.bottom > listBox.bottom)
+      list.scrollTop += row.top - listBox.top;
+    const word = button.getBoundingClientRect();
+    if (word.left < row.left || word.right > row.right)
+      line.scrollLeft += word.left - row.left;
   }
   function rebuildLyrics() {
     const focusedId = controls.getRootNode().activeElement?.dataset?.wordId;
@@ -441,6 +453,7 @@ export default function (component) {
   $('.hb-zoom').addEventListener('input', e => { const start = xToMs(scroll.scrollLeft); state.zoom = Number(e.target.value); resize(); scroll.scrollLeft = msToX(start); draw(); });
   scroll.addEventListener('scroll', () => draw());
   function shortcuts(e) {
+    if (e.target.classList.contains('hb-lines')) return; // native keyboard scrolling
     if (e.target.closest('input, textarea, select, summary, [contenteditable="true"]')) return;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); commit(e.shiftKey ? 'redo' : 'undo'); return; }
     if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {

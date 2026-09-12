@@ -3,7 +3,7 @@
 ; Build: install Inno Setup 6 (winget install JRSoftware.InnoSetup), then
 ;   ISCC.exe installer\heartbeam.iss
 ; produces:
-;   installer\Output\HeartBeam-Setup-0.1.0.exe  (~80 MB)
+;   installer\Output\HeartBeam-Setup-0.1.0.exe (application and setup scripts)
 ;
 ; What this installer does on the user's machine:
 ;   1. Drops the HeartBeam source tree into %LOCALAPPDATA%\HeartBeam.
@@ -52,15 +52,15 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"
-Name: "installgpu"; Description: "Install the GPU build (requires NVIDIA CUDA 12.1+; adds ~2 GB to first-run download)"; GroupDescription: "Variant:"; Flags: unchecked
+Name: "installgpu"; Description: "Force the NVIDIA GPU build (CUDA 12.8; otherwise detect automatically)"; GroupDescription: "Variant:"; Flags: unchecked
 Name: "installmetal"; Description: "Also install the metal preset (Mesk Rifforge, ~2 GB)"; GroupDescription: "Optional models:"; Flags: unchecked
 
 [Files]
 ; ---- HeartBeam source tree ----
 Source: "..\pyproject.toml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\heartbeam\*"; DestDir: "{app}\heartbeam"; Flags: ignoreversion recursesubdirs
-Source: "..\scripts\*"; DestDir: "{app}\scripts"; Flags: ignoreversion recursesubdirs
+Source: "..\heartbeam\*"; DestDir: "{app}\heartbeam"; Excludes: "__pycache__\*,*.pyc,*.pyo"; Flags: ignoreversion recursesubdirs
+Source: "..\scripts\*"; DestDir: "{app}\scripts"; Excludes: "__pycache__\*,*.pyc,*.pyo"; Flags: ignoreversion recursesubdirs
 Source: "..\docs\*"; DestDir: "{app}\docs"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 
 ; Note: we do NOT bundle Python. install.ps1 winget-installs Python 3.12 on the

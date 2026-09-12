@@ -21,6 +21,9 @@ class HBPresentation {
     this.$ = selector => root.querySelector(selector);
     this.frame = this.$('.hb-preview'); this.canvas = this.$('.hb-ass');
     this.preview = null; this.ass = null; this.fontKey = null; this.drag = null;
+    this.fitObserver = new ResizeObserver(() => this.fit());
+    this.fitObserver.observe(root);
+    window.addEventListener('resize', () => this.fit(), {signal});
     this.frame.insertAdjacentHTML('afterbegin', '<img class="hb-background" alt="" hidden><video class="hb-background" muted playsinline preload="auto" hidden></video>');
     this.frame.insertAdjacentHTML('beforeend', '<div class="hb-safe" aria-hidden="true"></div><div class="hb-placement-handles"></div>');
     this.frame.insertAdjacentHTML('beforebegin', '<div class="hb-toolbar"><label>Preview line <select class="hb-preview-line" aria-label="Preview lyric line"></select></label><span class="hb-placement-scope"></span></div>');
@@ -41,6 +44,31 @@ class HBPresentation {
     signal.addEventListener('abort', () => this.dispose(), {once: true});
   }
   message(text) { this.$('.hb-preview-status').textContent = text; }
+  fit() {
+    if (!this.preview || !this.root.isConnected) return;
+    const pane = this.root.getRootNode().host?.closest('.st-key-hb_monitor');
+    const desktop = window.innerWidth >= 1000 && pane;
+    const aspect = this.preview.width / this.preview.height;
+    let width = this.root.clientWidth;
+    if (desktop) {
+      const top = Math.max(0, pane.getBoundingClientRect().top);
+      document.documentElement.style.setProperty('--hb-workspace-top', `${top}px`);
+      // Measure the actual wrapped controls and waveform, rather than assuming
+      // a fixed toolbar height or a landscape export. Resize also covers zoom.
+      const otherHeight = this.root.getBoundingClientRect().height - this.frame.getBoundingClientRect().height;
+      const available = Math.max(100, window.innerHeight - top - otherHeight - 16);
+      width = Math.min(width, available * aspect);
+    } else {
+      width = Math.min(width, Math.max(160, window.innerHeight * .55) * aspect);
+    }
+    const desired = `${Math.max(1, Math.floor(width))}px`;
+    if (this.frame.style.width !== desired) this.frame.style.width = desired;
+    // Canvas backing size must also update when only aspect ratio or browser
+    // pixel density changes. The renderer deduplicates identical sizes.
+    const displayedWidth = parseFloat(desired);
+    this.ass?.resize(Math.max(1, Math.round(displayedWidth * devicePixelRatio)),
+                     Math.max(1, Math.round(displayedWidth / aspect * devicePixelRatio)));
+  }
   update(preview, selection) {
     if (!preview) {
       this.preview = null; this.ass?.setTrack(''); this.assText = '';
@@ -51,7 +79,8 @@ class HBPresentation {
     this.preview = preview; this.selection = selection || {scope: 'song', guides: true, line_ids: []};
     this.frame.style.aspectRatio = `${preview.width} / ${preview.height}`;
     this.$('.hb-safe').hidden = !this.selection.guides;
-    this.$('.hb-placement-scope').textContent = `Placement: ${this.selection.label || 'Whole song'} · drag text or use Appearance controls`;
+    this.$('.hb-placement-scope').textContent = this.selection.label || 'Whole song';
+    this.$('.hb-placement-scope').title = 'Drag text to move it, or use the Appearance controls.';
     const chooser = this.$('.hb-preview-line'), selected = chooser.value;
     const choicesKey = JSON.stringify(preview.lines.map(line => [line.line_id, line.label]));
     if (chooser.dataset.choicesKey !== choicesKey) chooser.replaceChildren(...preview.lines.map((line, index) => {
@@ -73,7 +102,7 @@ class HBPresentation {
       this.ass.dispose(); this.ass = null; URL.revokeObjectURL(this.workerBlob);
     }
     this.fontKey = fonts;
-    const message = preview.draft || preview.conflicts ? 'Timing warnings: export can continue with the estimates and lyric timing shown here.' : 'Rendered lyrics: same ASS and font files as export. Guides show an approximate text box.';
+    const message = preview.draft || preview.conflicts ? 'Estimated timing shown. You can still export.' : '';
     if (!this.ass) {
       this.root.dataset.assReady = 'false';
       const absolute = path => new URL(path, location.href).href;
@@ -95,6 +124,7 @@ class HBPresentation {
       this.handles.set(line.line_id, button); this.$('.hb-placement-handles').appendChild(button);
     }
     this.render(this.audio.currentTime * 1000);
+    this.fit();
     if (focused) this.handles.get(focused)?.focus({preventScroll: true});
   }
   allowed(line) {
@@ -191,5 +221,5 @@ class HBPresentation {
       button.firstChild.textContent = `${Math.round(line.x + dx)}, ${Math.round(line.y + dy)}${line.exception ? ' · line exception' : ''}`;
     }
   }
-  dispose() { this.ass?.dispose(); if (this.workerBlob) URL.revokeObjectURL(this.workerBlob); this.video.pause(); this.video.removeAttribute('src'); }
+  dispose() { this.fitObserver.disconnect(); this.ass?.dispose(); if (this.workerBlob) URL.revokeObjectURL(this.workerBlob); this.video.pause(); this.video.removeAttribute('src'); }
 }

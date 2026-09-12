@@ -3,6 +3,7 @@ from pathlib import Path
 import streamlit as st
 
 from . import export_jobs as J, project as P
+from .export_names import default_video_filename, video_filename
 
 
 @st.fragment(run_every=1.0)
@@ -32,7 +33,8 @@ def _show_video(record, project, *, selection=False):
     if revision != project.revision:
         st.caption(f"This video is from revision {revision}. Render again to include newer edits.")
     st.video(str(path))
-    name = "karaoke-passage.mp4" if selection else "karaoke.mp4"
+    name = path.name
+    st.caption(f"Saved to {path}")
     st.download_button(f"Download {name}", path.read_bytes(), name, mime="video/mp4",
                        key=f"dl_{'selection' if selection else 'video'}_{path.parent.name}")
 
@@ -83,9 +85,15 @@ def render_controls(project, root, karaoke):
     busy = _active_status(project, root)
     readonly = st.session_state.get("project_readonly", False)
     if not busy:
+        name_key = f"chosen_export_name_{project.id}"
+        filename = st.text_input("Video filename", value=st.session_state.get(name_key, default_video_filename(project, root)),
+                                 key=f"export_filename_{project.id}",
+                                 help="Saved inside this project's exports folder. The .mp4 extension is added if needed.")
+        st.session_state[name_key] = filename
+        st.caption(f"Save location: {Path(root) / P.EXPORTS_DIR} · each render keeps its own folder")
         try:
             if st.button("Render video", type="primary", disabled=readonly):
-                job = J.start(project, root, karaoke)
+                job = J.start(project, root, karaoke, output_name=filename)
                 st.session_state[f"export_job_{project.id}"] = job.id
                 st.rerun()
         except (P.ProjectError, OSError, ValueError, RuntimeError) as exc:
@@ -100,7 +108,8 @@ def render_controls(project, root, karaoke):
                 if submitted:
                     try:
                         selection = (P.seconds_to_ms(start_s), P.seconds_to_ms(end_s))
-                        job = J.start(project, root, karaoke, selection)
+                        passage_name = video_filename(filename)[:-4] + '_passage.mp4'
+                        job = J.start(project, root, karaoke, selection, output_name=passage_name)
                         st.session_state[f"export_job_{project.id}"] = job.id
                         st.rerun()
                     except (P.ProjectError, OSError, ValueError, RuntimeError) as exc:

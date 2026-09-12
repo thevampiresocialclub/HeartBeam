@@ -20,14 +20,14 @@ Tracks the build program in `heartbeam-claude-handoff/`. Update after every proj
 | **P05 Visual lyric placement and styling** | **Complete; verification and limits below** |
 | **P06 Preview and export** | **Complete; verification and limits below** |
 | P07/R0 Reliable audio baseline | **Implemented; verification below** |
-| P07/R1 Find possible thinning | **First product pass implemented; listening validation remains** |
-| P07/R2 Recorded-instrument recovery | In progress |
+| P07/R1 Find possible thinning | **Archived by owner decision, 12 September** |
+| P07/R2 Recorded-instrument recovery | **Archived by owner decision, 12 September** |
 
 **P01 through P06 are implemented.** See the latest sections below for current verification; earlier sections are historical snapshots.
 
 **7 September timing follow-up:** Online lyrics lookup, phrase-first matching,
 and timing approval before the removal mix are implemented.
-**Latest full Python run: 355 passed. Current JavaScript tests: 27 passed.** See
+**Latest full Python run: 372 passed. Current JavaScript tests: 28 passed.** See
 `docs/TIMING_SYSTEM.md` and the verification section below. Automatic timing
 accuracy across songs remains unverified; uncertain words are retained for review.
 
@@ -1689,3 +1689,33 @@ selector that assumed every widget had a key; the corrected selector passed.
 was not rerun; no new live-browser playback claim is made by this checkpoint.
 
 See `docs/ARCHIVED-INSTRUMENT-RECOVERY.md` for retained lessons and re-entry rules.
+
+## Workstation UI update, 12 September 2026
+
+Implemented the owner's notes in `docs/UI-WORKSTATION-UPDATE.md`: a File popover,
+sequential uploads/metadata/search/lyrics/preparation, search feedback and result
+adoption in a separate dialog, Pop and automatic device defaults, and preparation
+progress/results immediately below the action. The editor removes repeated
+headings, gives Play the same compact sizing as Restart, fits its preview to
+available space, and keeps three lyric rows above independently scrolling settings.
+Next-line navigation reveals the selected row without enlarging that panel.
+
+Custom export names start with the original input basename plus `_karaoke.mp4`.
+They survive page changes and the immutable export path retains/reopens named
+outputs. New sessions/projects use Documents/HeartBeam outside the app and system
+temp, with a data-root override; existing folders and model caches stay put.
+`docs/FILES-AND-DISTRIBUTION.md` describes storage, backups and package boundaries.
+The installer excludes Python cache files and its GPU label now matches cu128.
+
+Final full suite: **372 Python tests passed in 29.77 seconds**. JavaScript:
+**28 passed**. A live in-app Chromium session verified File open/save-copy,
+search feedback dialog, word selection, synchronized waveform seeking, fixed
+three-row lyrics and independent settings scrolling, desktop/stacked layouts,
+and a complete named video export with matching download. See the UI plan for
+measured geometry and clock values. CUDA was confirmed on the RTX 5070.
+
+A local wheel build included all required editor/renderer files and no user
+media or development output. Firefox, native browser-zoom controls and a clean
+Windows installer lifecycle were not exercised; responsive viewport and
+pixel-density sizing checks are recorded separately. Instrument recovery stays
+archived; no audio-quality or ML accuracy change is claimed.

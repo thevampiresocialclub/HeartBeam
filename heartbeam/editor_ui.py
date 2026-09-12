@@ -370,7 +370,7 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
         sources = [s for s in sources if s['id'] != 'karaoke']
     available = [s for s in sources if s["available"]]
     if not available:
-        st.error("Relink the missing audio in the project sidebar before editing timing.")
+        st.error("Relink the missing audio in the File menu before editing timing.")
         return
     duration = available[0]["duration_ms"]
     from . import presentation_ui, presentation
@@ -378,17 +378,18 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
     monitor = left.container(key="hb_monitor")
     inspector = right.container(key="hb_inspector")
     with inspector:
-        st.subheader("Lyric controls")
         E.inspector_component()(data={"project_id": project.id}, key=f"hb_inspector_{project.id}")
         appearance_tab = lyrics_tab = timing_tab = vocals_tab = export_tab = None
-        if timing_review:
-            timing_tab, lyrics_tab, appearance_tab, export_tab = st.tabs(
-                ["Timing", "Lyrics", "Appearance", "Build karaoke"],
-                default="Timing", key=f"editor_tabs_{project.id}_review")
-        else:
-            appearance_tab, lyrics_tab, timing_tab, vocals_tab = st.tabs(
-                ["Appearance", "Lyrics", "Timing", "Vocals"],
-                key=f"editor_tabs_{project.id}_video")
+        settings = st.container(key="hb_settings")
+        with settings:
+            if timing_review:
+                timing_tab, lyrics_tab, appearance_tab, export_tab = st.tabs(
+                    ["Timing", "Lyrics", "Appearance", "Build karaoke"],
+                    default="Timing", key=f"editor_tabs_{project.id}_review")
+            else:
+                appearance_tab, lyrics_tab, timing_tab, vocals_tab = st.tabs(
+                    ["Appearance", "Lyrics", "Timing", "Vocals"],
+                    key=f"editor_tabs_{project.id}_video")
         appearance_selection = None
         if appearance_tab:
             with appearance_tab:
@@ -426,9 +427,6 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
                 if path.with_suffix('.mp3').is_file():
                     st.download_button("Download current karaoke.mp3", path.with_suffix('.mp3').read_bytes(), "karaoke.mp3", mime="audio/mpeg")
     with monitor:
-        st.subheader("Lyric timing preview" if timing_review else "Video preview")
-        if timing_review:
-            st.caption("Play the original and check the coloured word highlights against the singing. Select a word or line to adjust it, then open Build karaoke.")
         result = E.timeline_component()(data=payload, key=f"hb_timeline_{project.id}_{'review' if timing_review else 'video'}")
     selection_event = result.get("selection") if result else None
     if selection_event and selection_event.get("nonce") != st.session_state.get(f"selection_nonce_{project.id}"):
@@ -463,11 +461,11 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
         elif kind == "placement":
             change(project, lambda p: presentation.placement_command(p, data), command=command)
     message = st.session_state.pop("timing_message", None)
-    message_slot = inspector.empty()
+    message_slot = settings.empty()
     if message:
         (message_slot.success if message[0] == "ok" else message_slot.error)(message[1])
     if preview and preview["warnings"]:
-        with inspector.expander(f"Preview notes ({len(preview['warnings'])})"):
+        with settings.expander(f"Preview notes ({len(preview['warnings'])})"):
             for warning in preview["warnings"]:
                 st.write(warning)
     if lyrics_tab:

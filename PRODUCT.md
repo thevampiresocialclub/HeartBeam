@@ -24,7 +24,7 @@ when it finishes. Letter spacing and line height are editable. Missing word
 timings are estimated from surrounding words or a valid phrase window by default,
 with visible labels and an opt-out. Raw model data and manual timings stay intact.
 Entirely unanchored phrases still need a rough window before they can highlight.
-Preparation, timing review, video editing, optional music repair and export are
+Preparation, timing review, video editing and export are
 separate pages. Preparation
 saves the separated tracks and timing proposals; the removal mix waits for the
 user's explicit **Build karaoke and continue** action. A named project can be
@@ -39,8 +39,8 @@ plain inside known lyric/display windows; wholly unanchored lines are omitted
 with warnings. Timing approval is not required to render the saved audio mix.
 Never present estimated timing as an acoustic match or automatic user approval. Lyric, timing,
 phrase-window or linked-source changes invalidate that build approval. The desktop editor is a workstation with
-playback, video and waveform on the left and independently scrolling lyric,
-appearance, timing, vocal and music-repair controls on the right. Export has its
+playback, video and waveform on the left and three visible lyric selector rows
+above independently scrolling appearance, timing and vocal controls on the right. Export has its
 own final page. Play must be visible
 at the top and all preview surfaces must follow the same audio clock.
 The waveform is the song-position control: click or drag to seek without
@@ -52,10 +52,21 @@ words. Missing or ambiguous words stay visible for review. A user can bound and
 loop one phrase, retry selected lines, and keep manual timing corrections. The
 number of lyric rows on screen remains a presentation setting. Model failure
 must not discard completed separation or lyric text.
-P07 R0 and the first R1 pass add calibrated stem gain, one mastering policy, a
-CPU thin-spot scan and explicit local level repair. The experimental R2
-recorded-component reallocation remains outside the product until listening
-tests show musical improvement without returned vocals.
+Keep calibrated stem gain, one mastering policy and explicit local level repair.
+The thin-spot detector and experimental recorded-component recovery are archived
+after listening tests did not establish a useful improvement. Do not restore the
+scan or an extra workflow page as part of UI work.
+
+The September 12 UI update puts open/save/import/relink in a File popover.
+Preparation follows the user's work downward: single song and optional lyric
+uploads, title/artist, online search with a small Options menu, editable lyrics,
+Prepare, immediate progress/result, then genre (Pop) and Advanced settings.
+Search results and adoption use a separate dialog. Device selection defaults to
+automatic and retains the GPU memory policy. Preview size follows available
+height and the export aspect ratio. Play and Restart have equal compact sizing.
+New preparation sessions and projects use Documents/HeartBeam outside the app;
+existing folders and model caches remain usable. Video filenames default to the
+original input basename plus `_karaoke.mp4`, with an editable export name.
 Read BUILD-STATUS.md for the current verification record.
 
 ## Product character and principles

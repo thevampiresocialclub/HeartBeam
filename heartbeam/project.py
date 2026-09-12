@@ -709,6 +709,7 @@ def import_legacy_timings(project_dir: str | Path, timings_path: str | Path,
 
     legacy = timings_mod.from_json(tpath)
     project = create_project(root, name or tpath.parent.name or "Imported project")
+    project.provenance.settings['input_filename'] = str(legacy.source.audio_path)
     if legacy.alignment:
         project.alignment['last_run'] = {k:v for k,v in legacy.alignment.items() if k != 'phrases'}
         if legacy.alignment.get('failure'):

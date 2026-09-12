@@ -1,17 +1,29 @@
 /* The desktop monitor and inspector scroll independently inside one workspace. */
-[data-testid="stMainBlockContainer"] { padding: 3.6rem 1.8rem 1rem; max-width: none; }
+[data-testid="stMainBlockContainer"] { padding: 3.1rem 1.4rem .6rem; max-width: none; }
 [data-testid="stMainBlockContainer"] h1 { font-size: 1.8rem; padding-top: 0; }
 [data-testid="stMainBlockContainer"] h3 { font-size: 1.15rem; padding-top: 0; }
 .st-key-hb_workflow { margin-bottom: .3rem; }
 .st-key-hb_monitor, .st-key-hb_inspector { min-width: 0; }
-.st-key-hb_inspector { padding: 0 .6rem 1rem; }
+.st-key-hb_inspector { padding: 0 .3rem 0; gap: .6rem; }
+.st-key-hb_settings { min-width: 0; }
+.st-key-hb_workflow button { white-space: nowrap; }
 .st-key-hb_inspector [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: 1rem; }
 .st-key-hb_separation { max-width: 900px; margin-inline: auto; }
 @media (min-width: 1000px) {
   .st-key-hb_monitor, .st-key-hb_inspector {
-    height: calc(100dvh - 184px) !important;
-    max-height: calc(100dvh - 184px); min-height: 0 !important;
-    overflow-y: auto; overscroll-behavior-y: contain;
+    height: calc(100dvh - var(--hb-workspace-top, 150px) - 12px) !important;
+    max-height: calc(100dvh - var(--hb-workspace-top, 150px) - 12px) !important;
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+  }
+  .st-key-hb_monitor { overflow-y: auto; }
+  .st-key-hb_inspector { overflow: hidden; }
+  .st-key-hb_inspector > div:has(> .st-key-hb_settings) {
+    flex: 1 1 0% !important; min-height: 0; overflow: hidden;
+  }
+  .st-key-hb_settings {
+    flex: 1 1 0% !important; min-height: 0 !important;
+    overflow-y: auto; overscroll-behavior-y: contain; padding: 0 .5rem .5rem 0;
     scrollbar-gutter: stable;
   }
 }
@@ -20,4 +32,7 @@
   [data-testid="stColumn"]:has(.st-key-hb_monitor),
   [data-testid="stColumn"]:has(.st-key-hb_inspector) { width: 100%; flex: 1 1 100%; }
   [data-testid="stMainBlockContainer"] { padding-inline: 1rem; }
+  .st-key-hb_settings { max-height: 65dvh; overflow-y: auto; }
+  .st-key-hb_workflow > [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: .5rem; }
+  .st-key-hb_workflow [data-testid="stColumn"] { flex: 1 1 auto; width: auto; min-width: fit-content; }
 }

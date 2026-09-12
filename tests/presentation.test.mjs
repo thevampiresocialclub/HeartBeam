@@ -7,6 +7,32 @@ const source = fs.readFileSync(new URL('../heartbeam/editor_assets/presentation.
 const context = {console}; vm.createContext(context);
 vm.runInContext(`${source}\nglobalThis.Presentation = HBPresentation; globalThis.scenePosition = hbScenePosition;`, context);
 const Prototype = context.Presentation.prototype;
+
+test('preview fits portrait and landscape without changing its playback clock', () => {
+  context.window = {innerWidth: 1440, innerHeight: 900};
+  context.devicePixelRatio = 2;
+  context.document = {documentElement: {style: {setProperty() {}}}};
+  const pane = {getBoundingClientRect: () => ({top: 150})};
+  const obj = Object.create(Prototype), calls = [];
+  obj.frame = {style: {}, getBoundingClientRect: () => ({height: 200})};
+  obj.root = {isConnected: true, clientWidth: 760,
+    getRootNode: () => ({host: {closest: () => pane}}),
+    getBoundingClientRect: () => ({height: 500})};
+  obj.audio = {currentTime: 7.25};
+  obj.ass = {resize: (...size) => calls.push(size)};
+  obj.preview = {width: 1920, height: 1080};
+  obj.fit();
+  assert.equal(parseFloat(obj.frame.style.width), 760);
+  obj.preview = {width: 1080, height: 1920};
+  obj.fit();
+  assert.ok(parseFloat(obj.frame.style.width) < 250);
+  const [w, h] = calls.at(-1);
+  assert.ok(h > w && h <= 868);
+  assert.equal(obj.audio.currentTime, 7.25);
+  context.devicePixelRatio = 1;
+  obj.fit();
+  assert.ok(Math.abs(calls.at(-1)[0] * 2 - w) <= 1);
+});
 function subject() {
   const line = {line_id:'a', ass_name:'Line0', x:960,y:850,word_id:'w0'};
   const another = {line_id:'b', ass_name:'Line1', x:200,y:120,word_id:'w1'};

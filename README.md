@@ -47,7 +47,17 @@ The install script handles: Python 3.10+ check, ffmpeg install (via winget on Wi
 
 ### Shareable Windows installer
 
-For distributing to non-technical users, build a single-`.exe` installer with Inno Setup. See `installer/README.md` — produces a ~80 MB `HeartBeam-Setup.exe` that handles everything (deps download on first run).
+For distributing to non-technical users, build a single `.exe` installer with Inno Setup. See [installer/README.md](installer/README.md). It ships the app and setup scripts; Python, FFmpeg, dependencies and model weights are installed or downloaded separately.
+
+### Projects and output folders
+
+The **File** menu opens, saves and copies projects. New GUI preparation sessions
+are retained in `Documents/HeartBeam/Sessions`; named projects default to
+`Documents/HeartBeam/Projects`. Windows Documents redirection is respected.
+Existing projects stay in place. Videos live in each project's `exports` folder,
+with the default name `input_filename_karaoke.mp4` and a custom-name field beside
+**Render video**. See [Files and distribution](docs/FILES-AND-DISTRIBUTION.md) for
+backup guidance, folder overrides and packaging boundaries.
 
 ### Manual install
 

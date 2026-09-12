@@ -86,6 +86,8 @@ def test_new_session_starts_with_no_project():
     assert "Karaoke video" not in labels, "video controls need a song first"
     assert at.session_state["workflow_step"] == "separation"
     assert at.button(key="step_video").disabled
+    assert next(s for s in at.selectbox if s.label == 'Genre profile').value == 'pop'
+    assert next(s for s in at.selectbox if s.label == 'Alignment device').value == 'auto'
 
 
 def test_manual_level_range_survives_playback_and_page_changes(tmp_path, monkeypatch):
@@ -111,7 +113,7 @@ def test_manual_level_range_survives_playback_and_page_changes(tmp_path, monkeyp
     assert not at.exception
     repair = at.session_state['project'].music_repair.repairs[0]
     assert (repair.start_ms, repair.end_ms) == (100, 800)
-    at.button(key='workstation_save').click().run()
+    at.button(key='save_project').click().run()
     assert P.load_project(root).music_repair.repairs[0].status == 'applied'
     at.button(key=f'disable_repair_{repair.id}').click().run()
     assert not at.exception
@@ -137,7 +139,7 @@ def test_parked_repair_session_and_saved_suggestions_do_not_gate_export(tmp_path
     assert not at.exception
     assert any(b.label == 'Render video' for b in at.button)
     assert not any('music-repair suggestion' in w.value for w in at.warning)
-    at.button(key='workstation_save').click().run()
+    at.button(key='save_project').click().run()
     assert P.load_project(root).music_repair.suggestions == [suggestion]
 
 
@@ -213,7 +215,7 @@ def test_online_search_keeps_draft_until_user_chooses_result(monkeypatch):
     at=_fresh_app()
     at.text_area(key='lyrics_text').set_value('my existing draft').run()
     before=at.session_state['lyrics_text']
-    next(b for b in at.button if b.label == 'Find lyrics').click().run()
+    next(b for b in at.button if b.label == 'Find lyrics online').click().run()
     assert not at.exception
     assert at.session_state['lyrics_text'] == before
     at.button(key='lookup_use_generate_empty').click().run()
@@ -357,8 +359,8 @@ def test_finished_separation_saves_to_chosen_folder_and_enters_workstation(tmp_p
     assert saved.word_ids() == original_ids
     assert saved.original_alignment == original_timing
     assert saved.asset_by_role("karaoke_audio").resolve(destination).is_file()
-    assert any(s.value == "Video preview" for s in at.subheader)
-    assert any(s.value == "Lyric controls" for s in at.subheader)
+    assert at.button(key="step_video").disabled
+    assert [tab.label for tab in at.tabs] == ["Appearance", "Lyrics", "Timing", "Vocals"]
     assert not any(b.label == "Prepare audio and match lyrics" for b in at.button)
     assert len(at.get("audio")) == 0
     at.button(key="step_separation").click().run()
@@ -464,8 +466,7 @@ def test_import_existing_timings_and_audio_enters_editing(tmp_path):
     assert "Karaoke video" in [s.value for s in at.subheader]
 
 
-@pytest.mark.parametrize("save_key", ["save_project", "workstation_save"])
-def test_saving_marks_the_project_clean(tmp_path, save_key):
+def test_saving_marks_the_project_clean(tmp_path):
     project_dir = _existing_song_project(tmp_path)
     at = _fresh_app()
     at.text_input(key="open_project_path").set_value(str(project_dir))
@@ -475,7 +476,7 @@ def test_saving_marks_the_project_clean(tmp_path, save_key):
     at.run()
     assert any("unsaved changes" in c.value for c in at.caption)
 
-    at.button(key=save_key).click().run()
+    at.button(key="save_project").click().run()
     assert not at.exception
     assert any("saved" in c.value and "unsaved" not in c.value for c in at.caption)
     assert P.load_project(project_dir).name == "Edited"
@@ -520,7 +521,7 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
     outputs = []
     while time.time() < until and not outputs:
         time.sleep(.05); at.run()
-        outputs = list((project_dir / P.EXPORTS_DIR).glob("rev-*/karaoke.mp4"))
+        outputs = list((project_dir / P.EXPORTS_DIR).glob("rev-*/karaoke_karaoke.mp4"))
     assert len(outputs) == 1
     out = outputs[0]
     assert (out.parent / "project-snapshot.json").exists()
