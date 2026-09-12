@@ -58,6 +58,14 @@ function hbFollowPosition(ms, duration, width, viewport, left) {
   return left;
 }
 
+function hbWordSeek(word) {
+  const hasExactTiming = Number.isFinite(word?.start_ms)
+    && Number.isFinite(word?.end_ms)
+    && word.end_ms > word.start_ms;
+  const value = hasExactTiming ? word.start_ms : word?.seek_ms;
+  return Number.isFinite(value) ? value : null;
+}
+
 // The AudioContext is the only playback clock. Browser-only audition state
 // survives Streamlit reruns; only selections and committed edits cross the bridge.
 export default function (component) {
@@ -212,7 +220,8 @@ export default function (component) {
     $('.hb-sel').textContent = word ? `Selected: ${word.text}${word.estimated ? ' (estimated timing)' : word.start_ms == null ? ' (needs timing)' : ''}` : '';
     for (const [id, button] of wordButtons) button.setAttribute('aria-pressed', String(id === state.selectedId));
     syncLoop();
-    if (shouldSeek && word?.start_ms != null) seek(word.start_ms);
+    const target = hbWordSeek(word);
+    if (shouldSeek && target !== null) seek(target, true);
     buttons(); draw();
     // Selection is persistent component state. A one-shot trigger can be lost
     // when a nearby Python button causes another rerun before it is consumed.
@@ -242,7 +251,9 @@ export default function (component) {
       button.setAttribute('aria-pressed', String(word.id === state.selectedId));
       button.classList.toggle('needs-timing', word.start_ms == null);
       button.classList.toggle('estimated-timing', !!word.estimated);
-      button.title = word.start_ms == null ? 'Needs timing' : `${word.estimated ? 'Estimated: ' : ''}${fmt(word.start_ms)} – ${fmt(word.end_ms)}`;
+      button.title = word.start_ms == null
+        ? (word.seek_ms == null ? 'Needs timing; no line position is available' : `Needs timing; click seeks to ${fmt(word.seek_ms)} within its line`)
+        : `${word.estimated ? 'Estimated: ' : ''}${fmt(word.start_ms)} – ${fmt(word.end_ms)}`;
       button.addEventListener('click', () => select(state.words.find(w => w.id === word.id), true, true));
       wordButtons.set(word.id, button); lines.get(word.line_id).appendChild(button);
     }

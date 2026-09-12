@@ -1719,3 +1719,23 @@ media or development output. Firefox, native browser-zoom controls and a clean
 Windows installer lifecycle were not exercised; responsive viewport and
 pixel-density sizing checks are recorded separately. Instrument recovery stays
 archived; no audio-quality or ML accuracy change is claimed.
+
+## Lyric-pane seek reliability, 12 September 2026
+
+Lyric word clicks now always use a deliberate navigation target. Resolved words
+seek to their exact start. An unresolved word inside a timed lyric line receives
+a browser-only position interpolated between its surrounding resolved words or
+the line display boundaries. That hint does not create timing, approve the word,
+or make it highlight. A malformed partial timing also falls back to the line hint.
+
+A live in-app Chromium test used a five-word line with two deliberately untimed
+words. Clicking them sought to 2,533 ms and 3,467 ms, kept both words unresolved,
+updated the preview clock, and preserved active playback through the Streamlit
+selection rerun. Resolved-word seeking remained exact. No browser warnings or
+errors appeared. Firefox was not available for direct automation in this pass;
+the repaired path uses native button clicks and the shared transport seek method.
+
+Final verification: **373 Python tests passed in 27.45 seconds** and **29
+JavaScript tests passed**. The added tests cover unresolved navigation without
+fake timing, exact-time priority, malformed partial timing, and missing hints.
+`git diff --check` passed.

@@ -25,6 +25,7 @@ import hashlib
 from typing import Any
 
 from .project import Project, WordTiming
+from .project_preview import line_window
 
 ASSET_DIR = Path(__file__).parent / "editor_assets"
 
@@ -46,7 +47,7 @@ def _read_asset(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def words_payload(project: Project) -> list[dict[str, Any]]:
+def words_payload(project: Project, duration_ms: int | None = None) -> list[dict[str, Any]]:
     """Flatten the project's words into what the timeline needs to draw.
 
     Unresolved words are included with null times rather than dropped: they are
@@ -54,24 +55,54 @@ def words_payload(project: Project) -> list[dict[str, Any]]:
     visible and selectable.
     """
     out: list[dict[str, Any]] = []
-    for line, word in project.iter_words():
-        if word.non_sung:
-            continue
-        timing = project.effective_timing(word.id)
-        start = timing.start_ms if timing else None
-        end = timing.end_ms if timing else None
-        score = timing.score if timing and timing.score is not None else 1.0
-        out.append({
-            "id": word.id,
-            "text": word.text,
-            "line_id": line.id,
-            "start_ms": start,
-            "end_ms": end,
-            "low_confidence": bool(score < LOW_CONFIDENCE),
-            "estimated": bool(timing and timing.estimated),
-            "edited": word.id in project.timing_edits,
-            "reviewed": project.reviewed.get(word.id, False),
-        })
+    for line in project.lines:
+        sung = [word for word in line.words if not word.non_sung]
+        timings = [project.effective_timing(word.id) for word in sung]
+        window = None
+        if duration_ms is not None:
+            window = line_window(project, line, duration_ms)
+        hints: list[int | None] = [
+            timing.start_ms if timing and timing.resolved else None
+            for timing in timings]
+        if window:
+            index = 0
+            while index < len(sung):
+                if hints[index] is not None:
+                    index += 1
+                    continue
+                first = index
+                while index < len(sung) and hints[index] is None:
+                    index += 1
+                left_timing = timings[first - 1] if first else None
+                right_timing = timings[index] if index < len(sung) else None
+                left = left_timing.end_ms if left_timing and left_timing.resolved else window[0]
+                right = right_timing.start_ms if right_timing and right_timing.resolved else window[1]
+                if right <= left:
+                    left, right = window
+                count = index - first
+                for offset in range(count):
+                    hints[first + offset] = round(left + (right - left) * (offset + 1) / (count + 1))
+        for index, word in enumerate(sung):
+            timing = timings[index]
+            start = timing.start_ms if timing else None
+            end = timing.end_ms if timing else None
+            score = timing.score if timing and timing.score is not None else 1.0
+            # Selection and navigation need a position even when the user has
+            # intentionally kept an unresolved word. This hint is browser-only:
+            # it does not become timing, a highlight, or an approval.
+            seek_ms = hints[index]
+            out.append({
+                "id": word.id,
+                "text": word.text,
+                "line_id": line.id,
+                "start_ms": start,
+                "end_ms": end,
+                "seek_ms": seek_ms,
+                "low_confidence": bool(score < LOW_CONFIDENCE),
+                "estimated": bool(timing and timing.estimated),
+                "edited": word.id in project.timing_edits,
+                "reviewed": project.reviewed.get(word.id, False),
+            })
     return out
 
 
@@ -81,7 +112,7 @@ def build_payload(project: Project, sources: list[dict], duration_ms: int,
         "project_id": project.id,
         "frontend_version": hashlib.sha256((_read_asset("timeline.js") + _read_asset("audio_transport.js") + _read_asset("presentation.js") + _read_asset("timeline.css") + _read_asset("workstation.js")).encode()).hexdigest()[:12],
         "revision": project.revision,
-        "words": words_payload(project),
+        "words": words_payload(project, duration_ms),
         "sources": sources,
         "duration_ms": duration_ms,
         "selected_id": selected_id,

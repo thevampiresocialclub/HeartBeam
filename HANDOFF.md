@@ -321,3 +321,17 @@ are listed in BUILD-STATUS.
 The standing user preference is to distinguish uncertainty from verified facts.
 Update BUILD-STATUS with commands, observations and limits after the next phase;
 do not replace that evidence with a confident summary.
+
+## Latest lyric-pane navigation repair
+
+Every lyric button now has an explicit seek rule. A resolved word uses its exact
+start. An unresolved word can use a temporary `seek_ms` interpolated within its
+valid line display window. This value exists only in the browser payload: it must
+never be saved as timing, treated as review, or used for highlighting. Keep this
+separation when changing matching or lyric controls.
+
+The intermittent failure was the unresolved-word branch, which selected a word
+but skipped the transport seek because `start_ms` was null. Live Chromium proof
+confirmed unresolved clicks at 2,533 ms and 3,467 ms, synchronized preview and
+continued playback through the selection rerun. Firefox was not directly run in
+this pass. Current evidence is 373 Python and 29 JavaScript tests; see BUILD-STATUS.

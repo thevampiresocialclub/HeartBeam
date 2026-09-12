@@ -250,6 +250,22 @@ def test_payload_flags_low_confidence(tmp_path):
     assert payload[proj.word_ids()[1]]["low_confidence"] is False
 
 
+def test_unresolved_word_gets_navigation_hint_without_fake_timing(tmp_path):
+    proj = _project(tmp_path)
+    proj.alignment['estimate_missing_words'] = False
+    wid = proj.word_ids()[1]
+    proj.original_alignment.pop(wid)
+    proj.timing_edits[wid] = P.WordTiming(reason="needs timing")
+    line = proj.lines[0]
+    line.display_start_ms, line.display_end_ms = 0, 3000
+
+    payload = {word["id"]: word for word in ed.words_payload(proj, 4000)}
+    assert payload[wid]["start_ms"] is None
+    assert payload[wid]["end_ms"] is None
+    assert payload[wid]["seek_ms"] == 700
+    assert proj.effective_timing(wid).resolved is False
+
+
 def test_non_sung_words_are_not_sent_to_the_timeline(tmp_path):
     proj = _project(tmp_path)
     proj.lines[0].words[0].non_sung = True
