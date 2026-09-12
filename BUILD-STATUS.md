@@ -1644,3 +1644,48 @@ Evidence and user-openable audio: `heartbeam-listening-20260912/` and
 `heartbeam-audio-research/R2-SCREENING-REPORT.md` records the next decision gate.
 The owner explicitly requests comparison MP3 outputs with future audio-quality
 work. Do not substitute test metrics or WAV-only references for those files.
+
+## Owner decision: archive recovery and restore direct export, 12 September 2026
+
+The owner listened to the comparisons and reported little audible difference;
+the selected current-separation examples already sounded acceptable. Instrument
+recovery is **parked**, with no perceptual benefit established by these trials.
+Do not automatically continue R2 or infer a general detector accuracy score from
+this small listening sample. The owner requested a selective rollback that keeps
+useful fixes and the recoverable technique.
+
+The active workflow is now **Prepare Audio → Review Timing → Edit Video → Export**.
+The Music Repair stage, automatic thin-spot detector, consensus/donor-screening
+algorithm and experiment runner are removed from active code. Sessions left on
+the old repair page resume in video editing. Saved unreviewed suggestions remain
+serialized for compatibility and neither alter audio nor gate/warn on export.
+
+Retained: common stem calibration and shared mastering; optional manual passage
+lifts under **Vocals → Instrumental volume**; persistent drafts and Apply/Undo;
+effective instrumental consistency across solo audition, preview and export;
+legacy-mix validation; schema-1 backup/migration and existing schema-2 repairs;
+reusable verified MP3 comparison tools. Previous timing, Firefox transport and
+export reliability fixes are unchanged. Owner projects were not rewritten.
+
+The pre-rollback checkpoint `02c1543` is pinned by tag
+`archive/instrument-recovery-2026-09-12`. A verified standalone Git bundle, source
+ZIP, and **1,962 evidence files** (including all 66 current MP3 comparisons) are
+stored in `C:/Users/young/Documents/Codex/HeartBeam-Archives/instrument-recovery-2026-09-12/`.
+The 443,300,520-byte evidence ZIP was read back and every member hash checked;
+source ZIP integrity and complete bundle history were verified. The archive
+records package SHA-256 values and restore instructions. Original evidence files
+remain in place. Claude handoffs are explicitly marked parked and their packager
+is pinned to the archived experimental source rather than the active app.
+
+Final verification: **358 Python tests passed in 27.28 seconds**, including
+real video generation in the application workflow suite. The focused workflow,
+manual repair, stem mix, calibration and MP3 suite passed **45 tests**. Eleven
+detector/reallocation cases moved with their archived code; one new compatibility
+case verifies old repair-page sessions and suggestions do not block direct export.
+The retained draft test now exercises playback reruns, leaving/returning to the
+editor, Apply, save and disabling an adjustment. The first run hit a test-only
+selector that assumed every widget had a key; the corrected selector passed.
+`git diff --check` passed. JavaScript was unchanged and its prior 27-test evidence
+was not rerun; no new live-browser playback claim is made by this checkpoint.
+
+See `docs/ARCHIVED-INSTRUMENT-RECOVERY.md` for retained lessons and re-entry rules.

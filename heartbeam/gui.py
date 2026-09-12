@@ -649,13 +649,7 @@ def _timing_editor(project, project_dir: Path, karaoke_path: Path, *, stage="vid
     ui.render(project, project_dir, karaoke_path,
               lyrics_editor=_lyrics_editor,
               export_controls=_review_controls if review else None,
-              repair_controls=_music_repair_controls if stage == "repair" else None,
-              timing_review=review, repair_mode=stage == "repair")
-
-
-def _music_repair_controls(project, root, karaoke_path):
-    from heartbeam.repair_ui import controls
-    controls(project, root, karaoke_path)
+              timing_review=review)
 
 
 def main() -> None:
@@ -676,10 +670,13 @@ def main() -> None:
     project = st.session_state.get("project")
     from heartbeam.timing_review import approved
     step = st.session_state.setdefault("workflow_step", "video" if project else "separation")
-    if project and step in ("video", "repair", "export") and not approved(project):
+    if step == "repair":
+        # A session open during the rollback resumes in the existing editor.
+        step = st.session_state.workflow_step = "video" if project else "separation"
+    if project and step in ("video", "export") and not approved(project):
         step = st.session_state.workflow_step = "review"
     with st.container(key="hb_workflow"):
-        title, back, review_step, next_step, repair_step, export_step, save = st.columns([1.5, 1.1, 1.2, 1.1, 1.2, 1.0, .8])
+        title, back, review_step, next_step, export_step, save = st.columns([1.5, 1.1, 1.2, 1.1, 1.0, .8])
         title.title("HeartBeam")
         if back.button("1 · Prepare audio", key="step_separation", disabled=step == "separation" or st.session_state.running):
             st.session_state.workflow_step = "separation"
@@ -690,11 +687,7 @@ def main() -> None:
         if next_step.button("3 · Edit video", key="step_video", disabled=not project or not approved(project) or step == "video" or st.session_state.running):
             st.session_state.workflow_step = "video"
             st.rerun()
-        if repair_step.button("4 · Repair music", key="step_repair", disabled=not project or not approved(project) or step == "repair" or st.session_state.running):
-            st.session_state.workflow_step = "repair"
-            st.rerun()
-        export_locked = step not in ("repair", "export")
-        if export_step.button("5 · Export", key="step_export", disabled=not project or not approved(project) or export_locked or step == "export" or st.session_state.running):
+        if export_step.button("4 · Export", key="step_export", disabled=not project or not approved(project) or step == "export" or st.session_state.running):
             st.session_state.workflow_step = "export"
             st.rerun()
         if project and save.button("Save project", key="workstation_save", disabled=st.session_state.get("project_readonly", False) or st.session_state.running):
@@ -704,10 +697,9 @@ def main() -> None:
                 st.rerun()
             except (prj.ProjectError, OSError) as exc:
                 st.error(f"Could not save: {exc}")
-    if step in ("video", "review", "repair") and project:
+    if step in ("video", "review") and project:
         labels = {"review": "Check lyric timing before building karaoke",
-                  "video": "Video editing workstation",
-                  "repair": "Music repair review"}
+                  "video": "Video editing workstation"}
         label = labels[step]
         st.caption(f"{project.name} · {label} · {'Unsaved changes' if _is_dirty() else 'Saved'}")
         audio, _ = _project_media(project, st.session_state.project_dir)
@@ -726,9 +718,6 @@ def main() -> None:
         if not audio:
             st.warning("Relink the karaoke audio before exporting.")
         else:
-            pending_repairs = sum(item.status == "unreviewed" for item in project.music_repair.suggestions)
-            if pending_repairs:
-                st.warning(f"{pending_repairs} music-repair suggestion(s) were not reviewed. They will not be applied; export can continue.")
             _editor_exports(project, st.session_state.project_dir, audio)
     else:
         with st.container(key="hb_separation"):

@@ -88,7 +88,7 @@ def test_new_session_starts_with_no_project():
     assert at.button(key="step_video").disabled
 
 
-def test_repair_range_survives_scan_revision_and_is_applied_to_requested_passage(tmp_path, monkeypatch):
+def test_manual_level_range_survives_playback_and_page_changes(tmp_path, monkeypatch):
     from heartbeam import editor as ED, timing_review as T
     from tests.test_timing_review import pending
     root = tmp_path/'repair-draft'; root.mkdir()
@@ -99,17 +99,46 @@ def test_repair_range_survives_scan_revision_and_is_applied_to_requested_passage
     at = _fresh_app()
     at.text_input(key='open_project_path').set_value(str(root))
     at.button(key='open_project_btn').click().run()
-    at.button(key='step_repair').click().run()
-    next(w for w in at.number_input if w.label=='Start (ms)').set_value(100)
-    next(w for w in at.number_input if w.label=='End (ms)').set_value(800)
-    at.button(key=f'scan_music_{project.id}').click().run()
+    next(w for w in at.number_input if (w.key or '').startswith('repair_start_')).set_value(100)
+    next(w for w in at.number_input if (w.key or '').startswith('repair_end_')).set_value(800)
+    at.button(key=f'play_level_range_{project.id}').click().run()
+    at.button(key='step_export').click().run()
+    at.button(key='step_video').click().run()
     assert not at.exception
-    assert next(w for w in at.number_input if w.label=='Start (ms)').value == 100
-    assert next(w for w in at.number_input if w.label=='End (ms)').value == 800
+    assert next(w for w in at.number_input if (w.key or '').startswith('repair_start_')).value == 100
+    assert next(w for w in at.number_input if (w.key or '').startswith('repair_end_')).value == 800
     next(b for b in at.button if b.label=='Apply repair').click().run()
     assert not at.exception
     repair = at.session_state['project'].music_repair.repairs[0]
     assert (repair.start_ms, repair.end_ms) == (100, 800)
+    at.button(key='workstation_save').click().run()
+    assert P.load_project(root).music_repair.repairs[0].status == 'applied'
+    at.button(key=f'disable_repair_{repair.id}').click().run()
+    assert not at.exception
+    assert at.session_state['project'].music_repair.repairs[0].status == 'disabled'
+
+
+def test_parked_repair_session_and_saved_suggestions_do_not_gate_export(tmp_path):
+    root = _existing_song_project(tmp_path)
+    project = P.load_project(root)
+    suggestion = P.RepairSuggestion('old-hint', 500, 900, .9, 'Archived detector hint')
+    project.music_repair.suggestions.append(suggestion)
+    P.save_project(project, root)
+    at = _fresh_app()
+    at.text_input(key='open_project_path').set_value(str(root))
+    at.button(key='open_project_btn').click().run()
+    at.session_state['workflow_step'] = 'repair'
+    at.run()
+    assert not at.exception
+    assert at.session_state['workflow_step'] == 'video'
+    assert not any(b.key == 'step_repair' or b.label == 'Find thin spots' for b in at.button)
+    assert not at.button(key='step_export').disabled
+    at.button(key='step_export').click().run()
+    assert not at.exception
+    assert any(b.label == 'Render video' for b in at.button)
+    assert not any('music-repair suggestion' in w.value for w in at.warning)
+    at.button(key='workstation_save').click().run()
+    assert P.load_project(root).music_repair.suggestions == [suggestion]
 
 
 def test_prepared_song_requires_review_and_explicit_build_before_video(tmp_path,monkeypatch):
@@ -136,11 +165,9 @@ def test_prepared_song_requires_review_and_explicit_build_before_video(tmp_path,
     assert at.session_state['workflow_step']=='video'
     assert R.approved(P.load_project(root))
     assert not any(b.label=='Render video' for b in at.button)
-    assert at.button(key='step_export').disabled
-    at.button(key='step_repair').click().run()
-    assert at.session_state['workflow_step']=='repair'
     assert not at.button(key='step_export').disabled
-    at.button(key=f'repair_to_export_{project.id}').click().run()
+    assert not any(b.key == 'step_repair' for b in at.button)
+    at.button(key='step_export').click().run()
     assert at.session_state['workflow_step']=='export'
     assert any(b.label=='Render video' for b in at.button)
     at.button(key='step_review').click().run()
@@ -231,12 +258,11 @@ def test_opening_a_project_resumes_the_song_without_a_run(tmp_path):
     first_word = project.lines[0].words[0]
     assert project.effective_timing(first_word.id).start_ms == 500
 
-    # The song resumes in video editing, then passes through Music Repair before export.
+    # The song resumes in video editing and can go directly to export.
     assert at.session_state["workflow_step"] == "video"
-    assert at.button(key="step_export").disabled
-    at.button(key="step_repair").click().run()
-    assert "Music repair" in [s.value for s in at.subheader]
-    at.button(key=f"repair_to_export_{project.id}").click().run()
+    assert not at.button(key="step_export").disabled
+    assert not any(b.key == 'step_repair' for b in at.button)
+    at.button(key="step_export").click().run()
     assert "Karaoke video" in [s.value for s in at.subheader]
     assert any(b.label == "Render video" for b in at.button)
     assert at.session_state["out_dir"] is None
@@ -434,8 +460,7 @@ def test_import_existing_timings_and_audio_enters_editing(tmp_path):
     assert (dest / P.MANIFEST_NAME).exists()
     assert tj.exists(), "the user's original timings file must survive import"
     assert at.session_state["workflow_step"] == "video"
-    at.button(key="step_repair").click().run()
-    at.button(key=f"repair_to_export_{project.id}").click().run()
+    at.button(key="step_export").click().run()
     assert "Karaoke video" in [s.value for s in at.subheader]
 
 
@@ -481,8 +506,7 @@ def test_rendering_a_video_from_an_opened_project(tmp_path):
     at.button(key="open_project_btn").click().run()
 
     project = at.session_state["project"]
-    at.button(key="step_repair").click().run()
-    at.button(key=f"repair_to_export_{project.id}").click().run()
+    at.button(key="step_export").click().run()
 
     next(b for b in at.button if b.label == "Render video").click().run()
     assert not at.exception, at.exception

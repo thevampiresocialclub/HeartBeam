@@ -70,56 +70,6 @@ def test_schema_one_migrates_and_keeps_recoverable_backup(tmp_path):
     assert json.loads(manifest.read_text(encoding="utf-8"))["project_schema_version"] == 2
 
 
-def test_recorded_reallocation_recovers_supported_leak_and_conserves_stem_sum():
-    sr = 8000
-    t = np.arange(sr * 3, dtype=np.float32) / sr
-    stable = .10 * np.sin(2 * np.pi * 220 * t)
-    leaked_instrument = .05 * np.sin(2 * np.pi * 440 * t)
-    vocal = .08 * np.sin(2 * np.pi * 713 * t)
-    instrumental = stable
-    lead = vocal + leaked_instrument
-    backing = np.zeros_like(lead)
-    alternate = stable + leaked_instrument
-    ri, rl, rb, diagnostics = R.recorded_reallocation(
-        instrumental, lead, backing, alternate, sr, start_sample=sr // 2,
-        end_sample=sr * 5 // 2, fade_ms=50)
-    before = instrumental + lead + backing
-    np.testing.assert_allclose(ri + rl + rb, before, atol=2e-7)
-    center = slice(sr, sr * 2)
-    donor = ri - instrumental
-    recovered = abs(np.vdot(donor[center], leaked_instrument[center]))
-    vocal_leak = abs(np.vdot(donor[center], vocal[center]))
-    assert recovered > vocal_leak * 20
-    assert diagnostics["donor_rms"] > 0
-    assert diagnostics["alternate_model_count"] == 1
-    np.testing.assert_array_equal(ri[:sr // 2], instrumental[:sr // 2])
-    zero = R.recorded_reallocation(instrumental, lead, backing, alternate, sr, strength=0)
-    np.testing.assert_array_equal(zero[0], instrumental)
-
-    # A second model that does not support the leaked instrument should veto it.
-    conservative = R.recorded_reallocation(
-        instrumental, lead, backing, [alternate, stable], sr,
-        start_sample=sr // 2, end_sample=sr * 5 // 2, fade_ms=50)
-    assert conservative[3]["alternate_model_count"] == 2
-    assert conservative[3]["donor_rms"] < diagnostics["donor_rms"] * .05
-
-
-@pytest.mark.parametrize('leak', [.01, .1, .5])
-def test_shared_model_vocal_leak_cannot_authorize_a_larger_transfer(leak):
-    sr = 16000
-    t = np.arange(sr * 3) / sr
-    music = .1 * np.sin(2 * np.pi * 220 * t)
-    vocal = .08 * np.sin(2 * np.pi * 713 * t)
-    alternate = music + leak * vocal
-    fixed, _, _, _ = R.recorded_reallocation(
-        music, vocal, np.zeros_like(vocal), [alternate, alternate], sr,
-        start_sample=sr // 2, end_sample=sr * 5 // 2)
-    center = slice(sr, sr * 2)
-    returned = abs(np.vdot((fixed - music)[center], vocal[center]) /
-                   np.vdot(vocal[center], vocal[center]))
-    assert returned <= leak * 1.01
-
-
 def test_solo_instrumental_follows_apply_and_undo(tmp_path):
     from heartbeam import editor_media as EM
     p = _project(tmp_path)
@@ -142,45 +92,3 @@ def test_legacy_mix_cannot_silently_ignore_an_applied_repair(tmp_path):
     p.music_repair.repairs.append(R.create_level_repair(p, tmp_path, 500, 1500, gain_db=3))
     with pytest.raises(P.ProjectError, match='separate lead and backing'):
         V.checked_references(p, tmp_path)
-
-
-@pytest.mark.parametrize('leak', [.01, .03, .05, .1])
-def test_donor_guard_rejects_shared_vocal_residue_without_losing_isolated_music(leak):
-    sr = 16000; t = np.arange(sr * 3) / sr
-    music = .10 * np.sin(2 * np.pi * 220 * t)
-    lost = .05 * np.sin(2 * np.pi * 440 * t)
-    voice = .08 * np.sin(2 * np.pi * 713 * t)
-    stereo = lambda value: np.stack([value, value * .7], axis=1).astype('float32')
-    i, l, b = map(stereo, (music, voice + lost * .7, lost * .3))
-    alternate = stereo(music + lost + voice * leak)
-    guard = stereo(lost + voice * leak)
-    ri, rl, rb, diagnostic = R.recorded_reallocation(
-        i, l, b, [alternate, alternate], sr, donor_instrumental=[guard, guard],
-        start_sample=sr//2, end_sample=sr*5//2)
-    center = slice(sr, 2*sr); donor = (ri-i)[center, 0]
-    voice_return = abs(np.vdot(donor, voice[center]) / np.vdot(voice[center], voice[center]))
-    instrument_return = abs(np.vdot(donor, lost[center]) / np.vdot(lost[center], lost[center]))
-    assert voice_return < 1e-4
-    assert instrument_return > .7
-    assert diagnostic['donor_guard_count'] == 2
-    np.testing.assert_allclose(ri+rl+rb, i+l+b, atol=2e-7)
-    np.testing.assert_array_equal(ri[:sr//2], i[:sr//2])
-    np.testing.assert_array_equal(ri[sr*5//2:], i[sr*5//2:])
-    for lead_gain, backing_gain in [(0,0),(.03,.5),(.05,1),(1,1)]:
-        delta = (ri+rl*lead_gain+rb*backing_gain)-(i+l*lead_gain+b*backing_gain)
-        expected = (l-rl)*(1-lead_gain)+(b-rb)*(1-backing_gain)
-        np.testing.assert_allclose(delta, expected, atol=1e-7)
-
-
-def test_donor_guard_abstains_when_voice_and_music_are_indistinguishable():
-    sr=8000; t=np.arange(2*sr)/sr
-    # Half the same waveform is music, half is voice; there is no spectral
-    # evidence to tell them apart. Both guards must veto instead of guessing.
-    shared=(.1*np.sin(2*np.pi*440*t)).astype('float32')
-    zero=np.zeros_like(shared)
-    ri, _, _, _ = R.recorded_reallocation(zero, shared, zero, shared, sr,
-                                         donor_instrumental=shared*.5)
-    assert np.sqrt(np.mean(ri**2)) < 1e-7
-    with pytest.raises(P.ProjectError, match='sample basis'):
-        R.recorded_reallocation(zero, shared, zero, shared, sr,
-                                donor_instrumental=shared[:-1])

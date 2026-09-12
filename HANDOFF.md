@@ -1,13 +1,20 @@
 # HeartBeam handoff
 
-**Updated:** 12 September 2026 by Codex, including the offline removed-vocal
-screening experiment and verified MP3 comparison pack. Recovery remains experimental.
+**Updated:** 12 September 2026 by Codex. The owner has parked instrument recovery
+after listening; direct Video Editing → Export is restored. Useful fixes remain.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
 
 Read **BUILD-STATUS.md first**. It is the authoritative record of completion,
 tests, measured performance and remaining validation limits. This handoff
 explains how to continue without breaking the working editor.
+
+**Instrument recovery is archived, not the next task.** The owner found little
+audible difference and considered the supplied current separations acceptable.
+Do not resume that roadmap automatically. See
+`docs/ARCHIVED-INSTRUMENT-RECOVERY.md` for the verified archive, restoration
+instructions and retained fixes. Audio-quality work still needs openable MP3
+comparisons, as requested by the owner.
 
 P03, P04, P05 and **P06, dependable preview/export**, are implemented. The owner's
 follow-up timing system is now implemented too; read `docs/TIMING_SYSTEM.md`.
@@ -236,35 +243,16 @@ skip recognition; automatic missing-line recovery remains bounded and flagged.
 
 ## Current continuation point
 
-**12 September update:** R2 now compares an additional separation pass on the
-removed vocal stems, both as a veto on full-mix consensus and as the source of
-recovery proposals. A fixed 80% instrumental-purity gate rejects weak shared
-vocal residue in controlled tones, but the real-song candidates abstain almost
-entirely. Full common model misclassification still defeats it; this is not a
-voice-free guarantee. Do not lower the threshold just to make a demo audible.
-Read the latest BUILD-STATUS entry and external `R2-SCREENING-REPORT.md`.
-The owner specifically wants **openable comparison MP3 files with every audio
-quality milestone**. Preserve this requirement in future work. The current pack
-has 66 MP3s: two songs and a control, consistent-gain and matched-loudness versions,
-boosted recovered-only diagnostics, and 0/1/3/5% lead-stem reference mixes.
-Start at `C:/Users/young/Documents/Codex/2026-09-06/run/heartbeam-listening-20260912/START-HERE.md`.
-The benchmark accepts `--donor-guard --mute-vocals --mp3`; mute is in-memory only.
-The quality gate is still open; next obtain listening labels for baseline/lift/
-alternate separators and confirmed missing instruments before product integration.
-
-**11 September test update:** read the latest Music Repair acceptance entry in
-BUILD-STATUS before extending R2. Testing disproved the earlier optimistic
-Paloma donor result: the old mask amplified small shared vocal leakage. Version
-2 bounds donor amplitude; benchmark version 4 calibrates legacy stems first.
-Two songs and a control have now run, but automatic recovery has not passed its
-quality gate. Keep it offline. The repair workflow has Chrome/Firefox and real
-decoded-export evidence, plus fixes for solo audition and persistent range drafts.
-
-The GUI has preparation, timing-review, video-editing, music-repair and export
-pages, with a save-folder transition after preparation. Pending projects reopen
-in review; built projects open in video editing. Export is reached through the
-optional Music Repair review. Individual word or repair-suggestion review does
-not block the relevant continue button.
+The GUI has preparation, timing-review, video-editing and export pages, with a
+save-folder transition after preparation. Pending projects reopen in review;
+built projects open in video editing and can proceed directly to export.
+The Music Repair stage, detector and experimental recovery runner are archived.
+Manual local-level controls remain under Vocals → Instrumental volume, including
+Apply/Undo and persistent drafts. Saved applied adjustments continue to use the
+same instrumental in solo audition, mix playback and export. Old suggestions
+remain harmless serialized metadata; do not discard project schema 2 or silently
+drop an applied adjustment. A session left on the old repair page returns to video.
+The archive tag is `archive/instrument-recovery-2026-09-12` at `02c1543`.
 The desktop monitor and inspector are separate scroll containers. The right-pane
 component hosts the existing live lyric/vocal DOM controls through
 `editor_assets/workstation.js`; it never creates another transport. Preserve
@@ -292,21 +280,16 @@ Deliberate limits: static TTF/OTF faces only; missing glyphs block final output;
 box/overflow guides are metric estimates, with libass providing actual text;
 no pixel identity claim across rasterizers/colour management. Browser video
 preview needs a supported codec. Media still occupies RAM, and undo history
-remains session-local. P07 R0 and the first R1 product pass are implemented.
-`audio_calibration.py` puts new separator outputs on the decoded source basis;
-`audio_analysis.py` ranks local instrumental drops; `instrument_repair.py`
-applies only explicit, reversible level corrections; `repair_ui.py` owns the new
-step between video editing and export. Project schema 2 migrates schema 1 and
-keeps a pre-migration backup on first save. R2's controlled complementary-model
-and reallocation experiment has an offline first prototype in
-`tools/benchmark_instrument_repair.py`. `recorded_reallocation()` intersects
-BS-RoFormer and MDX Inst HQ3 evidence, filters the donor from existing vocal
-stems and conserves the full stem sum. Paloma listening packs are under
-`C:/Users/young/Documents/Codex/2026-09-06/run/heartbeam-audio-research/`.
-Do not expose it as an accepted repair method until listening and independent
-vocal-leakage checks pass. A volume dip is a review clue, not evidence
-of what musical content belongs there; do not auto-apply suggestions or call
-local gain missing-instrument reconstruction.
+remains session-local. P07 recovery research is parked. `audio_calibration.py`
+still puts new separator outputs on the decoded source basis;
+`instrument_repair.py` applies explicit, reversible level corrections and
+`repair_ui.py` exposes manual controls inside Vocals. Project schema 2 migrates
+schema 1 and keeps a pre-migration backup on first save. `listening_pack.py`
+remains available for honest common-gain/matched-loudness MP3 comparisons.
+The removed research code, experiments and test evidence are recoverable from
+`C:/Users/young/Documents/Codex/HeartBeam-Archives/instrument-recovery-2026-09-12/`.
+A volume dip is not evidence of a perceptible defect or of what music belongs
+there. Only revisit recovery for a clearly audible problem and a new request.
 Restart after cross-module updates so Streamlit cannot retain old imports.
 The owner already explicitly authorized restarting without saving in this session;
 do not repeat that approval request. The latest update was tested on isolated

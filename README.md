@@ -187,13 +187,15 @@ Opens a local Streamlit app at <http://localhost:8501> with five steps:
    **Appearance**, **Lyrics**, **Timing** and **Vocals** tabs. Each
    pane scrolls independently. A single Play button drives audio, highlighting,
    video backgrounds and the waveform.
-4. **Repair music:** optionally scan for accompaniment that becomes unusually
-   thin while the original stays steadier. Listen before applying a bounded,
-   reversible level correction, or skip the step. Suggestions never change the
-   song automatically and unreviewed suggestions only produce a warning.
-5. **Export:** use **Save project** in the top bar to keep edits, then render a
-   passage or the full MP4. Export uses only accepted repairs and the saved vocal
-   levels; skipped suggestions are not applied.
+   **Vocals → Instrumental volume** retains optional, reversible volume lifts
+   for a passage you choose. Existing saved adjustments remain editable there.
+4. **Export:** go directly from video editing to Export. Use **Save project**
+   in the top bar to keep edits, then render a passage or the full MP4. Export
+   uses your saved vocal levels and any explicitly applied volume adjustments.
+
+The automatic thin-spot detector and experimental instrument recovery are
+archived after listening did not demonstrate useful improvement. See
+`docs/ARCHIVED-INSTRUMENT-RECOVERY.md` for the preserved technique and evidence.
 
 In either editing page, **click or drag the waveform to seek**. The playhead,
 played portion, lyrics, video and time display follow the same audio clock.

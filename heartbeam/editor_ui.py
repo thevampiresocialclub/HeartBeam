@@ -363,7 +363,7 @@ def _alignment_tools(project, root, audio_duration_ms):
 
 
 def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=None,
-           repair_controls=None, timing_review=False, repair_mode=False):
+           timing_review=False):
     h = history(project)
     sources = media.build_sources(project, root, karaoke_path)
     if timing_review:
@@ -378,17 +378,13 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
     monitor = left.container(key="hb_monitor")
     inspector = right.container(key="hb_inspector")
     with inspector:
-        st.subheader("Repair controls" if repair_mode else "Lyric controls")
+        st.subheader("Lyric controls")
         E.inspector_component()(data={"project_id": project.id}, key=f"hb_inspector_{project.id}")
-        appearance_tab = lyrics_tab = timing_tab = vocals_tab = export_tab = repair_tab = None
+        appearance_tab = lyrics_tab = timing_tab = vocals_tab = export_tab = None
         if timing_review:
             timing_tab, lyrics_tab, appearance_tab, export_tab = st.tabs(
                 ["Timing", "Lyrics", "Appearance", "Build karaoke"],
                 default="Timing", key=f"editor_tabs_{project.id}_review")
-        elif repair_mode:
-            repair_tab, vocals_tab, timing_tab = st.tabs(
-                ["Repair music", "Vocal mix", "Timing"],
-                default="Repair music", key=f"editor_tabs_{project.id}_repair")
         else:
             appearance_tab, lyrics_tab, timing_tab, vocals_tab = st.tabs(
                 ["Appearance", "Lyrics", "Timing", "Vocals"],
@@ -486,6 +482,9 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
         with vocals_tab:
             selection = _vocal_controls(project, root, duration)
             _audio_tools(project, root)
+            with st.expander("Instrumental volume"):
+                from .repair_ui import controls as level_controls
+                level_controls(project, root, karaoke_path)
     template_changed = selection != st.session_state.get(f"vocal_template_{project.id}")
     st.session_state[f"vocal_template_{project.id}"] = selection
     if selection_changed or template_changed:
@@ -493,10 +492,6 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
     if appearance_tab:
         with appearance_tab:
             presentation_ui.controls(project, root, appearance_selection)
-    if repair_tab:
-        with repair_tab:
-            if repair_controls:
-                repair_controls(project, root, karaoke_path)
     if export_tab:
         with export_tab:
             if export_controls:
