@@ -141,6 +141,17 @@ boundaries. This is a conservative check, not proof of perceptually exact timing
 The whole lyric sequence remains context when only selected lines are refined,
 so repeated choruses retain their occurrence. Ambiguous repetitions are flagged.
 
+Since 12 September, a second phrase-assignment pass repairs unsupported blocks
+using unused recognition between existing anchors. It requires a matched opening
+word, at least 60% coverage, and bounded, continuous evidence. It chooses an
+ordered set of coherent phrase matches and consumes each recognized word once.
+This prevents optional backing lyrics from scattering an audible refrain across
+several lyric lines. Existing supported anchors remain fixed. Recognition caches
+are reusable; the new matcher is recorded as `phrase-coherent-v2` in diagnostics.
+Gap-only refinement also needs at least 60% supported words and cannot bridge an
+internal silence longer than three seconds. Failed gap searches keep their
+diagnostic window but do not supply a lyric/estimate window.
+
 Online timestamps are broader search hints. Their lyric tokens are reconciled
 across different line wrapping. Acceptance requires at least three acoustic
 anchors, 80% agreement within 1.5 seconds of a median offset, and corroboration
@@ -152,9 +163,13 @@ listening review. Multiple missing phrases are never spread across a gap.
 
 WhisperX refines words inside each phrase window. Missing/invalid boundaries,
 nonfinite scores or confidence below 0.1 leave that word unresolved. Confidence
-below 0.3, words under 40 ms, overlaps and long internal gaps need review. These
+below 0.3, words under 40 ms, overlaps over 100 ms and long internal gaps need review. These
 are heuristics, not calibrated accuracy probabilities. A per-phrase refinement
 failure retains that phrase's text and does not discard other phrases.
+Backwards word order is always flagged, even for a small overlap. This tolerance
+applies consistently to editor, phrase review, preparation and export warnings.
+Strict edit validation and strict export mode still inspect every overlap; no
+saved timing is shortened or shifted to silence a warning.
 
 ## Storage and application
 

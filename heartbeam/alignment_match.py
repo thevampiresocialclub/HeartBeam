@@ -66,6 +66,72 @@ def token_pairs(expected, observed):
     return pairs[::-1]
 
 
+def _phrase_anchor(index, text, hits, duration):
+    tokens = text.split()
+    start, end = hits[0][1]['start'], hits[-1][1]['end']
+    return dict(index=index, text=text, start_s=max(0, start-.35-hits[0][0]*.3),
+        end_s=min(duration, end+.45+(len(tokens)-1-hits[-1][0])*.3),
+        onset_s=start, source='audio', coverage=len(hits)/len(tokens),
+        word_evidence=[dict(position=k, start_s=w['start'], end_s=w['end'], score=w.get('score', 0))
+                       for k,w in hits if isinstance(w.get('score'), (int,float)) and
+                       w['score'] >= .3 and .04 <= w['end']-w['start'] <= 2.])
+
+
+def _recover_phrase_block(lines, observed, duration):
+    """Choose complete phrase matches, consuming each recognized word once.
+
+    Flat token alignment can scatter an audible refrain across several lyric
+    lines when optional backing lyrics repeat its words. Search only within the
+    gap between already supported phrases. Require a matched opening word and
+    the same coverage/duration checks as the primary matcher; never allocate
+    arbitrary text to the gap or combine matches across an instrumental break.
+    """
+    # Each prefix stores (score, linked list of chosen phrases). Skipping a
+    # lyric is allowed. Ties retain the earlier lyric and earlier audio match.
+    previous = [(0., None)] * (len(observed)+1)
+    for index, text in lines:
+        tokens = text.split()
+        candidates = {}
+        for start, first in enumerate(observed):
+            if not token_pairs(tokens[:1], [first['word']]):
+                continue
+            for stop in range(start+1, min(len(observed), start+len(tokens)*2)+1):
+                last = observed[stop-1]
+                if last['end']-first['start'] > max(12, len(tokens)*1.5):
+                    break
+                if stop > start+1 and last['start']-observed[stop-2]['end'] > 3.:
+                    break
+                chunk = observed[start:stop]
+                pairs = token_pairs(tokens, [w['word'] for w in chunk])
+                coverage = len(pairs)/len(tokens)
+                if coverage < .6 or len(pairs) < min(2, len(tokens)):
+                    continue
+                if pairs[0] != (0, 0) or pairs[-1][1] != len(chunk)-1:
+                    continue
+                hits = [(k, chunk[j]) for k,j in pairs]
+                if any(b['start']-a['end'] > 3. for (_,a),(_,b) in zip(hits,hits[1:])):
+                    continue
+                candidates.setdefault(stop, []).append((start, len(hits)*coverage, hits))
+        current = [previous[0]]
+        for stop in range(1, len(observed)+1):
+            best = previous[stop]
+            if current[-1][0] > best[0] + 1e-9:
+                best = current[-1]
+            for start, score, hits in candidates.get(stop, []):
+                total = previous[start][0]+score
+                if total > best[0] + 1e-9:
+                    anchor = _phrase_anchor(index, text, hits, duration)
+                    anchor['recovery'] = 'phrase-coherent matching'
+                    best = (total, (index, anchor, previous[start][1]))
+            current.append(best)
+        previous = current
+    anchors, node = {}, previous[-1][1]
+    while node:
+        index, anchor, node = node
+        anchors[index] = anchor
+    return anchors
+
+
 def phrase_anchors(lines, observed, duration):
     """Find source phrases in acoustically timed ASR words."""
     observed = [w for w in observed if w.get('start') is not None and w.get('end') is not None
@@ -73,7 +139,7 @@ def phrase_anchors(lines, observed, duration):
                 and 0 <= w['start'] < w['end'] <= duration + .05]
     expected = [t for _, text in lines for t in text.split()]
     pairs = dict(token_pairs(expected, [w['word'] for w in observed]))
-    anchors, cursor = {}, 0
+    anchors, spans, cursor = {}, {}, 0
     for index, text in lines:
         tokens = text.split()
         hits = [(k, observed[pairs[cursor+k]]) for k in range(len(tokens)) if cursor+k in pairs]
@@ -85,12 +151,22 @@ def phrase_anchors(lines, observed, duration):
         gaps = [b[1]['start'] - a[1]['end'] for a, b in zip(hits, hits[1:])]
         if max(gaps, default=0) > 3.0 or end-start > max(12, len(tokens)*1.5):
             continue
-        anchors[index] = dict(index=index, text=text, start_s=max(0, start-.35-hits[0][0]*.3),
-            end_s=min(duration, end+.45+(len(tokens)-1-hits[-1][0])*.3),
-            onset_s=start, source='audio', coverage=coverage,
-            word_evidence=[dict(position=k, start_s=w['start'], end_s=w['end'], score=w.get('score', 0))
-                           for k,w in hits if isinstance(w.get('score'), (int,float)) and
-                           w['score'] >= .3 and .04 <= w['end']-w['start'] <= 2.])
+        anchors[index] = _phrase_anchor(index, text, hits, duration)
+        spans[index] = (pairs[cursor-len(tokens)+hits[0][0]], pairs[cursor-len(tokens)+hits[-1][0]])
+    # Keep supported matches fixed. Recover orphaned lines only from unused
+    # recognition between them, so an extra lyric cannot steal another verse.
+    pending, lower = [], 0
+    for index, text in lines:
+        if index not in spans:
+            pending.append((index, text))
+            continue
+        start, end = spans[index]
+        if pending:
+            anchors.update(_recover_phrase_block(pending, observed[lower:start], duration))
+            pending = []
+        lower = end+1
+    if pending:
+        anchors.update(_recover_phrase_block(pending, observed[lower:], duration))
     return anchors
 
 
@@ -119,6 +195,14 @@ def compact_anchor(anchor, token_count):
     if start >= end or (start-anchor['start_s'] < .2 and anchor['end_s']-end < .2):
         return None
     return {**anchor, 'start_s': start, 'end_s': end, 'retry': 'acoustic word evidence'}
+
+
+def gap_refinement_supported(words):
+    """A bounded search gap becomes a phrase only with coherent word evidence."""
+    timed = [w for w in words if w['start_s'] is not None]
+    supported = [w for w in timed if (w.get('score') or 0) >= .3]
+    return bool(words) and len(supported) >= max(1, math.ceil(.6*len(words))) and all(
+        b['start_s']-a['end_s'] <= 3. for a,b in zip(timed, timed[1:]))
 
 
 def online_anchors(lines, synced_lines, audio_anchors, duration):
@@ -177,6 +261,7 @@ def online_anchors(lines, synced_lines, audio_anchors, duration):
 
 
 def word_review(words):
+    from .timing_quality import overlap_needs_review
     issues = []
     timed = [w for w in words if w.get('start_s') is not None]
     if len(timed) != len(words):
@@ -187,6 +272,7 @@ def word_review(words):
         issues.append('Very short word timing')
     if any(b['start_s']-a['end_s'] > 3 for a,b in zip(timed,timed[1:])):
         issues.append('Long gap inside the phrase')
-    if any(a['end_s'] > b['start_s']+.001 for a,b in zip(timed,timed[1:])):
+    if any(overlap_needs_review(a['start_s']*1000, a['end_s']*1000, b['start_s']*1000)
+           for a,b in zip(timed,timed[1:])):
         issues.append('Overlapping words')
     return issues

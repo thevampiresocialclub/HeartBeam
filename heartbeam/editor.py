@@ -271,6 +271,14 @@ def new_conflict(before, after):
     return None
 
 
+def review_conflicts(project: Project) -> dict[tuple[str, str], int]:
+    """Show meaningful overlaps while strict edit validation keeps every ms."""
+    from .timing_quality import overlap_needs_review
+    return {pair: amount for pair, amount in timing_conflicts(project).items()
+            for a, b in [(project.effective_timing(pair[0]), project.effective_timing(pair[1]))]
+            if overlap_needs_review(a.start_ms, a.end_ms, b.start_ms)}
+
+
 def shift_timing(project: Project, word_id: str, delta_ms: int, scope: str,
                  duration_ms: int):
     if type(delta_ms) is not int or scope not in ("word", "line", "song"):

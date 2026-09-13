@@ -1794,3 +1794,47 @@ first workflow run caught stale preparation elements when replacing a page with
 a nested status container; using a single HTML element fixed both transitions
 without weakening tests. Evidence is under `compact-workspace-live-proof/` and
 `compact-workspace-firefox/` in the shared run workspace. `git diff --check` passed.
+
+## Opening phrase regression and overlap warnings, 12 September 2026
+
+The latest saved WHAT IS FOREVER FOR project uses 41 lyric lines / 302 words;
+the earlier working proof used 38 / 266. Both used Whisper medium and recognized
+the two opening refrains. Replaying the same current recognition against the
+two lyric sheets isolated the failure: flat token matching distributed the first
+refrain across lyric lines 1 and 2, then assigned the second to the new optional
+backing line. Each failed phrase coverage. This was a lyric-dependent matcher
+defect, not a model change in the recent UI revisions. The invalid LRCLIB sheet
+still has cues to 176.02 seconds for 152.50-second audio and remains rejected.
+
+Coherent phrase recovery now fills unsupported blocks from unused recognition
+between fixed anchors, with ordered, non-reused matches. It retains coverage,
+onset and duration checks. A real-model verification also exposed gap refinement
+spanning a long break; unsupported gap proposals now remain unresolved and do
+not produce estimated highlighting from that rejected window.
+
+On an independent copy of the owner's current project, cached recognition plus
+real WhisperX word alignment completed in **12.14 seconds**. The first two lines
+now start at **241 ms** and **8,218 ms**, restoring eight actual word proposals.
+The verse lines stay at **33,330 ms** and **36,840 ms**. Unresolved effective
+timings decrease from **96 to 88**. The extra backing line remains unresolved.
+Original proposals, manual edits and the source project file were preserved.
+This proves the reported assignment defect is fixed; it is not a human-annotated
+accuracy benchmark or proof of held-note endpoint accuracy.
+
+Review alerts ignore forward overlaps through **100 ms**. Backwards word order
+always warns. The actual `accent → She` 77 ms overlap stays in the saved data
+without an alert; `down → Again` at 157 ms still warns. Strict edit validation and
+strict export mode are unchanged. Review, preparation, preview and normal export
+share this warning policy.
+
+Full Python suite: **386 passed in 30.64 seconds**, including new phrase recovery,
+long-gap rejection, tolerance boundaries, backwards order and strict-validation
+regressions. No JavaScript changed. The verified project and report are at
+`C:\Users\young\Documents\Codex\2026-09-06\run\frost-opening-verified\`.
+Earlier `frost-opening-repaired` is an intermediate diagnostic run, not the final
+copy: its backing-line gap was rejected by the final fix. `git diff --check` passed.
+
+The updated app is running on **8506**, with the final corrected copy opened in
+the in-app browser. Live UI inspection confirmed both opening lines' word times
+and a single conflict, `down → Again: 157 ms overlap`; the 77 ms alert is absent.
+The old 8505 process remains running to preserve its existing session state.

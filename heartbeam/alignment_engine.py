@@ -153,6 +153,11 @@ def align(samples, sr, lyrics_text, whisper_model='medium', device='cpu', langua
                     disagreement = True
                     words = [dict(text=t,start_s=None,end_s=None,score=None,
                                   reason='Word refinement disagrees with acoustic phrase evidence') for t in tokens]
+        rejected_gap = None
+        if anchor and anchor['source'] == 'gap' and not matching.gap_refinement_supported(words):
+            rejected_gap, anchor = anchor, None
+            words = [dict(text=t, start_s=None, end_s=None, score=None,
+                          reason='Phrase could not be verified between neighboring lines') for t in tokens]
         issues = matching.word_review(words)
         if disagreement:
             issues.append('Word timing disagrees with the recognized phrase; set approximate boundaries')
@@ -160,6 +165,8 @@ def align(samples, sr, lyrics_text, whisper_model='medium', device='cpu', langua
             issues.append('Recovered between phrases; check this line')
         state = 'match_needed' if not anchor else 'check' if issues else 'ready'
         phrases.append(dict(index=index, text=text, anchor=anchor, words=words, issues=issues, state=state))
+        if rejected_gap:
+            phrases[-1]['rejected_gap'] = rejected_gap
         resolved = [Word(w['text'], w['start_s'], w['end_s'], w['score']) for w in words if w['start_s'] is not None]
         output.append(Line(index, text, min((w.start_s for w in resolved), default=anchor['start_s'] if anchor else 0),
                            max((w.end_s for w in resolved), default=anchor['end_s'] if anchor else 0), resolved))
@@ -168,7 +175,7 @@ def align(samples, sr, lyrics_text, whisper_model='medium', device='cpu', langua
         if len(siblings) > 1 and any(i not in anchors for i in siblings) and phrase['anchor']:
             phrase['issues'].append('Repeated phrase has unmatched occurrences; check the repetition')
             phrase['state'] = 'check'
-    diagnostics = dict(version=1, phrases=phrases, audio_sha256=fingerprint, model=whisper_model,
+    diagnostics = dict(version=1, matcher='phrase-coherent-v2', phrases=phrases, audio_sha256=fingerprint, model=whisper_model,
                        language=lang, online=online_note,
                        online_candidate=online,
                        recognition_cache=str(cached) if cached else None,

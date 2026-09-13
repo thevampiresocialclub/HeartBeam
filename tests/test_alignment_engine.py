@@ -48,6 +48,28 @@ def test_manual_phrase_repair_skips_recognition(monkeypatch):
     assert 10 <= result.lines[0].start_s < result.lines[0].end_s <= 14
 
 
+@pytest.mark.parametrize('coherent', [True, False])
+def test_gap_search_cannot_stamp_one_phrase_on_opposite_sides_of_a_long_break(monkeypatch, coherent):
+    fake_models(monkeypatch)
+    original = sys.modules['whisperx'].align
+    def refine(segments, *a, **k):
+        if segments[0]['text'] == 'stay with me now':
+            times = [8., 8.5, 9., 9.5] if coherent else [3.1, 3.6, 17., 17.5]
+            return dict(word_segments=[dict(word=w, start=t, end=t+.3, score=.9)
+                        for w,t in zip(segments[0]['text'].split(), times)])
+        return original(segments, *a, **k)
+    sys.modules['whisperx'].align = refine
+    result = align(np.zeros(30*16000, dtype='float32'), 16000,
+        'hello there\nstay with me now\nhello there', manual_anchors={0:(1.,3.), 2:(18.,21.)})
+    phrase = result.diagnostics['phrases'][1]
+    if coherent:
+        assert phrase['anchor']['source'] == 'gap' and len(result.lines[1].words) == 4
+    else:
+        assert phrase['anchor'] is None and not result.lines[1].words
+        assert phrase['rejected_gap']['source'] == 'gap'
+        assert phrase['state'] == 'match_needed'
+
+
 @pytest.mark.parametrize('score',[None,.01])
 def test_unreliable_refined_word_remains_in_lyric_with_no_timing(monkeypatch,score):
     fake_models(monkeypatch)

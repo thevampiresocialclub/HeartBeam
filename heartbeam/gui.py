@@ -915,7 +915,7 @@ def _separation_result() -> None:
 def _review_controls(project, root, audio_path):
     st.subheader("Build karaoke audio")
     missing = len(project.unresolved_words())
-    conflicts = len(ed.timing_conflicts(project))
+    conflicts = len(ed.review_conflicts(project))
     if missing or conflicts:
         st.warning(f"{missing} words still have no timing and {conflicts} timing conflicts remain. You can continue with separate vocal tracks; word timing controls the lyric highlights.")
     estimated = len(project.estimated_word_ids())

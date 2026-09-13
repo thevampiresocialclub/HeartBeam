@@ -9,6 +9,20 @@ Read **BUILD-STATUS.md first**. It is the authoritative record of completion,
 tests, measured performance and remaining validation limits. This handoff
 explains how to continue without breaking the working editor.
 
+**Latest timing fix, 12 September:** optional backing lyrics in the 302-word
+Frost Children lyric sheet exposed a flat token-assignment defect that lost both
+opening refrains despite correct recognition. `phrase-coherent-v2` recovers
+unsupported blocks without reusing another phrase's words. Gap refinements must
+also have coherent support; a long break is not a sung phrase. Normal overlap
+alerts now tolerate 100 ms, but backwards order always warns and strict editing
+remains strict. Full Python suite: **386 passed**. See the latest BUILD-STATUS
+entry for the real-song proof and its limits. The final independent corrected
+project is `C:\Users\young\Documents\Codex\2026-09-06\run\frost-opening-verified`;
+the source project was not overwritten. Existing projects need explicit matching
+to update automatic proposals; merely opening a file never re-aligns it.
+The updated live app is on **http://localhost:8506/** with that copy loaded.
+The older 8505 server is still running; do not assume it has the new imports.
+
 **Instrument recovery is archived, not the next task.** The owner found little
 audible difference and considered the supplied current separations acceptable.
 Do not resume that roadmap automatically. See

@@ -85,10 +85,10 @@ def _timing_controls(project, duration):
         st.session_state.selected_word_id = E.next_low_confidence(project, selected)
         st.rerun()
     nav[2].caption(f"{len(project.unresolved_words())} untimed · {sum(project.reviewed.values())} reviewed")
-    conflicts = E.timing_conflicts(project)
+    conflicts = E.review_conflicts(project)
     if conflicts:
         with st.expander(f"Timing conflicts ({len(conflicts)})"):
-            st.caption("Imported timings were preserved. Timing problems show warnings and do not block video rendering.")
+            st.caption("Overlaps up to 100 ms are ignored unless word order runs backwards. Larger overlaps are warnings and do not block rendering.")
             for (a, b), amount in list(conflicts.items())[:30]:
                 st.write(f"{project.find_word(a).text} → {project.find_word(b).text}: {amount} ms overlap")
     if not word:

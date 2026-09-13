@@ -36,6 +36,45 @@ def test_two_refrains_get_separate_intervals():
     assert anchors[1]['onset_s'] == 50
 
 
+def test_optional_backing_lyrics_cannot_fragment_the_two_audible_opening_lines():
+    # Regression: ASR hears "far" for "for". Adding a backing line used to
+    # split the first refrain's three supported words across the first two
+    # lyric lines and donate the second refrain to the backing line.
+    lines = [(0, 'What is forever for?'), (1, 'What is forever for?'),
+             (2, '(Ever for, ever for, what is forever for? Ever for, ever for)'),
+             (3, 'A train goes downtown')]
+    observed = spoken('What is forever far?', .22)+spoken('What is forever far?', 8.225)
+    observed += spoken(lines[3][1], 33.)
+    before = [(w['word'], w['start'], w['end']) for w in observed]
+    anchors = phrase_anchors(lines, observed, 50)
+    assert anchors[0]['onset_s'] == .22 and anchors[1]['onset_s'] == 8.225
+    assert anchors[0]['end_s'] < anchors[1]['start_s']
+    assert anchors[3]['onset_s'] == 33. and 2 not in anchors
+    assert before == [(w['word'], w['start'], w['end']) for w in observed]
+
+
+def test_phrase_recovery_does_not_reuse_another_phrases_recognition():
+    from heartbeam.alignment_match import _recover_phrase_block
+    lines = [(0, 'go back home'), (1, 'go back home'), (2, 'unheard other words')]
+    anchors = _recover_phrase_block(lines, spoken('go back home', 5.), 30.)
+    assert list(anchors) == [0]
+    assert anchors[0]['onset_s'] == 5.
+
+
+def test_phrase_recovery_will_not_join_words_across_a_long_gap():
+    from heartbeam.alignment_match import _recover_phrase_block
+    observed = spoken('What', 65.)+spoken('is forever for', 88.)
+    assert not _recover_phrase_block([(0, 'What is forever for')], observed, 100.)
+
+
+def test_phrase_recovery_can_skip_an_unheard_line_inside_a_bounded_block():
+    from heartbeam.alignment_match import _recover_phrase_block
+    lines = [(2, 'come back home'), (3, 'we were never there'), (4, 'come back home')]
+    anchors = _recover_phrase_block(lines, spoken('come back home', 12.)+spoken('come back home', 18.), 30.)
+    assert set(anchors) == {2, 4}
+    assert anchors[2]['onset_s'] == 12. and anchors[4]['onset_s'] == 18.
+
+
 def test_database_offset_needs_distributed_evidence():
     lines = [(0,'alpha bravo'),(1,'charlie delta'),(2,'echo foxtrot')]
     lrc = [dict(text=t,start_s=s) for (_,t),s in zip(lines,[10,40,80])]

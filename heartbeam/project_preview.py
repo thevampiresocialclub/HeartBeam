@@ -8,10 +8,10 @@ VENDOR = Path(__file__).parent / "editor_assets" / "vendor"
 
 def timing_warnings(project, duration_ms):
     """Export diagnostics; accepting them never edits or approves lyric data."""
-    from .editor import timing_conflicts
+    from .editor import review_conflicts
     from .timing_review import approved
     messages = []
-    missing, conflicts = len(project.unresolved_words()), len(timing_conflicts(project))
+    missing, conflicts = len(project.unresolved_words()), len(review_conflicts(project))
     if missing:
         messages.append(f'{missing} word(s) still have no timing. Export will continue: they stay plain within a usable lyric window; lines without a window are omitted.')
     if conflicts:
@@ -79,7 +79,7 @@ def preview_style(project):
 
 
 def preview_payload(project, duration_ms, register, root=None):
-    from .editor import timing_conflicts
+    from .editor import review_conflicts
     from .presentation import compile_project
     compiled = compile_project(project, duration_ms, root, draft=True)
     fonts = [register(path, f"preview/fonts/{path.name}") for path in compiled.pop("fonts")]
@@ -95,4 +95,4 @@ def preview_payload(project, duration_ms, register, root=None):
             "fonts": fonts, "background": bg,
             "fallback_font": fallback,
             "draft": bool(project.unresolved_words()),
-            "conflicts": len(timing_conflicts(project))}
+            "conflicts": len(review_conflicts(project))}
