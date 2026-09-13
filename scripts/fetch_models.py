@@ -83,17 +83,21 @@ def fetch_separator_models(names: list[str]) -> None:
     # info_only keeps this from allocating inference buffers or touching a GPU;
     # we only want the downloader.
     sep = Separator(model_file_dir=str(target), info_only=True)
+    failures = []
     for model in wanted:
         if model.endswith(".yaml"):
-            print(f"  - {model}: config resolved with its checkpoint, skipping")
+            failures.append(f"{model}: this downloader cannot verify the Demucs checkpoint; run that preset separately")
             continue
         print(f"  - {model}")
         try:
             sep.download_model_files(model)
-        except Exception as exc:  # noqa: BLE001 — one bad model shouldn't kill the run
+        except Exception as exc:  # Try the remaining downloads, then report failure.
+            failures.append(f"{model}: {exc}")
             print(f"    FAILED: {exc}")
             print("    (the 'metal' preset's Rifforge ckpt is not in the public "
                   "registry — use scripts/install_metal_model.py for that one)")
+    if failures:
+        raise RuntimeError("Required separator downloads incomplete: " + "; ".join(failures))
 
 
 def fetch_whisper(model_name: str) -> None:
@@ -116,8 +120,8 @@ def main() -> int:
     )
     p.add_argument("--root", type=Path, default=None,
                    help=f"cache root (default: ${paths.ROOT_ENV} or {paths.model_root()})")
-    p.add_argument("--presets", nargs="+", default=["pop", "rock"],
-                   help="separator presets to fetch models for (default: pop rock)")
+    p.add_argument("--presets", nargs="+", default=["pop"],
+                   help="separator presets to fetch models for (default: pop)")
     p.add_argument("--whisper", default="medium",
                    help="whisper model: tiny/base/small/small.en/medium/large-v3 (default: medium)")
     p.add_argument("--language", default="en", help="alignment model language (default: en)")
@@ -137,11 +141,22 @@ def main() -> int:
     root = paths.model_root()
     print(f"Cache root: {root}")
 
+    steps = []
     if not args.skip_separator:
-        fetch_separator_models(args.presets)
+        steps.append(("Separator", lambda: fetch_separator_models(args.presets)))
     if not args.skip_whisper:
-        fetch_whisper(args.whisper)
-    fetch_aligner(args.language)
+        steps.append(("Whisper", lambda: fetch_whisper(args.whisper)))
+    steps.append(("Aligner", lambda: fetch_aligner(args.language)))
+    failures = []
+    for label, operation in steps:
+        try:
+            operation()
+        except Exception as exc:
+            failures.append(f"{label}: {exc}")
+            print(f"\nFAILED {label}: {exc}", file=sys.stderr)
+    if failures:
+        print("\nModel preparation is incomplete. Rerun after resolving these errors; existing downloads are retained.", file=sys.stderr)
+        return 1
 
     print("\n=== Done ===")
     total = 0

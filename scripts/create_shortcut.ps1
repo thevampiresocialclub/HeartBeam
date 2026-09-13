@@ -34,23 +34,31 @@ if (-not (Test-Path $icon)) {
     $icon = $exe  # fall back to exe's embedded icon (generic)
 }
 
-function New-Shortcut([string]$path, [string]$target, [string]$wd, [string]$icon, [string]$desc) {
+function New-Shortcut([string]$path, [string]$target, [string]$wd, [string]$icon, [string]$desc, [string]$arguments = "") {
     $shell = New-Object -ComObject WScript.Shell
     $lnk = $shell.CreateShortcut($path)
     $lnk.TargetPath = $target
     $lnk.WorkingDirectory = $wd
     $lnk.IconLocation = $icon
     $lnk.Description = $desc
+    $lnk.Arguments = $arguments
     $lnk.Save()
     Write-Host "  [ok] $path" -ForegroundColor Green
 }
 
 Write-Host "Creating HeartBeam shortcuts..." -ForegroundColor Cyan
+$target = $exe
+$arguments = ""
+if (Test-Path -LiteralPath (Join-Path $wd "heartbeam-install.json")) {
+    $target = (Get-Command powershell.exe).Source
+    $launcher = Join-Path $PSScriptRoot "start.ps1"
+    $arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$launcher`" -InstallDir `"$wd`""
+}
 
 if (-not $NoDesktop) {
     $desktop = [Environment]::GetFolderPath('Desktop')
     $lnkPath = Join-Path $desktop "HeartBeam.lnk"
-    New-Shortcut $lnkPath $exe $wd $icon "HeartBeam karaoke generator"
+    New-Shortcut $lnkPath $target $wd $icon "HeartBeam karaoke generator" $arguments
 }
 
 if (-not $NoStartMenu) {
@@ -59,7 +67,7 @@ if (-not $NoStartMenu) {
         New-Item -ItemType Directory -Path $startMenu -Force | Out-Null
     }
     $lnkPath = Join-Path $startMenu "HeartBeam.lnk"
-    New-Shortcut $lnkPath $exe $wd $icon "HeartBeam karaoke generator"
+    New-Shortcut $lnkPath $target $wd $icon "HeartBeam karaoke generator" $arguments
 }
 
 Write-Host ""

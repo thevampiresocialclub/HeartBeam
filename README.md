@@ -11,123 +11,52 @@ Re-running Phase 2 with a different style does not re-run the slow ML pipeline.
 
 ---
 
-## Install
+## Install with a local coding agent
 
-**HeartBeam targets NVIDIA GPUs — GTX 1050 / RTX xx50 and up.** The install
-scripts probe for one automatically:
+The recommended route is a GitHub checkout plus the repository setup script. Give Claude Code or Codex the repository and [INSTALL-WITH-AN-AGENT.md](INSTALL-WITH-AN-AGENT.md). The agent must run on the PC where HeartBeam will be installed. An AI subscription is setup assistance, not a requirement for running HeartBeam.
 
-- **GPU** (~3 GB on disk): the supported build. A song takes 1–4 minutes.
-- **CPU** (~700 MB): for running the tests, or a run you're willing to wait
-  20–75 minutes for. `heartbeam` refuses to start without CUDA unless you pass
-  `--allow-cpu`. See [Hardware](#hardware--what-to-expect).
+**Windows x64 / Python 3.12 is the maintained setup baseline.** From the checkout:
 
-### Recommended: one-line install script
+The repository is private. Friends first accept a GitHub invitation, then clone
+`https://github.com/thevampiresocialclub/HeartBeam.git` into a permanent folder.
 
 ```powershell
-# Windows (PowerShell)
-git clone <this repo>
-cd HeartBeam
-.\scripts\install.ps1                  # auto-detects NVIDIA -> GPU, else CPU
-# or force one:
-.\scripts\install.ps1 -Variant GPU     # GPU build (cu128 wheels from pytorch.org)
-.\scripts\install.ps1 -Variant CPU
-.\scripts\install.ps1 -InstallMetal    # also download Mesk Rifforge (~2 GB)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
+.\scripts\create_shortcut.ps1 -VenvDir .\.venv
+.\scripts\start.ps1
 ```
 
-```bash
-# macOS / Linux
-git clone <this repo>
-cd HeartBeam
-./scripts/install.sh                   # auto-detects
-./scripts/install.sh --gpu             # force GPU build
-./scripts/install.sh --install-metal   # also download Mesk Rifforge
+The script defaults to `<checkout>\.venv`, pins the known dependency versions, checks FFmpeg/FFprobe and reports installation failures. It uses an editable installation, so keep the checkout in a permanent folder. See the agent guide for custom install paths, model downloads, diagnostics, updates and the required smoke test.
+
+| Setup variant | Purpose |
+| --- | --- |
+| `Auto` (default) | GPU when NVIDIA is detected; otherwise Editor with an explicit limitation |
+| `GPU` | Full preparation on a compatible NVIDIA GPU; CUDA 12.8 Torch wheels |
+| `Editor` | Edit and export already-prepared projects without ML packages or models |
+| `CPU` | Experimental local ML via the CLI with `--allow-cpu`; not a supported GUI preparation workflow |
+
+Without a graphics card, an agent subscription does not supply compute. A remote ML bridge and hosted service are ideas only and are not included in this build.
+
+For GPU setup, download the default models before testing a song:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\fetch_models.py --presets pop --whisper medium --language en
+.\.venv\Scripts\python.exe -m heartbeam.doctor --variant GPU
 ```
 
-The install script handles: Python 3.10+ check, ffmpeg install (via winget on Windows or homebrew/apt on Unix), venv creation, pip install, optional metal-model download, and a final verification step.
-
-### Shareable Windows installer
-
-For distributing to non-technical users, build a single `.exe` installer with Inno Setup. See [installer/README.md](installer/README.md). It ships the app and setup scripts; Python, FFmpeg, dependencies and model weights are installed or downloaded separately.
+Rock and metal models can be added later. Allow several GB for dependencies and models plus space for songs, stems and exports. Installed size and runtime vary; old development estimates are not clean-machine guarantees.
 
 ### Projects and output folders
 
-The **File** menu opens, saves and copies projects. New GUI preparation sessions
-are retained in `Documents/HeartBeam/Sessions`; named projects default to
-`Documents/HeartBeam/Projects`. Windows Documents redirection is respected.
-Existing projects stay in place. Videos live in each project's `exports` folder,
-with the default name `input_filename_karaoke.mp4` and a custom-name field beside
-**Render video**. See [Files and distribution](docs/FILES-AND-DISTRIBUTION.md) for
-backup guidance, folder overrides and packaging boundaries.
+The **File** menu opens, saves and copies projects. New preparation sessions are retained in `Documents/HeartBeam/Sessions`; saved projects default to `Documents/HeartBeam/Projects`. Existing projects stay in place. Exports belong to the project, default to `input_filename_karaoke.mp4`, and can be renamed beside **Render video**. See [Files and distribution](docs/FILES-AND-DISTRIBUTION.md).
 
-### Manual install
+### Hardware and other installation routes
 
-If you prefer manual:
+The verified development GPU is an RTX 5070 using Torch 2.8.0+cu128. Setup performs a CUDA calculation, but a real song test is required to validate another card, its memory and model execution. Do not downgrade RTX 50-series installations to `cu121`.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -e ".[cpu]"        # or .[gpu] for CUDA build
-# ffmpeg must be on PATH separately
-```
+HeartBeam uses CUDA for its supported ML path. Other GPU backends and macOS/Linux installation are not validated by the Windows setup work. `scripts/install.sh` remains a legacy advanced-user route; do not treat it as the same constrained installation. FFmpeg with libass, libx264, libmp3lame and AAC support is required for decoding and export.
 
-For GPU, also do:
-```powershell
-pip install --index-url https://download.pytorch.org/whl/cu128 torch torchaudio torchvision
-```
-(else you'll get CPU torch wheels.)
-
-### Requirements
-
-1. **Python 3.10+**
-2. **ffmpeg with libass.** Auto-installed by `install.ps1` / `install.sh`. Manual: on Windows install [Gyan.FFmpeg](https://www.gyan.dev/ffmpeg/builds/) full build via winget; on macOS `brew install ffmpeg`; on Ubuntu `sudo apt install ffmpeg`. Verify with `ffmpeg -filters | grep ass`. **Not optional** — it decodes the input file, not just the video render.
-3. **NVIDIA GPU**, GTX 1050 / RTX xx50 and up, with a driver new enough for CUDA 12.8. 4 GB VRAM works; alignment moves to the CPU automatically below 6 GB.
-
-Model checkpoints (~500 MB for `pop`, ~3 GB for `rock`, +2 GB for `metal`) are downloaded by audio-separator on first use of each preset.
-
----
-
-## Hardware — what to expect
-
-**Supported: NVIDIA, GTX 1050 / RTX xx50 and up.** The GPU build installs torch
-from the **cu128** index, whose kernels span `sm_61` (GTX 1050) through `sm_120`
-(RTX 50-series / Blackwell).
-
-> Do not "fix" this back to cu121. Those wheels stop at `sm_90`, so on any
-> RTX 50-series card every CUDA call dies with *"no kernel image is available
-> for execution on the device"*. `heartbeam` preflights the installed torch
-> against your card's compute capability and refuses to start on a mismatch,
-> rather than failing 40 minutes into a run.
-
-Cards in the 4–6 GB range (RTX 3050 laptop, 4050) are supported, but the
-separator's model is still resident when WhisperX loads its own. HeartBeam
-detects this and moves alignment to the CPU automatically — it costs well under
-a minute. Override with `--align-device cuda`.
-
-Only **CUDA** accelerates this pipeline. That is not a design choice; it is the
-state of the two libraries doing the heavy lifting:
-
-- **WhisperX** runs ASR through CTranslate2, whose device enum is literally
-  `{CPU, CUDA}`. There is no Intel, DirectML, Vulkan, or OpenVINO backend.
-- **audio-separator** has a DirectML path, but MDXC/RoFormer models — which is
-  every model `pop`, `rock`, and `metal` use — fall back to CPU on it
-  (`ComplexFloat` is unsupported), and Demucs fails outright. It has no
-  `torch.xpu` support at all.
-
-So an AMD or Intel GPU — including Arc and Core Ultra iGPUs — gets you the CPU
-path, not acceleration. There is currently no route around this short of
-replacing both libraries.
-
-Rough wall-clock for a 4-minute song:
-
-| Machine | `pop` | `rock` |
-|---|---|---|
-| RTX 5070 (measured) | ~80 s | ~2–4 min |
-| Modern 8-core CPU | ~20–30 min | ~45–75 min |
-
-These measurements predate the phrase-matching workflow. A smaller recognition
-model can reduce CPU work, but recognition errors can prevent a phrase from
-being located. HeartBeam now matches the actual lyric sequence and flags gaps;
-it does not proportionally distribute lyrics across whatever speech was found.
+The existing [Inno Setup recipe](installer/README.md) is retained for future packaging, but a standalone installer is not the current distribution deliverable. For maintenance, use the agent guide and [distribution status](docs/DISTRIBUTION-PLAN.md).
 
 ### Moving models between machines
 
@@ -179,7 +108,7 @@ This sidesteps two real traps:
 .\.venv\Scripts\heartbeam-gui.exe     # or just `heartbeam-gui` once activated
 ```
 
-Opens a local Streamlit app at <http://localhost:8501> with five steps:
+Opens a local Streamlit app at <http://localhost:8501> with four steps:
 
 1. **Prepare audio:** choose a song, paste its lyrics and pick a genre profile.
    Preparation saves the separated tracks and suggested lyric timing without

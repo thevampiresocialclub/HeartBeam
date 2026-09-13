@@ -2,6 +2,36 @@
 
 Tracks the build program in `heartbeam-claude-handoff/`. Update after every project.
 
+## 12 September: GitHub installation and maintenance
+
+Windows installation now targets a checkout-local Python 3.12 x64 environment,
+uses reviewed dependency constraints and selects GPU or prepared-project Editor
+mode. CPU ML remains experimental. Read `INSTALL-WITH-AN-AGENT.md` for the
+maintained installation and update procedure. The remote ML bridge and standalone
+installer are not part of this delivery.
+
+Verification in isolated environments, without changing the running app:
+
+- A fresh Editor installation passed dependency, import, packaged-asset and
+  FFmpeg/codec checks. Rerunning the installer also passed.
+- A fresh GPU installation exposed a CPU/GPU ONNX payload collision. The installer
+  now restores the pinned GPU payload after resolving dependencies; see
+  `requirements/README.md` for the upstream limitation. The corrected installation
+  passed `pip check`, Torch CUDA arithmetic on RTX 5070 and a real ONNX CUDA graph
+  with CPU fallback disabled.
+- Full Python regression suite: **391 passed**. After adding interrupted-install
+  launcher checks, the focused installation suite passed **7 tests** (two new).
+  JavaScript component suite: **29 passed**. All three Windows setup/launcher/
+  shortcut scripts passed PowerShell parsing.
+- Failed or interrupted setup no longer leaves a valid readiness receipt. Model
+  download failures return nonzero. The default download pack is Pop only.
+- GitHub Actions runs the Editor installer, diagnostics and Python/JavaScript
+  regressions. Its result must be checked on GitHub; local results are not a CI pass.
+
+Real-song preparation in the fresh GPU environment is being checked separately.
+This section does not certify timing quality on other songs, other GPUs, a
+cold model download, Firefox behavior or a complete manual GUI workflow.
+
 ## Summary
 
 | Project | Status |

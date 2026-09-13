@@ -1,0 +1,53 @@
+name: Windows checks
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  editor:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install FFmpeg
+        shell: pwsh
+        run: choco install ffmpeg --yes --no-progress
+      - name: Run the documented editor installer
+        shell: pwsh
+        run: ./scripts/install.ps1 -Variant Editor -PythonPath (Get-Command python).Source
+      - name: Install constrained test dependencies
+        shell: pwsh
+        run: ./.venv/Scripts/python.exe -m pip install -c requirements/windows-py312.txt -e '.[gui,dev]'
+      - name: Verify installed package from outside the checkout
+        shell: pwsh
+        run: |
+          $pythonExe = Join-Path $env:GITHUB_WORKSPACE '.venv/Scripts/python.exe'
+          Push-Location $env:RUNNER_TEMP
+          & $pythonExe -m heartbeam.doctor --variant Editor
+          $diagnosticExit = $LASTEXITCODE
+          Pop-Location
+          exit $diagnosticExit
+      - name: Python regression tests
+        shell: pwsh
+        run: ./.venv/Scripts/python.exe -m pytest -q
+      - name: Browser component tests
+        shell: pwsh
+        run: node --test tests/*.test.mjs

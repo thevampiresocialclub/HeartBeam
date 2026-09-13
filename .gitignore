@@ -32,3 +32,11 @@ installer/Output/
 
 # pytest
 .pytest_cache/
+
+# Local installation receipts and diagnostics can contain personal paths.
+heartbeam-install.json
+heartbeam-diagnostics.json
+environment-baseline.tmp
+.env
+.env.*
+!.env.example

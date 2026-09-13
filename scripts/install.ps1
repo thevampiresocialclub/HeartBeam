@@ -1,198 +1,136 @@
-# HeartBeam install script — Windows / PowerShell.
-#
-# What this does:
-#   1. Verifies Python 3.10+ and ffmpeg are present (or installs ffmpeg via winget).
-#   2. Creates a venv at <install-dir>\.venv (default: %LOCALAPPDATA%\HeartBeam\.venv).
-#   3. pip-installs heartbeam[cpu,gui] (or [gpu,gui]). The GPU build pulls torch
-#      from pytorch.org's cu128 index; CPU build uses PyPI defaults.
-#   4. Optionally runs scripts\install_metal_model.py for the metal preset (~2 GB).
-#   5. Verifies `heartbeam --help` works.
-#
-# Run from an admin PowerShell only if you choose -InstallScope AllUsers.
-# Otherwise per-user install is fine and does NOT need admin.
-
+# Install the checked-out HeartBeam revision. Requires 64-bit Python 3.12.
+# Default location: <checkout>\.venv. No machine-wide execution-policy changes.
 [CmdletBinding()]
 param(
-    [Parameter()] [string] $InstallDir = "$env:LOCALAPPDATA\HeartBeam",
-    [Parameter()] [ValidateSet("Auto","CPU","GPU")] [string] $Variant = "Auto",
+    [string] $InstallDir = "",
+    [ValidateSet("Auto", "GPU", "CPU", "Editor")] [string] $Variant = "Auto",
+    [string] $PythonPath = "",
     [switch] $InstallMetal,
     [switch] $SkipFfmpeg
 )
-
 $ErrorActionPreference = "Stop"
-$ProgressPreference    = "Continue"
-
-function Write-Step($msg) { Write-Host "`n>>> $msg" -ForegroundColor Cyan }
-function Write-Ok  ($msg) { Write-Host "    [ok] $msg"   -ForegroundColor Green }
-function Write-Warn($msg) { Write-Host "    [warn] $msg" -ForegroundColor Yellow }
-function Write-Err ($msg) { Write-Host "    [err] $msg"  -ForegroundColor Red }
-
-# ---------- 0. Detect GPU ----------
-# HeartBeam targets NVIDIA: GTX 1050 / RTX xx50 and up. Only CUDA accelerates
-# this pipeline — CTranslate2 (WhisperX's ASR engine) is CUDA-or-CPU only, and
-# audio-separator's DirectML path falls back to CPU for the very model
-# architectures our presets use. AMD and Intel GPUs therefore get the CPU build,
-# which works but takes 20-75 min per song.
-if ($Variant -eq "Auto") {
-    Write-Step "Detecting GPU"
-    $nvidia = $null
-    try { $nvidia = & nvidia-smi --query-gpu=name --format=csv,noheader 2>$null } catch {}
-    if ($LASTEXITCODE -eq 0 -and $nvidia) {
-        $Variant = "GPU"
-        Write-Ok "NVIDIA GPU found: $($nvidia -split "`n" | Select-Object -First 1) -> GPU build"
-    } else {
-        $Variant = "CPU"
-        $gpuName = (Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
-                    Select-Object -First 1 -ExpandProperty Name)
-        Write-Warn "no NVIDIA GPU detected ($gpuName) -> CPU build"
-        Write-Warn "CPU is not a supported target: ~20-30 min/song ('pop'), 45-75 min ('rock')."
-        Write-Warn "'heartbeam' will require --allow-cpu to run at all."
-    }
-}
-
-# ---------- 1. Python ----------
-Write-Step "Checking Python 3.10+"
-$py = $null
-foreach ($cmd in @("py -3.12", "py -3.11", "py -3.10", "python")) {
-    try {
-        $ver = & cmd /c "$cmd --version 2>&1"
-        if ($LASTEXITCODE -eq 0 -and $ver -match "Python 3\.(1[0-9])") {
-            $py = $cmd
-            Write-Ok "found: $ver via '$cmd'"
-            break
-        }
-    } catch {}
-}
-if (-not $py) {
-    Write-Warn "Python 3.10+ not found — installing Python 3.12 via winget"
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        Write-Err "winget is also missing. Install Python 3.12 manually from https://www.python.org/downloads/ then re-run this installer."
-        exit 1
-    }
-    winget install --id=Python.Python.3.12 -e --silent --accept-package-agreements --accept-source-agreements
-    # winget updates PATH for new shells; probe the standard install path so we can use it now.
-    $candidate = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
-    if (Test-Path $candidate) {
-        $py = $candidate
-        Write-Ok "installed: $py"
-    } else {
-        Write-Err "Python installed via winget but not found at the expected path. Close and reopen PowerShell, then re-run this installer."
-        exit 1
-    }
-}
-
-# ---------- 2. ffmpeg ----------
-if (-not $SkipFfmpeg) {
-    Write-Step "Checking ffmpeg"
-    $ffmpeg = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
-    if (-not $ffmpeg) {
-        Write-Warn "ffmpeg not on PATH — installing via winget (Gyan.FFmpeg, includes libass)"
-        winget install --id=Gyan.FFmpeg -e --silent --accept-package-agreements --accept-source-agreements
-        # Path is set for new shells but not this one. Probe known winget install dirs.
-        $candidates = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\ffmpeg-*-full_build\bin\ffmpeg.exe" -ErrorAction SilentlyContinue
-        if ($candidates) {
-            $ffmpegDir = $candidates[0].DirectoryName
-            $env:PATH = "$ffmpegDir;$env:PATH"
-            Write-Ok "ffmpeg installed at $($candidates[0].FullName)"
-        } else {
-            Write-Warn "ffmpeg installed but PATH not yet visible. Close and reopen PowerShell after install completes."
-        }
-    } else {
-        Write-Ok "found: $ffmpeg"
-    }
-}
-
-# ---------- 3. Venv ----------
-Write-Step "Creating venv at $InstallDir\.venv"
-if (-not (Test-Path $InstallDir)) {
-    New-Item -ItemType Directory -Path $InstallDir | Out-Null
-}
-$venv = Join-Path $InstallDir ".venv"
-if (-not (Test-Path $venv)) {
-    & cmd /c "$py -m venv `"$venv`""
-    if ($LASTEXITCODE -ne 0) { Write-Err "venv creation failed"; exit 1 }
-    Write-Ok "venv created"
-} else {
-    Write-Ok "venv already exists — reusing"
-}
-$venvPy = Join-Path $venv "Scripts\python.exe"
-
-# ---------- 4. pip install heartbeam ----------
-Write-Step "Upgrading pip"
-& $venvPy -m pip install --upgrade pip setuptools wheel | Out-Null
-
-Write-Step "Installing heartbeam ($Variant variant)"
-# Resolve the package source: either this repo (editable) or PyPI/git.
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$pyproject = Join-Path $repoRoot "pyproject.toml"
-if (Test-Path $pyproject) {
-    Write-Ok "installing from local source: $repoRoot"
-    # 'gui' is not optional in practice: the Start Menu / desktop shortcuts point
-    # at heartbeam-gui.exe, which pip generates regardless — but it runs under
-    # pythonw, so a missing streamlit fails silently with no console to show why.
-    $extra = if ($Variant -eq "GPU") { "[gpu,gui]" } else { "[cpu,gui]" }
-    if ($Variant -eq "GPU") {
-        # cu128, not cu121. These wheels carry kernels for sm_61 (GTX 1050)
-        # through sm_120 (RTX 50-series / Blackwell). cu121 stops at sm_90, so on
-        # any RTX 50-series card it fails at runtime with "no kernel image is
-        # available for execution on the device".
-        & $venvPy -m pip install --index-url https://download.pytorch.org/whl/cu128 `
-            torch torchaudio torchvision
-        if ($LASTEXITCODE -ne 0) { Write-Err "torch (cu128) install failed"; exit 1 }
+if ([string]::IsNullOrWhiteSpace($InstallDir)) { $InstallDir = $repoRoot }
+$InstallDir = [IO.Path]::GetFullPath($InstallDir)
+$constraints = Join-Path $repoRoot "requirements\windows-py312.txt"
+
+function Invoke-Checked([string] $Program, [string[]] $Arguments) {
+    & $Program @Arguments
+    if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
+}
+
+function Find-Python {
+    $probes = @()
+    if ($PythonPath) { $probes += @{ Program = $PythonPath; Prefix = @() } }
+    else {
+        $probes += @{ Program = "py"; Prefix = @("-3.12") }
+        $probes += @{ Program = "python"; Prefix = @() }
+        $probes += @{ Program = "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"; Prefix = @() }
     }
-    & $venvPy -m pip install "$repoRoot$extra"
-} else {
-    Write-Err "pyproject.toml not found at $pyproject — run this from a HeartBeam checkout"
+    foreach ($probe in $probes) {
+        try {
+            $prefix = $probe.Prefix
+            $found = & $probe.Program @prefix -c "import sys,struct; assert sys.version_info[:2] == (3,12) and struct.calcsize('P') == 8; print(sys.executable)" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $found) { return ($found | Select-Object -Last 1).Trim() }
+        } catch { }
+    }
+    return $null
+}
+
+function Refresh-ToolPath {
+    # Changes this installer process only; don't replace the user's saved PATH.
+    $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+    $env:PATH = "$env:PATH;$machinePath;$userPath"
+    if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+        $found = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Gyan.FFmpeg_*\ffmpeg-*-full_build\bin\ffmpeg.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $env:PATH = "$($found.DirectoryName);$env:PATH" }
+    }
+}
+
+try {
+    if (-not (Test-Path -LiteralPath $constraints)) { throw "Dependency constraints missing: $constraints" }
+    if ($Variant -eq "Auto") {
+        $nvidia = $null
+        try { $nvidia = & nvidia-smi --query-gpu=name --format=csv,noheader 2>$null } catch { }
+        if ($nvidia -and $LASTEXITCODE -eq 0) { $Variant = "GPU" }
+        else {
+            $Variant = "Editor"
+            Write-Warning "No NVIDIA GPU detected. Installing the editor for prepared projects. Audio preparation requires a compatible NVIDIA GPU; no remote processing bridge is included."
+        }
+    }
+    if ($Variant -eq "CPU") { Write-Warning "CPU processing is experimental. The CLI requires --allow-cpu; GUI CPU preparation is not supported." }
+    if ($InstallMetal -and $Variant -eq "Editor") { throw "Metal model downloads require an ML variant, not Editor." }
+
+    Write-Host "Checking 64-bit Python 3.12..."
+    $pythonExe = Find-Python
+    if (-not $pythonExe -and -not $PythonPath) {
+        if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            throw "Install 64-bit Python 3.12 from python.org, then rerun with -PythonPath 'C:\path\to\python.exe'. winget is unavailable."
+        }
+        Invoke-Checked "winget" @("install", "--id=Python.Python.3.12", "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements")
+        Refresh-ToolPath
+        $pythonExe = Find-Python
+    }
+    if (-not $pythonExe) { throw "No compatible Python found. Supply -PythonPath for 64-bit Python 3.12." }
+
+    Refresh-ToolPath
+    if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+        if ($SkipFfmpeg) { throw "-SkipFfmpeg skips installation, not the requirement. Put ffmpeg and ffprobe on PATH first." }
+        if (-not (Get-Command winget -ErrorAction SilentlyContinue)) { throw "Install FFmpeg (full build with libass), add its bin folder to PATH, then rerun. winget is unavailable." }
+        Invoke-Checked "winget" @("install", "--id=Gyan.FFmpeg", "-e", "--silent", "--accept-package-agreements", "--accept-source-agreements")
+        Refresh-ToolPath
+    }
+    if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue) -or -not (Get-Command ffprobe -ErrorAction SilentlyContinue)) {
+        throw "FFmpeg installation is incomplete. Both ffmpeg and ffprobe must be available before setup can continue."
+    }
+
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    $venv = Join-Path $InstallDir ".venv"
+    $venvPy = Join-Path $venv "Scripts\python.exe"
+    $receiptPath = Join-Path $InstallDir "heartbeam-install.json"
+    if (Test-Path -LiteralPath $receiptPath) {
+        $old = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+        if ($old.variant -ne $Variant) { throw "This directory contains a $($old.variant) installation. Use another -InstallDir for $Variant; setup will not replace it silently." }
+    }
+    if (-not (Test-Path -LiteralPath $venv)) { Invoke-Checked $pythonExe @("-m", "venv", $venv) }
+    if (-not (Test-Path -LiteralPath $venvPy)) { throw "Existing environment is incomplete: $venv. Use a new -InstallDir or repair it explicitly." }
+    Invoke-Checked $venvPy @("-c", "import sys,struct; assert sys.version_info[:2] == (3,12) and struct.calcsize('P') == 8, 'Use a new install directory with 64-bit Python 3.12'")
+
+    # An interrupted update must not leave the previous readiness claim valid.
+    @{ schema_version = 1; variant = $Variant; ready = $false; source = $repoRoot } |
+        ConvertTo-Json | Set-Content -LiteralPath $receiptPath -Encoding UTF8
+
+    Invoke-Checked $venvPy @("-m", "pip", "install", "-c", $constraints, "pip", "setuptools", "wheel")
+    if ($Variant -eq "GPU") {
+        Invoke-Checked $venvPy @("-m", "pip", "install", "--index-url", "https://download.pytorch.org/whl/cu128", "torch==2.8.0+cu128", "torchaudio==2.8.0+cu128", "torchvision==0.23.0+cu128")
+    } elseif ($Variant -eq "CPU") {
+        Invoke-Checked $venvPy @("-m", "pip", "install", "--index-url", "https://download.pytorch.org/whl/cpu", "torch==2.8.0+cpu", "torchaudio==2.8.0+cpu")
+    }
+    $extra = switch ($Variant) { "GPU" { "gpu,gui" }; "CPU" { "cpu,gui" }; "Editor" { "gui" } }
+    Invoke-Checked $venvPy @("-m", "pip", "install", "-c", $constraints, "--editable", "$repoRoot[$extra]")
+    if ($Variant -eq "GPU") {
+        # faster-whisper requires CPU ORT metadata while audio-separator[gpu]
+        # requires GPU ORT. Their Python files overlap. Restore the constrained
+        # GPU payload last, then require actual CUDA execution in doctor.
+        # See requirements/README.md for the upstream packaging limitation.
+        Invoke-Checked $venvPy @("-m", "pip", "install", "-c", $constraints, "--force-reinstall", "--no-deps", "onnxruntime-gpu")
+    }
+    if ($InstallMetal) { Invoke-Checked $venvPy @((Join-Path $PSScriptRoot "install_metal_model.py")) }
+
+    $report = Join-Path $InstallDir "heartbeam-diagnostics.json"
+    Invoke-Checked $venvPy @("-m", "heartbeam.doctor", "--variant", $Variant, "--json", $report)
+    # Write readiness only after all required checks passed.
+    @{ schema_version = 1; variant = $Variant; ready = $true; source = $repoRoot; venv = $venv;
+       ffmpeg_dir = (Split-Path -Parent (Get-Command ffmpeg).Source) } |
+        ConvertTo-Json | Set-Content -LiteralPath $receiptPath -Encoding UTF8
+
+    Write-Host "HeartBeam setup checks passed ($Variant)." -ForegroundColor Green
+    Write-Host "Launch: & '$PSScriptRoot\start.ps1' -InstallDir '$InstallDir'"
+    Write-Host "Report: $report"
+    if ($Variant -ne "Editor") { Write-Host "Next: pre-download Pop models and complete the short-song smoke test in INSTALL-WITH-AN-AGENT.md." }
+    exit 0
+} catch {
+    Write-Error "HeartBeam setup did not finish: $_" -ErrorAction Continue
     exit 1
 }
-if ($LASTEXITCODE -ne 0) { Write-Err "pip install failed"; exit 1 }
-
-# ---------- 5. Metal preset (optional) ----------
-if ($InstallMetal) {
-    Write-Step "Installing metal preset (Mesk Rifforge, ~2 GB)"
-    $metalScript = Join-Path $repoRoot "scripts\install_metal_model.py"
-    & $venvPy $metalScript
-    if ($LASTEXITCODE -ne 0) { Write-Warn "metal install failed; heartbeam will still work without --separator metal" }
-}
-
-# ---------- 6. Verify ----------
-Write-Step "Verifying install"
-& $venvPy -c "from heartbeam.cli import _build_parser; _build_parser(); print('heartbeam OK')"
-if ($LASTEXITCODE -ne 0) { Write-Err "verification failed"; exit 1 }
-
-# The GUI shortcut is the primary launcher, so prove its import chain works now
-# rather than letting it fail silently under pythonw on first double-click.
-& $venvPy -c "import streamlit, heartbeam.gui; print('heartbeam-gui OK')"
-if ($LASTEXITCODE -ne 0) { Write-Err "GUI verification failed - the shortcut would not launch"; exit 1 }
-
-# Confirm torch can actually drive this machine's GPU. Catches the cu121-on-
-# Blackwell class of failure at install time rather than 40 minutes into a run.
-if ($Variant -eq "GPU") {
-    & $venvPy -c "import torch;a=torch.cuda.get_arch_list();p=torch.cuda.get_device_properties(0);s=f'sm_{p.major}{p.minor}';print(f'{p.name} {s} {p.total_memory/1024**3:.1f}GB torch={torch.__version__}');exit(0 if s in a else 1)"
-    if ($LASTEXITCODE -ne 0) {
-        Write-Err "this torch build has no kernels for your GPU's compute capability."
-        Write-Err "reinstall torch from the cu128 index (see scripts/install.ps1)."
-        exit 1
-    }
-    Write-Ok "GPU verified"
-}
-
-# ffmpeg is required to decode the *input* file, not just to render video.
-if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
-    Write-Warn "ffmpeg still not on PATH. Open a NEW terminal (winget updates PATH only for new shells) and run 'ffmpeg -version'. Until then every run fails at 'loading original audio'."
-} else {
-    Write-Ok "ffmpeg on PATH"
-}
-
-Write-Host ""
-Write-Host "==========================================" -ForegroundColor Green
-Write-Host "  HeartBeam installed at: $venv" -ForegroundColor Green
-Write-Host "==========================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "Try it:" -ForegroundColor Cyan
-Write-Host "    & `"$venv\Scripts\heartbeam.exe`" song.mp3 lyrics.txt --separator rock --align-device cpu -v"
-Write-Host ""
-Write-Host "Or activate the venv and use 'heartbeam' directly:" -ForegroundColor Cyan
-Write-Host "    & `"$venv\Scripts\Activate.ps1`""
-Write-Host "    heartbeam --help"
-Write-Host ""

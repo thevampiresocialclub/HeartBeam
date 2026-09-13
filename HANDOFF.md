@@ -9,6 +9,16 @@ Read **BUILD-STATUS.md first**. It is the authoritative record of completion,
 tests, measured performance and remaining validation limits. This handoff
 explains how to continue without breaking the working editor.
 
+**GitHub setup, 12 September:** the maintained route is now the private
+`thevampiresocialclub/HeartBeam` repository plus `INSTALL-WITH-AN-AGENT.md`.
+Windows setup uses Python 3.12 x64 and constrained dependencies, with explicit
+GPU and prepared-project Editor modes. Read the new BUILD-STATUS entry for fresh
+installation evidence and `requirements/README.md` before changing ML packages:
+faster-whisper and audio-separator pull overlapping ONNX distributions, so the
+GPU installer restores its payload last and doctor verifies real CUDA execution.
+Keep the running development environment and user projects intact. The bridge,
+cloud service and standalone installer remain parked.
+
 **Latest timing fix, 12 September:** optional backing lyrics in the 302-word
 Frost Children lyric sheet exposed a flat token-assignment defect that lost both
 opening refrains despite correct recognition. `phrase-coherent-v2` recovers
