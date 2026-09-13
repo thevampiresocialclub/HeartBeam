@@ -21,7 +21,13 @@ class HBPresentation {
     this.$ = selector => root.querySelector(selector);
     this.frame = this.$('.hb-preview'); this.canvas = this.$('.hb-ass');
     this.preview = null; this.ass = null; this.fontKey = null; this.drag = null;
-    this.fitObserver = new ResizeObserver(() => this.fit());
+    this.fitFrame = null;
+    this.fitObserver = new ResizeObserver(() => {
+      // Resizing the preview changes the observed root. Defer writes outside
+      // this observer delivery to avoid Firefox's resize-loop notifications.
+      if (this.fitFrame !== null) return;
+      this.fitFrame = requestAnimationFrame(() => { this.fitFrame = null; this.fit(); });
+    });
     this.fitObserver.observe(root);
     window.addEventListener('resize', () => this.fit(), {signal});
     this.frame.insertAdjacentHTML('afterbegin', '<img class="hb-background" alt="" hidden><video class="hb-background" muted playsinline preload="auto" hidden></video>');
@@ -224,5 +230,5 @@ class HBPresentation {
       button.firstChild.textContent = `${Math.round(line.x + dx)}, ${Math.round(line.y + dy)}${line.exception ? ' · line exception' : ''}`;
     }
   }
-  dispose() { this.fitObserver.disconnect(); this.ass?.dispose(); if (this.workerBlob) URL.revokeObjectURL(this.workerBlob); this.video.pause(); this.video.removeAttribute('src'); }
+  dispose() { this.fitObserver.disconnect(); if (this.fitFrame !== null) cancelAnimationFrame(this.fitFrame); this.ass?.dispose(); if (this.workerBlob) URL.revokeObjectURL(this.workerBlob); this.video.pause(); this.video.removeAttribute('src'); }
 }

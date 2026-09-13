@@ -13,12 +13,18 @@
 .st-key-hb_workflow [data-testid="stButton"] { margin: 0; }
 .st-key-hb_workflow button { min-height: 2rem; padding: .25rem .55rem; }
 .st-key-hb_monitor, .st-key-hb_inspector { min-width: 0; }
-.st-key-hb_inspector { padding: 0 .3rem 0; gap: .6rem; }
+.st-key-hb_inspector { padding: 0 .3rem 0; gap: .3rem; }
+.hb-project-status { display: flex; align-items: center; gap: 8px; min-width: 0; font: 12px/20px system-ui, sans-serif; opacity: .75; }
+.hb-project-status > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hb-project-status > span:last-child { flex: 0 0 auto; }
+.hb-project-status > span:last-child::before { content: '·'; padding-right: 8px; }
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"]:has(.hb-project-status) { gap: 6px; }
 .st-key-hb_settings { min-width: 0; }
 .st-key-hb_workflow button { white-space: nowrap; }
 .st-key-hb_inspector [data-testid="stTabs"] [data-baseweb="tab-list"] { gap: 1rem; }
 .st-key-hb_separation { max-width: 900px; margin-inline: auto; }
 @media (min-width: 1000px) {
+  [data-testid="stMainBlockContainer"]:has(.hb-project-status) { padding-top: 3.9rem; }
   .st-key-hb_monitor, .st-key-hb_inspector {
     height: calc(100dvh - var(--hb-workspace-top, 150px) - 12px) !important;
     max-height: calc(100dvh - var(--hb-workspace-top, 150px) - 12px) !important;

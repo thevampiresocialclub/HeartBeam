@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import html
 import os
 import re
 import shutil
@@ -693,7 +694,9 @@ def main() -> None:
             st.session_state.workflow_step = "export"
             st.rerun()
     if step in ("video", "review") and project:
-        st.caption(f"{project.name} · {'Unsaved changes' if _is_dirty() else 'Saved'}")
+        name = html.escape(project.name, quote=True)
+        state = 'Unsaved changes' if _is_dirty() else 'Saved'
+        st.html(f'<div class="hb-project-status" role="status"><span title="{name}">{name}</span><span>{state}</span></div>')
         audio, _ = _project_media(project, st.session_state.project_dir)
         if not audio:
             st.warning("Relink the original audio in the File menu to load playback.")

@@ -374,7 +374,7 @@ def render(project, root, karaoke_path, *, lyrics_editor=None, export_controls=N
         return
     duration = available[0]["duration_ms"]
     from . import presentation_ui, presentation
-    left, right = st.columns([1.55, 1], gap="large")
+    left, right = st.columns([1.7, 1], gap="medium")
     monitor = left.container(key="hb_monitor")
     inspector = right.container(key="hb_inspector")
     with inspector:

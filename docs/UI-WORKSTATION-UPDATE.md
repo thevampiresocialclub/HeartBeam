@@ -89,3 +89,23 @@ waveform and lyric selector measured 112 px and 84 px. At 760×900 the panes
 stacked without horizontal overflow. Real pointer clicks still sought through
 the shortened waveform and compact lyric selector. The focused Python workflow
 suite passed 57 tests and the JavaScript suite passed all 29 tests.
+
+## Density follow-up: the preview gets the workspace
+
+The layout now groups playback above the preview and editing below the waveform.
+Lead and backing levels share one row. Seek, loop margins, Undo and Redo share one
+row with visible units and preserved accessible labels. Each group wraps together
+on a small screen. Selection feedback is beside the lyric heading. Contextual
+vocal controls remain below the three fixed lyric rows, with their explanatory
+copy moved into info buttons. The project title/save state uses a single compact
+row. The monitor is wider and the gutter narrower.
+
+Help opens on hover, keyboard focus or tap, closes with Escape, and does not change
+the preview's size. Real failures stay visible. At 1500×900 with all separated
+tracks and a vocal region present, Chrome measured a 20 px project status, 24 px
+stem row, 26 px edit toolbar and 834×469.1 preview. Five viewport sizes down to
+390 px have no horizontal overflow. Firefox 155.0.1 verified desktop sizing,
+hover help, seeking and playback; its raw headless focus-event limitation is
+recorded in BUILD-STATUS. Both preparation-to-editor transitions, vocal edits,
+undo/redo and the fixed lyric selector were checked. A simulated audio failure
+remained visible without opening help.

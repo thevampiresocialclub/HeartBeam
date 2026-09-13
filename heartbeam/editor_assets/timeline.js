@@ -70,6 +70,11 @@ const HB_WAVEFORM_HEIGHT = 112;
 const HB_WORD_LANE_TOP = 74;
 const HB_WORD_LANE_HEIGHT = 34;
 
+// Only fixed application copy is passed here; lyric/project text uses textContent.
+function hbInfo(id, label, text) {
+  return `<span class="hb-help"><button type="button" class="hb-info" aria-label="${label}" aria-describedby="${id}">i</button><span id="${id}" class="hb-help-text" role="tooltip" popover="manual">${text}</span></span>`;
+}
+
 // The AudioContext is the only playback clock. Browser-only audition state
 // survives Streamlit reruns; only selections and committed edits cross the bridge.
 export default function (component) {
@@ -107,40 +112,42 @@ export default function (component) {
         <label class="hb-track-number"><input data-track-number="lead" aria-label="Lead vocals percent" type="number" min="0" max="100" step="1" value="0">%</label></div>
       <div><label>Backing vocals <input data-track="backing" type="range" min="0" max="100" step="1" value="100"></label>
         <label class="hb-track-number"><input data-track-number="backing" aria-label="Backing vocals percent" type="number" min="0" max="100" step="1" value="100">%</label></div>
-      <small>0% mutes a track. Try 1–5% lead for a quiet guide. Lead regions override the song default.</small>
+      ${hbInfo('hb-track-help', 'About vocal levels', '0% mutes a track. Try 1–5% lead for a quiet guide. Lead regions override the song default.')}
     </div>
     <div class="hb-preview"><canvas class="hb-ass" width="960" height="540" aria-label="Rendered lyric preview"></canvas></div>
     <div class="hb-preview-status" role="status">Loading lyric preview…</div>
     <div class="hb-toolbar hb-waveform-tools">
-      <strong>Waveform · click or drag to seek</strong>
+      <strong>Waveform</strong>
       <label>Zoom <input class="hb-zoom" type="range" min="1" max="20" step="1" value="1"></label>
       <label><input class="hb-follow" type="checkbox" checked> Follow playback</label>
     </div>
     <div class="hb-scroll"><div class="hb-track"><canvas class="hb-canvas" tabindex="0" role="slider" aria-label="Waveform song position" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0" aria-orientation="horizontal" aria-description="Click or drag the waveform to seek. Arrow keys seek one second, Shift seeks a tenth of a second. Home and End go to the start and end. Space plays or pauses. Lyric timing blocks are below the waveform."></canvas></div></div>
-    <div class="hb-toolbar hb-seek-tools">
-      <label>Seek seconds <input class="hb-seek" type="number" min="0" step="0.01" value="0"></label>
-      <button class="hb-btn" data-act="seek">Seek</button>
-      <span class="hb-sel"></span>
+    <div class="hb-toolbar hb-edit-tools" role="group" aria-label="Seek, loop and history">
+      <div class="hb-tool-group"><label><input aria-label="Seek seconds" class="hb-seek" type="number" min="0" step="0.01" value="0">s</label>
+        <button class="hb-btn" data-act="seek">Seek</button></div>
+      <div class="hb-tool-group"><button class="hb-btn" data-act="loop" aria-label="Loop selection" aria-pressed="false">Loop</button>
+        <label>Before <input aria-label="Before (ms)" class="hb-before" type="number" min="0" max="5000" step="50" value="250"></label>
+        <label>After <input aria-label="After (ms)" class="hb-after" type="number" min="0" max="5000" step="50" value="250"></label><span class="hb-unit">ms</span></div>
+      <div class="hb-tool-group"><button class="hb-btn" data-act="undo">Undo</button><button class="hb-btn" data-act="redo">Redo</button></div>
+      ${hbInfo('hb-edit-help', 'Editing controls and shortcuts', 'Click or drag the waveform to seek. Drag word edges in the lower lane to adjust timing. Loop repeats the selected word or phrase; Before and After add time in milliseconds. Space plays or pauses; Ctrl+Z undoes.')}
     </div>
-    <div class="hb-toolbar"><button class="hb-btn" data-act="loop" aria-pressed="false">Loop selection</button><label>Before (ms) <input class="hb-before" type="number" min="0" max="5000" step="50" value="250"></label>
-      <label>After (ms) <input class="hb-after" type="number" min="0" max="5000" step="50" value="250"></label>
-      <button class="hb-btn" data-act="undo">Undo</button><button class="hb-btn" data-act="redo">Redo</button></div>
     <div class="hb-vocal-lane" aria-label="Vocal regions"></div>
-    <div class="hb-vocal" hidden><strong class="hb-vocal-title"></strong>
-      <label>Vocal level <input class="hb-vocal-level" type="range" min="0" max="100" step="1" value="0"><output class="hb-vocal-value">0%</output></label>
-      <p>0% = processed karaoke · 100% = original vocal level. Separation may also affect backing vocals. Draft audition has fixed headroom; final audio is mastered once.</p></div>
+    <div class="hb-vocal" hidden><div class="hb-vocal-head"><strong class="hb-vocal-title"></strong>
+      ${hbInfo('hb-selection-help', 'About the selected vocal level', 'Adjust the vocal level for this selection.')}</div>
+      <label>Vocal level <input class="hb-vocal-level" type="range" min="0" max="100" step="1" value="0"><output class="hb-vocal-value">0%</output></label></div>
     <div class="hb-hint" role="status" aria-live="polite"></div>
-    <details class="hb-lyrics" open><summary>Lyrics · select a word to seek</summary><div class="hb-lines" tabindex="0" aria-label="Lyric lines, scroll for more"></div></details>`;
+    <details class="hb-lyrics" open><summary><span>Lyrics · click to seek</span><span class="hb-sel" role="status"></span></summary><div class="hb-lines" tabindex="0" aria-label="Lyric lines, scroll for more"></div></details>`;
   parent.appendChild(root);
   const controls = document.createElement('div');
   controls.className = 'hb-editor hb-live-controls'; controls.tabIndex = 0;
   controls.append(root.querySelector('.hb-lyrics'), root.querySelector('.hb-vocal'));
   const releaseControls = hbAttachControls(component.data.project_id, controls);
+  hbMountHelp(root, signal);
+  hbMountHelp(controls, signal);
   const $ = selector => root.querySelector(selector) || controls.querySelector(selector);
   const audio = new HBTransport();
   const canvas = $('.hb-canvas'), ctx = canvas.getContext('2d'), scroll = $('.hb-scroll');
   const sourceSelect = $('.hb-source'), playButton = $('[data-act="play"]');
-  const hint = 'Waveform seeks. Drag word edges to adjust timing. Space plays; Ctrl+Z undoes.';
   const state = { words: [], sources: [], durationMs: 0, selectedId: null,
     zoom: 1, looping: false, drag: null, sourceId: null, sourceKey: null,
     peaks: {mins: [], maxs: []}, busy: false, pending: null, switchEpoch: 0,
@@ -184,7 +191,7 @@ export default function (component) {
             Math.min(state.durationMs, range.end_ms + Number($('.hb-after').value)) / 1000];
   }
   function syncLoop() { audio.setLoop(state.looping ? loopBounds() : null); }
-  function status(message = hint, error = false) { $('.hb-hint').textContent = message; $('.hb-hint').classList.toggle('err', error); }
+  function status(message = '', error = false) { $('.hb-hint').textContent = message; $('.hb-hint').classList.toggle('err', error); }
   function buttons() {
     playButton.textContent = audio.paused ? '▶ Play' : 'Ⅱ Pause';
     playButton.setAttribute('aria-label', audio.paused ? 'Play' : 'Pause');
@@ -222,6 +229,7 @@ export default function (component) {
     state.selectedId = word?.id || null;
     if (word?.start_ms == null && !state.phraseLoop) state.looping = false;
     $('.hb-sel').textContent = word ? `Selected: ${word.text}${word.estimated ? ' (estimated timing)' : word.start_ms == null ? ' (needs timing)' : ''}` : '';
+    $('.hb-sel').title = $('.hb-sel').textContent;
     for (const [id, button] of wordButtons) button.setAttribute('aria-pressed', String(id === state.selectedId));
     syncLoop();
     const target = hbWordSeek(word);
@@ -468,6 +476,7 @@ export default function (component) {
   $('.hb-zoom').addEventListener('input', e => { const start = xToMs(scroll.scrollLeft); state.zoom = Number(e.target.value); resize(); scroll.scrollLeft = msToX(start); draw(); });
   scroll.addEventListener('scroll', () => draw());
   function shortcuts(e) {
+    if (e.target.closest('.hb-help')) return;
     if (e.target.classList.contains('hb-lines')) return; // native keyboard scrolling
     if (e.target.closest('input, textarea, select, summary, [contenteditable="true"]')) return;
     if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') { e.preventDefault(); commit(e.shiftKey ? 'redo' : 'undo'); return; }
@@ -525,7 +534,7 @@ export default function (component) {
         if (number.getRootNode().activeElement !== number) number.value = Math.round(value * 100);
       }
     }
-    $('.hb-vocal p').textContent = data.mode === 'separated_stems'
+    $('#hb-selection-help').textContent = data.mode === 'separated_stems'
       ? 'Lead vocal level for this selection. Backing vocals keep their separate song volume.'
       : 'Blends processed karaoke toward the original recording. Use separate tracks in Vocals to control lead and backing independently.';
     for (const region of data.regions) {

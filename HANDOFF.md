@@ -349,3 +349,26 @@ The right lyric selector still shows exactly three rows, now 28 px each. Desktop
 Chrome proof measured a 789×443.8 preview, a 112 px waveform and an 84 px lyric
 strip; a 760×900 proof stacked cleanly. Pointer seeking remained synchronized.
 See BUILD-STATUS and `docs/UI-WORKSTATION-UPDATE.md` for the full evidence.
+
+### Density and help follow-up
+
+Project status is a single HTML element, deliberately not an extra container:
+the latter left stale preparation widgets in Streamlit transition tests. Escape
+project names before inserting HTML. The editor uses 1.7:1 columns with a medium
+gutter. The stem sliders share one row, as do seek/loop/undo controls. Selected-word
+feedback belongs in the lyric heading. Keep the three-row lyric strip fixed.
+
+`hbMountHelp` in workstation.js mounts hover/focus/tap info tooltips in the browser
+top layer, including those hosted in the inspector shadow root. Keep actual errors
+in the visible `.hb-hint` status. Never bind help keyboard arrows to timing nudges.
+Preview ResizeObserver callbacks schedule size writes on the next animation frame
+and cancel pending work during disposal to avoid Firefox resize-loop warnings.
+
+Reproduce acceptance with `scripts/compact_editor_fixture.py`,
+`scripts/compact_editor_browser_proof.cjs` and `scripts/compact_editor_firefox_proof.mjs`.
+The scripts take output folders and use disposable projects. Chrome requires the
+development Playwright package; Firefox uses installed Firefox via WebDriver BiDi.
+They are not app dependencies. Latest evidence: 57 focused Python tests, 29 JS
+tests, Chrome at five widths, and installed Firefox pointer/playback/desktop checks.
+Firefox keyboard-focus behavior remains unverified because the raw headless window
+suppresses focus events. The main app was restarted at 8505 with the new layout.

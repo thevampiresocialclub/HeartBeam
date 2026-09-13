@@ -1755,3 +1755,42 @@ with a 13 px gap before Deploy. The preview measured 789×443.8, the waveform
 visible controls. Live pointer checks sought to 3,500 ms from the waveform and
 2,533 ms from an unresolved lyric. Focused Python verification passed **57
 tests** and all **29 JavaScript tests passed**. `git diff --check` passed.
+
+## Workspace density and help controls, 12 September 2026
+
+The project/save status is one 20 px row with truncated long names and a full-name
+hover title. The monitor receives a wider share of the workspace and a smaller
+gutter. Lead/backing controls now occupy one 24 px row. Seeking, loop padding,
+undo/redo and help occupy one 26 px row on desktop. The selected word moved into
+the lyric selector heading; its three visible rows remain fixed. The selected
+vocal-region control is also compact, returning about 50 px to the settings pane.
+
+Vocal guidance, selection guidance and editing shortcuts are accessible info
+buttons. Their tooltips open on hover/focus/tap and use the browser top layer to
+avoid clipping inside scrolling panes. Escape and outside clicks dismiss them.
+Routine hints occupy no extra row. Loading failures and actionable status messages
+remain visible; an injected HTTP 503 audio failure verified this in the live app.
+
+`scripts/compact_editor_fixture.py` creates a synthetic 24-second song with six
+lyric lines, instrumental/lead/backing stems and a saved vocal region. The Chrome
+proof covers 1500×900, 1280×720, 1050×650, 760×900 and 390×844 with no horizontal
+overflow. At 1500×900 the preview is 834×469.1 with all vocal controls visible;
+the editor begins at y=94.4. At 1050×650 both compact toolbars still occupy one row.
+Real pointer/keyboard checks verified lyric/waveform/numeric seeking, looping,
+lead-level changes, undo/redo, hover/focus/tap/Escape/Tab help, and fixed lyrics
+while the settings scroll. The final proof passed against the restarted 8505 app.
+
+Installed Firefox **155.0.1** verified pointer help, dismissal, lyric/waveform
+seeking, synchronized audio/preview clocks, and 1500×900 / 1050×650 layouts with
+no page errors. Testing exposed a ResizeObserver feedback warning; preview size
+writes are now deferred outside observer delivery and cancelled on disposal.
+Raw headless Firefox reports `document.hasFocus() == false` and suppresses focus
+events even with native Tab traversal, so Firefox keyboard-focus tooltip behavior
+is explicitly unverified; Chrome verifies it. Do not claim full browser parity.
+
+Final focused Python run: **57 passed in 19.49 seconds**. JavaScript: **29 passed**.
+The full 373-test Python suite was not repeated for this UI-only revision. The
+first workflow run caught stale preparation elements when replacing a page with
+a nested status container; using a single HTML element fixed both transitions
+without weakening tests. Evidence is under `compact-workspace-live-proof/` and
+`compact-workspace-firefox/` in the shared run workspace. `git diff --check` passed.
