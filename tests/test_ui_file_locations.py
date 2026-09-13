@@ -26,7 +26,7 @@ def test_session_numbers_are_concurrent_and_not_reused(tmp_path, monkeypatch):
     with ThreadPoolExecutor(max_workers=8) as pool:
         created = list(pool.map(paths.new_session, [f'song-{i}' for i in range(16)]))
     assert sorted(int(path.name) for path in created) == list(range(1, 17))
-    created[-1].rmdir()
+    max(created, key=lambda path: int(path.name)).rmdir()
     assert paths.new_session('later').name == '17'
 
 
@@ -56,6 +56,23 @@ def test_open_list_disambiguates_duplicate_project_names(tmp_path, monkeypatch):
     assert [path for _, path in choices] == roots
     assert len({label for label, _ in choices}) == 2
     assert all('Night Drive' in label for label, _ in choices)
+
+
+def test_open_list_compacts_repeated_song_prefixes_and_named_copy_suffixes(tmp_path, monkeypatch):
+    from heartbeam.gui import _known_projects
+    monkeypatch.setenv('HEARTBEAM_DATA_ROOT', str(tmp_path))
+    name = 'Frost Children - WHAT IS FOREVER FOR (Official Video)'
+    old_copy = tmp_path / 'Projects' / f'{name}-24dba9'
+    named_copy = tmp_path / 'Projects' / f'{name} (2)'
+    legacy = tmp_path / 'Sessions' / f'{name}-vmh_1_gh' / 'out' / 'project'
+    for root in (old_copy, named_copy, legacy):
+        P.save_project(P.create_project(root, name), root)
+
+    labels = {path: label for label, path in _known_projects()}
+    assert labels[old_copy] == f'Project · {name} · 24dba9'
+    assert labels[named_copy] == f'Project · {name} (2)'
+    assert labels[legacy] == f'Session · {name} · vmh_1_gh'
+    assert len(set(labels.values())) == 3
 
 
 @pytest.mark.parametrize('value', ['', '../escape', r'C:\movie.mp4', 'folder/movie',

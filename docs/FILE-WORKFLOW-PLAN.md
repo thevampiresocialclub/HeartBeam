@@ -33,7 +33,7 @@ Sol owns application changes, tests, and updates to README / FILES-AND-DISTRIBUT
 
 ## Delivery evidence — 13 September 2026
 
-Implemented by Sol and reviewed by Astra. Final checks: **404 Python tests and
+Implemented by Sol and reviewed by Astra. Final checks: **405 Python tests and
 29 JavaScript tests passed**. The browser opened named, numbered and legacy
 projects, created a collision-safe copy with its own identity and audio, and
 saved an appearance edit through Save and close. The Tracks menu selected the
@@ -46,4 +46,6 @@ were absent during these checks. Test data stayed in the isolated
 `heartbeam-file-ui-proof` workspace, outside the repository and the owner's songs.
 Native Explorer/picker interaction and Firefox were not visually retested;
 automated desktop-helper tests verify exact arguments, missing paths and Unicode
-picker output. No ML/timing algorithm or mix changes belong to this update.
+picker output. Real project discovery also exposed redundant long labels in old
+folders; these now show a compact distinguishing suffix while retaining the
+original paths. No ML/timing algorithm or mix changes belong to this update.

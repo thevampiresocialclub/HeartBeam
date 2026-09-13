@@ -401,6 +401,19 @@ def _render_missing_assets(project, project_dir: Path) -> None:
                 st.error(str(exc))
 
 
+def _compact_folder_detail(name: str, folder_name: str) -> str:
+    """Disambiguate without repeating a title already present in the label."""
+    if folder_name.casefold() == name.casefold():
+        return ""
+    if folder_name.casefold().startswith(name.casefold()):
+        remainder = folder_name[len(name):]
+        if re.fullmatch(r" \(\d+\)", remainder):
+            return remainder
+        if re.fullmatch(r"-[A-Za-z0-9_]+", remainder):
+            return f" · {remainder[1:]}"
+    return f" — {folder_name}"
+
+
 def _known_projects() -> list[tuple[str, Path]]:
     """Named copies first, then direct and legacy preparation sessions."""
     choices: list[tuple[str, Path]] = []
@@ -417,7 +430,7 @@ def _known_projects() -> list[tuple[str, Path]]:
                 name = prj.load_project(folder).name
             except prj.ProjectError:
                 name = folder.name
-            detail = f" — {folder.name}" if name.casefold() != folder.name.casefold() else ""
+            detail = _compact_folder_detail(name, folder.name)
             choices.append((f"Project · {name}{detail}", folder))
         except OSError:
             continue
@@ -430,7 +443,7 @@ def _known_projects() -> list[tuple[str, Path]]:
             label = f"Session {number} · {name}"
         else:
             session_folder = folder.parents[1] if folder.parent.name.casefold() == "out" else folder
-            label = f"Session · {name} — {session_folder.name}"
+            label = f"Session · {name}{_compact_folder_detail(name, session_folder.name)}"
         choices.append((label, folder))
     return choices
 

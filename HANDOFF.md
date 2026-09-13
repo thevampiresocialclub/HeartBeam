@@ -12,7 +12,7 @@ explains how to continue without breaking the working editor.
 **Latest file workflow, 13 September:** Sol implemented numbered working sessions,
 the familiar File/Open/Save/Save as controls, direct folder access, a Tracks menu,
 completed-video reveal and a compact aligned header. Astra reviewed and tested
-the result: **404 Python and 29 JavaScript tests passed**, plus isolated browser
+the result: **405 Python and 29 JavaScript tests passed**, plus isolated browser
 Open/Save as/Save-and-close and a four-second H.264/AAC export. Read the newest
 BUILD-STATUS entry for evidence and native-desktop/Firefox limits, and
 `docs/FILE-WORKFLOW-PLAN.md` for decisions. New projects live directly in numbered
@@ -22,7 +22,8 @@ project/word/line IDs; the session folder number is only a user-facing identifie
 The header heading has a nested Streamlit wrapper with a negative bottom margin:
 keep its scoped `:has(h1)` margin reset or the title sits below the buttons again.
 Older running servers may retain imported modules; start a fresh process for
-this code. Existing songs and saved folders were left in place.
+this code. The new normal-data app is on **http://localhost:8508/**; old 8505/8506
+processes were preserved. Existing songs and saved folders were left in place.
 
 **GitHub setup, 12 September:** the maintained route is now the private
 `thevampiresocialclub/HeartBeam` repository plus `INSTALL-WITH-AN-AGENT.md`.

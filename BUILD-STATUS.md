@@ -23,7 +23,7 @@ The plan is in `docs/FILE-WORKFLOW-PLAN.md`, with the folder guide in
 - Header controls are grouped on the left and vertically centered. At narrow
   widths they wrap without horizontal page overflow.
 
-Verification on the final application code: **404 Python tests passed** and
+Verification on the final application code: **405 Python tests passed** and
 **29 JavaScript tests passed**. Tests cover concurrent session allocation,
 non-reuse after deletion, legacy discovery, destination collisions, dirty state,
 portable copies, desktop-command arguments and the exact completed-video target.
@@ -40,6 +40,10 @@ Windows reveal was invoked without an application error, and command tests check
 its exact target. Native Explorer selection and the Browse dialog were not
 visually automated; Tk availability and Unicode picker handling were checked.
 Firefox was not retested for this update. ML/timing/mixing algorithms are unchanged.
+The normal-data app was started at **http://localhost:8508/**. Existing 8505/8506
+processes were preserved and the isolated test server was stopped. The Open menu
+finds the owner's existing projects; repeated long song prefixes in old folder
+names are shortened to distinct suffixes without changing any folders.
 
 ## 12 September: GitHub installation and maintenance
 
