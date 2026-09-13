@@ -15,10 +15,11 @@ Re-running Phase 2 with a different style does not re-run the slow ML pipeline.
 
 The recommended route is a GitHub checkout plus the repository setup script. Give Claude Code or Codex the repository and [INSTALL-WITH-AN-AGENT.md](INSTALL-WITH-AN-AGENT.md). The agent must run on the PC where HeartBeam will be installed. An AI subscription is setup assistance, not a requirement for running HeartBeam.
 
-**Windows x64 / Python 3.12 is the maintained setup baseline.** From the checkout:
+**Windows x64 / Python 3.12 is the maintained setup baseline.**
 
 The repository is private. Friends first accept a GitHub invitation, then clone
 `https://github.com/thevampiresocialclub/HeartBeam.git` into a permanent folder.
+From that checkout:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1

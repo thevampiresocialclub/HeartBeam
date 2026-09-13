@@ -28,9 +28,22 @@ Verification in isolated environments, without changing the running app:
 - GitHub Actions runs the Editor installer, diagnostics and Python/JavaScript
   regressions. Its result must be checked on GitHub; local results are not a CI pass.
 
-Real-song preparation in the fresh GPU environment is being checked separately.
-This section does not certify timing quality on other songs, other GPUs, a
-cold model download, Firefox behavior or a complete manual GUI workflow.
+Real-song smoke test also passed: the fresh GPU environment processed the existing
+Helena fixture with Pop / Whisper medium / English, using cached model weights.
+Both separation passes completed; matching found anchors for 40 of 43 phrases and
+returned 208 aligned words (11 low-confidence). All 245 lyric words survived import.
+This is execution evidence, not a human timing-quality score.
+
+The separate Editor-only environment imported that output and its six cached
+tracks, built the karaoke mix, saved/reopened 3% lead and 50% backing settings,
+and exported a 20-second 640x360 passage. FFprobe confirmed H.264 video, AAC audio
+and exactly 20.0 seconds. Estimated timing produced a warning and still exported.
+Artifacts remain outside Git under `heartbeam-gpu-song-smoke` in the test workspace.
+
+These checks do not certify other songs/GPUs, a cold model download, Firefox
+behavior or a complete manual GUI workflow. The initial private repository push
+preserves the existing history, including its old test fixtures; it is not a
+media-scrubbed public release.
 
 ## Summary
 
