@@ -1739,3 +1739,19 @@ Final verification: **373 Python tests passed in 27.45 seconds** and **29
 JavaScript tests passed**. The added tests cover unresolved navigation without
 fake timing, exact-time priority, malformed partial timing, and missing hints.
 `git diff --check` passed.
+
+## Compact editor workspace, 12 September 2026
+
+The desktop HeartBeam title, File menu and workflow stages now share the native
+top header band with Deploy. The workflow returns to document flow below 1000 px
+so narrow screens can wrap safely. Phrase, Listen to and Speed share one row.
+The waveform is 112 px tall (previously 150 px), and the fixed three-line lyric
+selector is 84 px tall (previously 108 px). The preview fit calculation consumes
+the recovered height rather than leaving a blank region.
+
+At 1500×900, headless Chrome measured the workflow fully inside the 60 px header
+with a 13 px gap before Deploy. The preview measured 789×443.8, the waveform
+112 px and the lyric selector 84 px. A 760×900 pass verified stacked panes and
+visible controls. Live pointer checks sought to 3,500 ms from the waveform and
+2,533 ms from an unresolved lyric. Focused Python verification passed **57
+tests** and all **29 JavaScript tests passed**. `git diff --check` passed.

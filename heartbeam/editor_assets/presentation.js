@@ -26,7 +26,10 @@ class HBPresentation {
     window.addEventListener('resize', () => this.fit(), {signal});
     this.frame.insertAdjacentHTML('afterbegin', '<img class="hb-background" alt="" hidden><video class="hb-background" muted playsinline preload="auto" hidden></video>');
     this.frame.insertAdjacentHTML('beforeend', '<div class="hb-safe" aria-hidden="true"></div><div class="hb-placement-handles"></div>');
-    this.frame.insertAdjacentHTML('beforebegin', '<div class="hb-toolbar"><label>Preview line <select class="hb-preview-line" aria-label="Preview lyric line"></select></label><span class="hb-placement-scope"></span></div>');
+    const options = this.$('.hb-preview-options');
+    const phrase = '<label>Phrase <select class="hb-preview-line" aria-label="Preview lyric line"></select></label><span class="hb-placement-scope"></span>';
+    if (options) options.insertAdjacentHTML('afterbegin', phrase);
+    else this.frame.insertAdjacentHTML('beforebegin', `<div class="hb-toolbar hb-preview-options">${phrase}</div>`);
     this.video = this.$('video.hb-background'); this.video.muted = true;
     this.video.addEventListener('error', () => this.message('Background video cannot play in this browser. Use an H.264 MP4 or choose another background.'), {signal});
     this.$('img.hb-background').addEventListener('error', () => this.message('Background image could not load. Choose another image.'), {signal});

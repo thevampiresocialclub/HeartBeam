@@ -71,3 +71,21 @@ Implemented 12 September 2026.
 The existing font/theme conventions are retained. See
 `FILES-AND-DISTRIBUTION.md` for user storage and packaging boundaries. The
 instrument recovery archive remains untouched.
+
+## Compact workspace revision, 12 September 2026
+
+The desktop workflow title, File menu and four stages now occupy the existing
+60 px Streamlit header band beside Deploy. Below 1000 px they return to normal
+document flow so the controls can wrap without colliding. Phrase, Listen to and
+Speed share one responsive row above the preview. The waveform retains separate
+waveform and timing-edit lanes at 112 px total height, down from 150 px. The
+three-row lyric selector remains three rows but uses 28 px rows, reducing its
+window from 108 px to 84 px.
+
+Headless Chrome at 1500×900 measured the workflow at y=5.6–46.4 inside the
+60 px header, ending 13 px before Deploy. The reclaimed workspace produced a
+789×443.8 preview, with all three playback options aligned at y=153. The
+waveform and lyric selector measured 112 px and 84 px. At 760×900 the panes
+stacked without horizontal overflow. Real pointer clicks still sought through
+the shortened waveform and compact lyric selector. The focused Python workflow
+suite passed 57 tests and the JavaScript suite passed all 29 tests.

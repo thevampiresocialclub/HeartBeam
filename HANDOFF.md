@@ -335,3 +335,17 @@ but skipped the transport seek because `start_ms` was null. Live Chromium proof
 confirmed unresolved clicks at 2,533 ms and 3,467 ms, synchronized preview and
 continued playback through the selection rerun. Firefox was not directly run in
 this pass. Current evidence is 373 Python and 29 JavaScript tests; see BUILD-STATUS.
+
+## Latest compact workspace revision
+
+On desktop, `.st-key-hb_workflow` is visually placed inside Streamlit's header
+with reserved room for Deploy; below 1000 px it returns to document flow. Keep
+that responsive fallback when changing navigation. The preview options are one
+row in `.hb-preview-options`: Phrase, Listen to and Speed. The timeline drawing
+uses shared 112/74/34 px constants for total height, word-lane start and word-lane
+height; update drawing and hit testing together if these dimensions change.
+
+The right lyric selector still shows exactly three rows, now 28 px each. Desktop
+Chrome proof measured a 789×443.8 preview, a 112 px waveform and an 84 px lyric
+strip; a 760×900 proof stacked cleanly. Pointer seeking remained synchronized.
+See BUILD-STATUS and `docs/UI-WORKSTATION-UPDATE.md` for the full evidence.

@@ -10,6 +10,9 @@
   flex-wrap: wrap;
   margin-bottom: 6px;
 }
+.hb-preview-options { flex-wrap: nowrap; gap: 8px 14px; }
+.hb-preview-options label:first-child { flex: 1 1 auto; min-width: 0; }
+.hb-preview-options .hb-preview-line { flex: 1 1 auto; width: auto; min-width: 0; }
 
 .hb-btn {
   font: inherit;
@@ -59,7 +62,7 @@
   background: rgba(20, 26, 38, 0.35);
 }
 
-.hb-track { position: relative; height: 150px; }
+.hb-track { position: relative; height: 112px; }
 .hb-canvas { display: block; position: sticky; left: 0; }
 .hb-toolbar label { display: flex; align-items: center; gap: 6px; }
 .hb-toolbar select, .hb-toolbar input { font: inherit; }
@@ -86,10 +89,10 @@
 .hb-preview-copy span { font-size: 12px; opacity: .72; }
 .hb-preview-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .hb-preview-head { position: sticky; top: 0; z-index: 5; padding-block: 6px; background: var(--st-background-color, Canvas); }
-.hb-live-controls .hb-lines { height: 108px; max-height: 108px; padding: 0; overflow-y: auto; overflow-x: hidden; scroll-snap-type: y proximity; }
-.hb-live-controls .hb-line { height: 36px; min-height: 36px; margin: 0; flex-wrap: nowrap; align-items: center; scroll-snap-align: start; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
-.hb-live-controls .hb-word { flex: 0 0 auto; white-space: nowrap; }
-.hb-live-controls summary { padding: 3px 0 6px; font-weight: 600; }
+.hb-live-controls .hb-lines { height: 84px; max-height: 84px; padding: 0; overflow-y: auto; overflow-x: hidden; scroll-snap-type: y proximity; }
+.hb-live-controls .hb-line { height: 28px; min-height: 28px; margin: 0; flex-wrap: nowrap; align-items: center; scroll-snap-align: start; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.hb-live-controls .hb-word { flex: 0 0 auto; white-space: nowrap; padding-block: 2px; }
+.hb-live-controls summary { padding: 1px 0 4px; font-weight: 600; }
 .hb-live-controls .hb-lyrics { margin-top: 0; }
 .hb-live-controls .hb-vocal { margin-top: 12px; }
 .hb-ass { width: 100%; height: 100%; display: block; }
@@ -119,4 +122,6 @@
 @media (max-width: 640px) {
   .hb-preview-head { align-items: stretch; flex-direction: column; }
   .hb-preview-actions { justify-content: flex-start; }
+  .hb-preview-options { flex-wrap: wrap; }
+  .hb-preview-options label:first-child { flex-basis: 100%; }
 }

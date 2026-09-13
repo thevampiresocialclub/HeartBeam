@@ -66,6 +66,10 @@ function hbWordSeek(word) {
   return Number.isFinite(value) ? value : null;
 }
 
+const HB_WAVEFORM_HEIGHT = 112;
+const HB_WORD_LANE_TOP = 74;
+const HB_WORD_LANE_HEIGHT = 34;
+
 // The AudioContext is the only playback clock. Browser-only audition state
 // survives Streamlit reruns; only selections and committed edits cross the bridge.
 export default function (component) {
@@ -94,7 +98,7 @@ export default function (component) {
       </div>
       <span class="hb-time"><span class="hb-cur">0:00.00</span> / <span class="hb-dur"></span></span>
     </div>
-    <div class="hb-toolbar">
+    <div class="hb-toolbar hb-preview-options">
       <label>Listen to <select class="hb-source"></select></label>
       <label>Speed <select class="hb-rate"><option value="0.5">0.5x</option><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.5">1.5x</option></select></label>
     </div>
@@ -334,16 +338,16 @@ export default function (component) {
   function resize() {
     const dpr = window.devicePixelRatio || 1, viewport = Math.max(1, scroll.clientWidth);
     $('.hb-track').style.width = `${width()}px`;
-    canvas.style.width = `${viewport}px`; canvas.style.height = '150px';
-    canvas.width = Math.round(viewport * dpr); canvas.height = Math.round(150 * dpr);
+    canvas.style.width = `${viewport}px`; canvas.style.height = `${HB_WAVEFORM_HEIGHT}px`;
+    canvas.width = Math.round(viewport * dpr); canvas.height = Math.round(HB_WAVEFORM_HEIGHT * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw(); void loadPeaks();
   }
   function draw(ms = audio.currentTime * 1000) {
     const viewport = scroll.clientWidth, fullWidth = width(), offset = scroll.scrollLeft;
     const playhead = msToX(ms) - offset;
-    ctx.clearRect(0, 0, viewport, 150);
+    ctx.clearRect(0, 0, viewport, HB_WAVEFORM_HEIGHT);
     ctx.fillStyle = 'oklch(65% .11 255 / .16)';
-    ctx.fillRect(0, 0, Math.max(0, Math.min(viewport, playhead)), 96);
+    ctx.fillRect(0, 0, Math.max(0, Math.min(viewport, playhead)), HB_WORD_LANE_TOP - 3);
     const {mins, maxs} = state.peaks, n = mins.length;
     if (n) {
       ctx.strokeStyle = 'rgba(130,150,180,0.85)'; ctx.lineWidth = 1; ctx.beginPath();
@@ -352,7 +356,7 @@ export default function (component) {
         const end = Math.min(n, Math.max(start + 1, Math.ceil((x + offset + 1) / fullWidth * n)));
         let lo = mins[start], hi = maxs[start];
         for (let i = start + 1; i < end; i++) { lo = Math.min(lo, mins[i]); hi = Math.max(hi, maxs[i]); }
-        ctx.moveTo(x + .5, 59 - hi / 127 * 35); ctx.lineTo(x + .5, 59 - lo / 127 * 35);
+        ctx.moveTo(x + .5, 44 - hi / 127 * 25); ctx.lineTo(x + .5, 44 - lo / 127 * 25);
       } ctx.stroke();
     }
     ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'middle';
@@ -366,15 +370,15 @@ export default function (component) {
       if (right < 0 || left > viewport) continue;
       const selected = word.id === state.selectedId;
       ctx.fillStyle = selected ? 'rgba(255,215,0,.35)' : word.low_confidence ? 'rgba(230,120,90,.28)' : 'rgba(120,170,255,.22)';
-      ctx.fillRect(left, 99, right - left, 47);
+      ctx.fillRect(left, HB_WORD_LANE_TOP, right - left, HB_WORD_LANE_HEIGHT);
       ctx.strokeStyle = selected ? 'rgba(255,215,0,.95)' : 'rgba(120,170,255,.55)'; ctx.lineWidth = selected ? 2 : 1;
-      ctx.strokeRect(left + .5, 99.5, right - left - 1, 46);
-      ctx.save(); ctx.beginPath(); ctx.rect(left + 2, 99, Math.max(0, right - left - 4), 47); ctx.clip();
-      ctx.fillStyle = 'rgba(235,240,250,.95)'; ctx.fillText(word.text, left + 4, 122); ctx.restore();
+      ctx.strokeRect(left + .5, HB_WORD_LANE_TOP + .5, right - left - 1, HB_WORD_LANE_HEIGHT - 1);
+      ctx.save(); ctx.beginPath(); ctx.rect(left + 2, HB_WORD_LANE_TOP, Math.max(0, right - left - 4), HB_WORD_LANE_HEIGHT); ctx.clip();
+      ctx.fillStyle = 'rgba(235,240,250,.95)'; ctx.fillText(word.text, left + 4, HB_WORD_LANE_TOP + HB_WORD_LANE_HEIGHT / 2); ctx.restore();
     }
     const x = Math.max(1, Math.min(viewport - 1, playhead));
     if (playhead < 0 || playhead > viewport) return;
-    ctx.strokeStyle = 'rgba(255,90,120,.95)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 150); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,90,120,.95)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, HB_WAVEFORM_HEIGHT); ctx.stroke();
     ctx.fillStyle = 'rgba(255,90,120,.95)'; ctx.beginPath(); ctx.moveTo(x-5, 0); ctx.lineTo(x+5, 0); ctx.lineTo(x, 8); ctx.fill();
   }
   function hitTest(x) {
@@ -386,7 +390,7 @@ export default function (component) {
     const word = wordAt(xToMs(x)); return word ? {word, edge: null} : null;
   }
   const localX = event => (event.clientX - canvas.getBoundingClientRect().left) / Math.max(1, canvas.getBoundingClientRect().width) * scroll.clientWidth + scroll.scrollLeft;
-  const wordLane = event => (event.clientY - canvas.getBoundingClientRect().top) / Math.max(1, canvas.getBoundingClientRect().height) * 150 >= 99;
+  const wordLane = event => (event.clientY - canvas.getBoundingClientRect().top) / Math.max(1, canvas.getBoundingClientRect().height) * HB_WAVEFORM_HEIGHT >= HB_WORD_LANE_TOP;
   canvas.addEventListener('pointerdown', event => {
     if (event.button !== 0 || event.isPrimary === false || state.busy || waveformSeek.active || state.drag) return;
     if (!wordLane(event)) { waveformSeek.down(event); return; }
