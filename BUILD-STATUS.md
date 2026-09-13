@@ -26,7 +26,10 @@ Verification in isolated environments, without changing the running app:
 - Failed or interrupted setup no longer leaves a valid readiness receipt. Model
   download failures return nonzero. The default download pack is Pop only.
 - GitHub Actions runs the Editor installer, diagnostics and Python/JavaScript
-  regressions. Its result must be checked on GitHub; local results are not a CI pass.
+  regressions. [The first Windows run passed](https://github.com/thevampiresocialclub/HeartBeam/actions/runs/34732656447)
+  on code commit `5074f99`, in 2m 53s. Subsequent commits only record evidence/docs.
+  GitHub reported a non-failing Node 20 deprecation warning for setup-node v4;
+  refresh that action during the next CI maintenance change.
 
 Real-song smoke test also passed: the fresh GPU environment processed the existing
 Helena fixture with Pop / Whisper medium / English, using cached model weights.
@@ -38,6 +41,7 @@ The separate Editor-only environment imported that output and its six cached
 tracks, built the karaoke mix, saved/reopened 3% lead and 50% backing settings,
 and exported a 20-second 640x360 passage. FFprobe confirmed H.264 video, AAC audio
 and exactly 20.0 seconds. Estimated timing produced a warning and still exported.
+An extracted frame was visually checked: both lyric rows are present and legible.
 Artifacts remain outside Git under `heartbeam-gpu-song-smoke` in the test workspace.
 
 These checks do not certify other songs/GPUs, a cold model download, Firefox

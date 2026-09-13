@@ -18,6 +18,11 @@ faster-whisper and audio-separator pull overlapping ONNX distributions, so the
 GPU installer restores its payload last and doctor verifies real CUDA execution.
 Keep the running development environment and user projects intact. The bridge,
 cloud service and standalone installer remain parked.
+The first GitHub Windows workflow passed. Fresh GPU song preparation and a
+20-second export from the separate Editor-only environment also passed; the
+BUILD-STATUS entry links the CI run and distinguishes model execution from
+subjective timing quality. The original checkout now tracks `origin/main` at
+`https://github.com/thevampiresocialclub/HeartBeam.git`.
 
 **Latest timing fix, 12 September:** optional backing lyrics in the 302-word
 Frost Children lyric sheet exposed a flat token-assignment defect that lost both
