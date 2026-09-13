@@ -7,8 +7,8 @@ redirection), under **HeartBeam**:
 
 ```text
 Documents/HeartBeam/
-  Projects/                   named projects created by Save project
-    Song-name-project-id/
+  Projects/                   named copies created by Save as
+    Song name/
       project.json
       audio/                  copied audio and separated tracks
       assets/                 timing source, backgrounds and other assets
@@ -19,16 +19,22 @@ Documents/HeartBeam/
           Song-name_karaoke.mp4
           export-manifest.json
   Sessions/                   durable preparation runs, including failed runs
-    Song-name-random-id/
+    1/                        numbers keep increasing, even after deletion
+      project.json            working project, saved after preparation
+      audio/                  copied audio and separated tracks
+      assets/                 imported timing source
       uploaded song
       lyrics.txt
-      out/project/            automatically saved when preparation completes
+      out/                     resumable processing output and caches
 ```
 
-`File > File locations` shows the actual paths. `Save project and review timing`
-copies a completed session into Projects by default; its folder field and
-`File > Save a copy` accept a different location. Existing project folders are
-not moved. Open older projects from File as before.
+The **File** menu lists named projects and prepared sessions, and opens the
+Sessions, Projects or current project folder in Explorer. **Browse** accepts a
+project.json from any other location. A completed preparation stays in its
+numbered working session; continuing to timing review does not require choosing
+a path. **Save as** makes an independent, portable named copy in Projects (or an
+optional empty custom folder). Existing project folders are not moved. Older
+session layouts under `out/project` remain discoverable.
 
 Set `HEARTBEAM_DATA_ROOT` before starting HeartBeam to put Projects and Sessions
 under another folder or drive. This changes defaults for new work only.
@@ -42,7 +48,8 @@ Exports are always inside their owning project. The filename next to Render
 video starts with the original input basename plus `_karaoke.mp4`; it can be
 edited. Passage renders append `_passage`. Rendering again creates a new folder
 and keeps earlier videos. The browser download uses the same filename and your
-browser's download-folder preference.
+browser's download-folder preference. **Show video in folder** selects the exact
+completed file without exposing the internal revision folder in the main view.
 
 ## Application and caches
 

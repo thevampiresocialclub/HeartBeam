@@ -2,6 +2,45 @@
 
 Tracks the build program in `heartbeam-claude-handoff/`. Update after every project.
 
+## 13 September: simpler sessions, files and track access
+
+Sol implemented the owner's file-workflow update; Astra reviewed and tested it.
+The plan is in `docs/FILE-WORKFLOW-PLAN.md`, with the folder guide in
+`docs/FILES-AND-DISTRIBUTION.md`.
+
+- New sessions use durable integer folders (`Sessions/1`, `Sessions/2`, ...).
+  Preparation saves the working project directly in that session. Old session
+  layouts remain discoverable without moving or renaming them.
+- File offers Open, Save, Save as and Close, plus Sessions, Projects and current
+  project folder buttons. Open lists projects/sessions and offers native Browse.
+  Save as uses a project name and readable collision suffixes such as `(2)`.
+  Dirty edits require saving or explicit discard before opening/closing; copies
+  cannot overwrite another project or a nonempty folder.
+- Tracks exposes existing instrumental, lead, backing, complete-vocal and original
+  files as applicable, with download/reveal and folder access. Download bytes are
+  loaded on demand. Export completion names the video and offers a direct reveal
+  button while preserving the existing immutable render folders.
+- Header controls are grouped on the left and vertically centered. At narrow
+  widths they wrap without horizontal page overflow.
+
+Verification on the final application code: **404 Python tests passed** and
+**29 JavaScript tests passed**. Tests cover concurrent session allocation,
+non-reuse after deletion, legacy discovery, destination collisions, dirty state,
+portable copies, desktop-command arguments and the exact completed-video target.
+
+Real browser checks used isolated synthetic projects, with no ML rerun or edits
+to the owner's songs: named/numbered/legacy Open, Save as with `(2)` and a new
+project identity, copied audio, track selection, Save-and-close with the saved
+appearance verified on disk, and a new full four-second export. FFprobe confirmed
+H.264/AAC at 640x360 and exactly 4.0 seconds. The completed export was visible in
+the page. Header alignment was measured at 1440 px (centers agree within 0.01 px);
+866 px and 480 px layouts were visually checked with no horizontal page overflow.
+
+Windows reveal was invoked without an application error, and command tests check
+its exact target. Native Explorer selection and the Browse dialog were not
+visually automated; Tk availability and Unicode picker handling were checked.
+Firefox was not retested for this update. ML/timing/mixing algorithms are unchanged.
+
 ## 12 September: GitHub installation and maintenance
 
 Windows installation now targets a checkout-local Python 3.12 x64 environment,

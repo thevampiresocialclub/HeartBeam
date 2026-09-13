@@ -336,7 +336,7 @@ def test_link_cached_audition_tracks_through_the_gui(tmp_path):
     assert not any(t.key == "lyrics_text" for t in at.text_area)
     assert not any(b.label == "Prepare audio and match lyrics" for b in at.button)
 
-def test_finished_separation_saves_to_chosen_folder_and_enters_workstation(tmp_path):
+def test_finished_separation_saves_session_in_place_and_enters_workstation(tmp_path):
     _existing_song_project(tmp_path)
     at = _fresh_app()
     at.session_state["out_dir"] = tmp_path / "yesterday"
@@ -350,15 +350,13 @@ def test_finished_separation_saves_to_chosen_folder_and_enters_workstation(tmp_p
     original_ids = project.word_ids()
     original_timing = project.original_alignment.copy()
     assert at.button(key="save_and_edit")
-    destination = tmp_path / "keep-my-song"
-    next(t for t in at.text_input if t.label == "Save project folder").set_value(str(destination))
     at.button(key="save_and_edit").click().run()
     assert not at.exception
     assert at.session_state["workflow_step"] == "video"
-    saved = P.load_project(destination)
+    saved = P.load_project(tmp_path / "yesterday")
     assert saved.word_ids() == original_ids
     assert saved.original_alignment == original_timing
-    assert saved.asset_by_role("karaoke_audio").resolve(destination).is_file()
+    assert saved.asset_by_role("karaoke_audio").resolve(tmp_path / "yesterday").is_file()
     assert at.button(key="step_video").disabled
     assert [tab.label for tab in at.tabs] == ["Appearance", "Lyrics", "Timing", "Vocals"]
     assert not any(b.label == "Prepare audio and match lyrics" for b in at.button)
@@ -386,13 +384,11 @@ def test_preparation_without_mp3_saves_and_enters_timing_review(tmp_path):
     assert not at.exception
     assert not R.approved(at.session_state['project'])
     assert at.session_state['project'].asset_by_role('karaoke_audio') is None
-    target=tmp_path/'saved'
-    next(t for t in at.text_input if t.label=='Save project folder').set_value(str(target))
     at.button(key='save_and_edit').click().run()
     assert not at.exception
     assert at.session_state['workflow_step']=='review'
-    saved=P.load_project(target)
-    assert saved.asset_by_role('original_audio').resolve(target).is_file()
+    saved=P.load_project(run)
+    assert saved.asset_by_role('original_audio').resolve(run).is_file()
     assert not R.approved(saved) and at.button(key='step_video').disabled
     assert len(at.get("audio")) == 0
     at.button(key="step_separation").click().run()
@@ -404,24 +400,20 @@ def test_preparation_without_mp3_saves_and_enters_timing_review(tmp_path):
     at.button(key="close_project").click().run()
 
 
-def test_failed_save_keeps_separation_result_and_does_not_enter_editor(tmp_path):
+def test_failed_continue_save_keeps_separation_result_and_does_not_enter_editor(tmp_path, monkeypatch):
     root = _existing_song_project(tmp_path)
     at = _fresh_app()
     at.text_input(key="open_project_path").set_value(str(root))
     at.button(key="open_project_btn").click().run()
     at.button(key="step_separation").click().run()
-    occupied = tmp_path / "occupied"
-    occupied.mkdir()
-    (occupied / "keep.txt").write_text("keep")
-    shutil.copy2(root / P.MANIFEST_NAME, occupied / P.MANIFEST_NAME)
-    next(t for t in at.text_input if t.label == "Save project folder").set_value(str(occupied))
+    def fail(*args, **kwargs):
+        raise OSError("disk unavailable")
+    monkeypatch.setattr(P, "save_project", fail)
     at.button(key="save_and_edit").click().run()
     assert not at.exception
     assert at.session_state["workflow_step"] == "separation"
     assert at.session_state["project_dir"] == root
     assert any("Could not save" in e.value for e in at.error)
-    assert (occupied / "keep.txt").read_text() == "keep"
-    at.button(key="close_project").click().run()
 
 
 def test_opening_a_corrupt_project_recovers_from_autosave(tmp_path):
@@ -474,12 +466,42 @@ def test_saving_marks_the_project_clean(tmp_path):
 
     at.session_state["project"].name = "Edited"
     at.run()
-    assert any("unsaved changes" in c.value for c in at.caption)
+    assert any("unsaved changes" in c.value.lower() for c in at.caption)
 
     at.button(key="save_project").click().run()
     assert not at.exception
-    assert any("saved" in c.value and "unsaved" not in c.value for c in at.caption)
+    assert any("saved" in c.value.lower() and "unsaved" not in c.value.lower() for c in at.caption)
     assert P.load_project(project_dir).name == "Edited"
+
+
+def test_opening_the_same_path_cannot_discard_unsaved_changes(tmp_path):
+    project_dir = _existing_song_project(tmp_path)
+    at = _fresh_app()
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+    at.session_state["project"].name = "Unsaved edit"
+    at.run()
+
+    at.text_input(key="open_project_path").set_value(str(project_dir))
+    at.button(key="open_project_btn").click().run()
+
+    assert at.session_state["project"].name == "Unsaved edit"
+    assert any("Save your changes" in error.value for error in at.error)
+
+
+def test_save_as_uses_a_simple_name_and_switches_to_a_portable_copy(tmp_path, monkeypatch):
+    from heartbeam.gui import _save_as_copy
+    source = _existing_song_project(tmp_path)
+    data = tmp_path / "HeartBeam data"
+    monkeypatch.setenv("HEARTBEAM_DATA_ROOT", str(data))
+    original = P.load_project(source)
+    original_id = original.id
+    copy, destination = _save_as_copy(original, source, "My Named Copy")
+
+    assert destination == data / "Projects" / "My Named Copy"
+    assert copy.id != original_id
+    assert P.load_project(destination).name == "My Named Copy"
+    assert P.load_project(source).id == original_id
 
 
 def test_missing_asset_is_surfaced_with_a_relink_control(tmp_path):

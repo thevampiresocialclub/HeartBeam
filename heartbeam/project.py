@@ -560,6 +560,8 @@ def save_project_as(project: Project, dest_dir: str | Path,
     dest = Path(dest_dir)
     if (dest / MANIFEST_NAME).exists():
         raise ProjectError("That folder already contains a project. Choose a new folder for the copy.")
+    if dest.exists() and any(dest.iterdir()):
+        raise ProjectError("That folder is not empty. Choose a new folder so no existing files are overwritten.")
     dest.mkdir(parents=True, exist_ok=True)
     if src_dir is not None:
         src = Path(src_dir)

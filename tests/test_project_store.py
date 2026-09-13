@@ -258,6 +258,22 @@ def test_save_as_leaves_the_original_untouched(tmp_path):
     assert P.load_project(src).name == "original"
 
 
+def test_save_as_rejects_an_unrelated_nonempty_folder(tmp_path):
+    source = tmp_path / "source"
+    project = P.create_project(source, "safe")
+    P.save_project(project, source)
+    destination = tmp_path / "occupied"
+    destination.mkdir()
+    kept = destination / "song.wav"
+    kept.write_bytes(b"do not replace")
+
+    with pytest.raises(P.ProjectError, match="not empty"):
+        P.save_project_as(project, destination, src_dir=source)
+
+    assert kept.read_bytes() == b"do not replace"
+    assert not (destination / P.MANIFEST_NAME).exists()
+
+
 # ---------------------------------------------------------------------------
 # atomicity and recovery
 # ---------------------------------------------------------------------------

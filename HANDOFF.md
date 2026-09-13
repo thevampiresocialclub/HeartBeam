@@ -1,6 +1,6 @@
 # HeartBeam handoff
 
-**Updated:** 12 September 2026 by Codex. The owner has parked instrument recovery
+**Updated:** 13 September 2026 by Codex. The owner has parked instrument recovery
 after listening; direct Video Editing → Export is restored. Useful fixes remain.
 **Repo:** `C:\Users\young\Documents\GitHub\HeartBeam\HeartBeam`
 **Continuation base:** use `git log -1`; P03 through P06 are committed milestones.
@@ -8,6 +8,21 @@ after listening; direct Video Editing → Export is restored. Useful fixes remai
 Read **BUILD-STATUS.md first**. It is the authoritative record of completion,
 tests, measured performance and remaining validation limits. This handoff
 explains how to continue without breaking the working editor.
+
+**Latest file workflow, 13 September:** Sol implemented numbered working sessions,
+the familiar File/Open/Save/Save as controls, direct folder access, a Tracks menu,
+completed-video reveal and a compact aligned header. Astra reviewed and tested
+the result: **404 Python and 29 JavaScript tests passed**, plus isolated browser
+Open/Save as/Save-and-close and a four-second H.264/AAC export. Read the newest
+BUILD-STATUS entry for evidence and native-desktop/Firefox limits, and
+`docs/FILE-WORKFLOW-PLAN.md` for decisions. New projects live directly in numbered
+Sessions folders; Save as creates a named portable copy under Projects. Discover
+legacy `out/project` layouts rather than migrating them. Preserve internal stable
+project/word/line IDs; the session folder number is only a user-facing identifier.
+The header heading has a nested Streamlit wrapper with a negative bottom margin:
+keep its scoped `:has(h1)` margin reset or the title sits below the buttons again.
+Older running servers may retain imported modules; start a fresh process for
+this code. Existing songs and saved folders were left in place.
 
 **GitHub setup, 12 September:** the maintained route is now the private
 `thevampiresocialclub/HeartBeam` repository plus `INSTALL-WITH-AN-AGENT.md`.

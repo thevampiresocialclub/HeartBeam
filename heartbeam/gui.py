@@ -28,13 +28,16 @@ import streamlit as st
 
 from heartbeam import editor as ed
 from heartbeam import editor_media as em
+from heartbeam import desktop
 from heartbeam import lyrics as lyr
 from heartbeam import project as prj
 from heartbeam import editor_ui as ui
 from heartbeam.project_lock import WriterLease
 from heartbeam.models import PRESETS, PRIMARY_PRESETS, resolve_default
 from heartbeam.style import toml_string
-from heartbeam.paths import new_session, projects_dir, safe_file_stem, data_root
+from heartbeam.paths import (new_session, projects_dir, reserve_project_dir,
+                             session_project_dirs, sessions_dir,
+                             suggested_project_dir, data_root)
 
 # Milestone log-line patterns -> (progress 0-1, friendly label)
 _MILESTONES: list[tuple[re.Pattern, float, str]] = [
@@ -348,7 +351,9 @@ def _adopt_run_into_project(out_dir: Path, song_name: str) -> bool:
     if not timings_json.exists() or (not prepared and not karaoke.exists()):
         st.session_state.project_message = f"Separation did not produce both audio and timings. Check the output folder: {out_dir}"
         return False
-    project_dir = out_dir / "project"
+    # New sessions are working projects themselves: Sessions/1/project.json.
+    # A bare output folder is still accepted for older runs and test fixtures.
+    project_dir = out_dir.parent if out_dir.name.casefold() == "out" else out_dir
     try:
         project = prj.import_legacy_timings(
             project_dir, timings_json, karaoke if not prepared else None,
@@ -396,102 +401,248 @@ def _render_missing_assets(project, project_dir: Path) -> None:
                 st.error(str(exc))
 
 
+def _known_projects() -> list[tuple[str, Path]]:
+    """Named copies first, then direct and legacy preparation sessions."""
+    choices: list[tuple[str, Path]] = []
+    root = projects_dir()
+    try:
+        folders = sorted(root.iterdir(), key=lambda p: p.name.casefold()) if root.is_dir() else []
+    except OSError:
+        folders = []
+    for folder in folders:
+        try:
+            if not folder.is_dir() or not (folder / prj.MANIFEST_NAME).is_file():
+                continue
+            try:
+                name = prj.load_project(folder).name
+            except prj.ProjectError:
+                name = folder.name
+            detail = f" — {folder.name}" if name.casefold() != folder.name.casefold() else ""
+            choices.append((f"Project · {name}{detail}", folder))
+        except OSError:
+            continue
+    for number, folder in session_project_dirs():
+        try:
+            name = prj.load_project(folder).name
+        except (prj.ProjectError, OSError):
+            name = folder.name
+        if number is not None:
+            label = f"Session {number} · {name}"
+        else:
+            session_folder = folder.parents[1] if folder.parent.name.casefold() == "out" else folder
+            label = f"Session · {name} — {session_folder.name}"
+        choices.append((label, folder))
+    return choices
+
+
+def _open_from_file_control(path: Path, *, discard_dirty=False) -> tuple[bool, str]:
+    path = path.expanduser().resolve()
+    if path.name.casefold() == prj.MANIFEST_NAME:
+        path = path.parent
+    current = st.session_state.get("project_dir")
+    if _is_dirty() and not discard_dirty:
+        return False, "Save your changes first, or confirm that you want to discard them."
+    if current is not None and path == Path(current).resolve() and not _is_dirty():
+        return True, f"'{st.session_state.project.name}' is already open."
+    return _open_project(path)
+
+
+def _finish_open(path: Path, *, discard_dirty=False) -> None:
+    ok, message = _open_from_file_control(path, discard_dirty=discard_dirty)
+    if ok:
+        st.session_state.project_message = message
+        st.rerun()
+    st.error(message)
+
+
+@st.dialog("Open project")
+def _open_project_dialog() -> None:
+    choices = _known_projects()
+    discard = False
+    if _is_dirty():
+        st.warning("The current project has unsaved changes.")
+        discard = st.checkbox("Discard unsaved changes and open another project")
+    if choices:
+        chosen = st.selectbox("Projects and sessions", range(len(choices)), key="known_project",
+                              format_func=lambda index: choices[index][0])
+        if st.button("Open selected", type="primary", disabled=_is_dirty() and not discard,
+                     key="open_known_project"):
+            _finish_open(choices[chosen][1], discard_dirty=discard)
+    else:
+        st.caption("No saved projects or prepared sessions were found yet.")
+    if st.button("Browse…", disabled=_is_dirty() and not discard, key="browse_project"):
+        try:
+            chosen_file = desktop.choose_project_file(projects_dir())
+            if chosen_file:
+                _finish_open(chosen_file, discard_dirty=discard)
+        except desktop.DesktopError as exc:
+            st.error(str(exc))
+    with st.expander("Advanced path"):
+        open_path = st.text_input("Project folder or project.json", key="dialog_open_project_path")
+        if st.button("Open path", disabled=_is_dirty() and not discard, key="dialog_open_project_btn"):
+            if not open_path:
+                st.error("Enter a project folder or project.json path.")
+            else:
+                _finish_open(Path(open_path), discard_dirty=discard)
+
+
+@st.dialog("Save as")
+def _save_as_dialog() -> None:
+    project = st.session_state.get("project")
+    source = st.session_state.get("project_dir")
+    if project is None or source is None:
+        st.error("Open or prepare a project first.")
+        return
+    name = st.text_input("Project name", value=project.name, key="save_as_name")
+    suggested = suggested_project_dir(name or project.name)
+    st.caption(f"Default: Projects / {suggested.name}")
+    with st.expander("Choose another folder"):
+        custom = st.text_input("Custom empty folder", key="save_as_path",
+                               placeholder="Leave blank to use Projects")
+    if st.button("Save as", type="primary", key="save_as_btn"):
+        try:
+            copy, destination = _save_as_copy(project, source, name, custom)
+            st.session_state.project = copy
+            st.session_state.project_dir = destination
+            _activate_writer(destination)
+            _mark_saved(copy)
+            st.session_state.project_message = f"Saved as '{copy.name}' in {destination}"
+            st.rerun()
+        except (OSError, prj.ProjectError) as exc:
+            st.error(f"Could not save as: {exc}")
+
+
+def _save_as_copy(project, source: Path, name: str,
+                  custom: str = "") -> tuple[object, Path]:
+    """Create the independent named copy used by the Save as dialog."""
+    if not name.strip():
+        raise prj.ProjectError("Enter a project name.")
+    reserved = not custom.strip()
+    destination = (Path(custom).expanduser().resolve() if custom.strip()
+                   else reserve_project_dir(name))
+    try:
+        copy = prj.save_project_as(project, destination, src_dir=source)
+        copy.name = name.strip()
+        prj.save_project(copy, destination, bump=False)
+        return copy, destination
+    except BaseException:
+        if reserved:
+            try:
+                destination.rmdir()
+            except OSError:
+                pass
+        raise
+
+
+@st.dialog("Unsaved changes")
+def _close_project_dialog() -> None:
+    st.warning("Save this project before closing, or explicitly discard the unsaved changes.")
+    actions = st.columns(2)
+    if actions[0].button("Save and close", type="primary", key="save_and_close"):
+        try:
+            prj.save_project(st.session_state.project, st.session_state.project_dir, bump=False)
+            _mark_saved(st.session_state.project)
+            _close_project()
+        except (prj.ProjectError, OSError) as exc:
+            st.error(str(exc))
+    if actions[1].button("Discard and close", key="discard_and_close"):
+        _close_project()
+
+
+def _close_project() -> None:
+    if st.session_state.get("writer_lease"):
+        st.session_state.writer_lease.close()
+    st.session_state.writer_lease = None
+    st.session_state.project = None
+    st.session_state.project_dir = None
+    st.session_state.workflow_step = "separation"
+    st.session_state.out_dir = None
+    st.rerun()
+
+
+def _open_folder_button(label: str, path: Path, key: str, *, create=False) -> None:
+    if st.button(label, key=key):
+        try:
+            if create:
+                path.mkdir(parents=True, exist_ok=True)
+            desktop.open_folder(path)
+        except (OSError, desktop.DesktopError) as exc:
+            st.error(str(exc))
+
+
 def _project_controls() -> None:
-    """File menu: Open / Save / Save As, plus state and missing assets."""
+    """Compact File menu backed by durable project and session discovery."""
     with st.popover("File", width="content", disabled=st.session_state.get('running', False)):
         project = st.session_state.get("project")
         project_dir = st.session_state.get("project_dir")
-
+        state = "unsaved changes" if _is_dirty() else "saved"
         if project is None:
-            st.caption(
-                "No project open. Prepare a song below, or open an existing "
-                "project folder."
-            )
+            st.caption("No project open")
         else:
-            state = "unsaved changes" if _is_dirty() else "saved"
             st.markdown(f"**{project.name}**")
-            st.caption(f"revision {project.revision} - {state}")
-            st.caption(str(project_dir))
+            st.caption(state.capitalize())
             if st.session_state.get("project_readonly"):
-                st.info("Read only: another editor has this project open. Close it there and reopen here, or save a copy to edit independently.")
-            _render_missing_assets(project, project_dir)
+                st.info("Read only: another editor has this project open.")
 
-            cols = st.columns(2)
-            with cols[0]:
-                if st.button("Save", key="save_project", disabled=st.session_state.get("project_readonly", False)):
-                    try:
-                        prj.save_project(project, project_dir, bump=False)
-                        _mark_saved(project)
-                        st.success(f"Saved revision {project.revision}")
-                    except (prj.ProjectError, OSError) as exc:
-                        st.error(str(exc))
-            with cols[1]:
-                if st.button("Close", key="close_project"):
-                    if st.session_state.get("writer_lease"):
-                        st.session_state.writer_lease.close()
-                    st.session_state.writer_lease = None
-                    st.session_state.project = None
-                    st.session_state.project_dir = None
-                    st.session_state.workflow_step = "separation"
-                    st.session_state.out_dir = None
-                    st.rerun()
-
-            save_as = st.text_input(
-                "Save As (new folder)", key="save_as_path",
-                placeholder="full path to a new folder",
-            )
-            if st.button("Save a copy", key="save_as_btn"):
-                if not save_as:
-                    st.error("Enter a destination folder first.")
-                try:
-                    if not save_as:
-                        raise OSError("no destination folder given")
-                    copy = prj.save_project_as(project, Path(save_as), src_dir=project_dir)
-                    st.session_state.project = copy
-                    st.session_state.project_dir = Path(save_as)
-                    _activate_writer(Path(save_as))
-                    _mark_saved(copy)
-                    st.session_state.project_message = f"Saved a copy to {save_as}"
-                    st.rerun()
-                except (OSError, prj.ProjectError) as exc:
-                    st.error(f"Could not save a copy: {exc}")
+        if st.button("Open…", key="file_open", use_container_width=True):
+            _open_project_dialog()
+        if st.button("Save", key="save_project", use_container_width=True,
+                disabled=project is None or st.session_state.get("project_readonly", False)):
+            try:
+                prj.save_project(project, project_dir, bump=False)
+                _mark_saved(project)
+                st.success(f"Saved revision {project.revision}")
+            except (prj.ProjectError, OSError) as exc:
+                st.error(str(exc))
+        if st.button("Save as…", key="file_save_as", use_container_width=True,
+                     disabled=project is None):
+            _save_as_dialog()
+        if st.button("Close", key="close_project", use_container_width=True,
+                     disabled=project is None):
+            if _is_dirty():
+                _close_project_dialog()
+            else:
+                _close_project()
 
         st.divider()
-        open_path = st.text_input(
-            "Open project folder", key="open_project_path",
-            placeholder="full path to a project folder",
-        )
-        # The button always renders and validates on click. Gating it on the
-        # text field makes it appear mid-keystroke and is impossible to drive
-        # from a test.
-        if st.button("Open", key="open_project_btn"):
-            if not open_path:
-                st.error("Enter the path to a project folder first.")
-            else:
-                ok, message = _open_project(Path(open_path))
-                if ok:
-                    # Rerun so the sidebar redraws with the project's name,
-                    # revision and any missing assets. Without this the panel
-                    # lags one interaction behind what is actually loaded.
-                    st.session_state.project_message = message
-                    st.rerun()
-                else:
-                    st.error(message)
+        locations = st.columns(2)
+        with locations[0]:
+            _open_folder_button("Sessions", sessions_dir(), "open_sessions_folder", create=True)
+        with locations[1]:
+            _open_folder_button("Projects", projects_dir(), "open_projects_folder", create=True)
+        if project_dir is not None:
+            _open_folder_button("Project folder", Path(project_dir), "open_current_folder")
 
-        with st.expander("Import existing timings + audio"):
-            st.caption("Enter an existing song without rerunning separation.")
+        if project is not None:
+            with st.expander("Project files and relinking"):
+                st.caption(f"Revision {project.revision}")
+                st.caption(str(project_dir))
+                _render_missing_assets(project, project_dir)
+
+        with st.expander("Advanced open and import"):
+            open_path = st.text_input("Project folder or project.json", key="open_project_path",
+                                      placeholder="full path for an older or recovered project")
+            if st.button("Open path", key="open_project_btn"):
+                if not open_path:
+                    st.error("Enter a project folder or project.json path first.")
+                else:
+                    _finish_open(Path(open_path))
+            st.divider()
+            st.caption("Import existing timings and audio without rerunning separation.")
             t_path = st.text_input("timings.json", key="import_timings")
             a_path = st.text_input("karaoke audio (optional)", key="import_audio")
             d_path = st.text_input("new project folder", key="import_dest")
+            discard_for_import = (not _is_dirty() or st.checkbox(
+                "Discard current unsaved changes when importing", key="discard_for_import"))
             if st.button("Import", key="import_btn"):
-                if not t_path or not d_path:
+                if not discard_for_import:
+                    st.error("Save the current project, or confirm that its unsaved changes can be discarded.")
+                elif not t_path or not d_path:
                     st.error("A timings.json and a destination folder are required.")
                 else:
                     try:
-                        imported = prj.import_legacy_timings(
-                            Path(d_path), Path(t_path),
-                            Path(a_path) if a_path else None,
-                        )
+                        imported = prj.import_legacy_timings(Path(d_path), Path(t_path),
+                            Path(a_path) if a_path else None)
                         st.session_state.project = imported
                         st.session_state.project_dir = Path(d_path)
                         _activate_writer(Path(d_path))
@@ -505,10 +656,48 @@ def _project_controls() -> None:
         message = st.session_state.pop("project_message", None)
         if message:
             st.info(message)
-        with st.expander("File locations"):
-            st.caption(f"Projects: {projects_dir()}")
-            st.caption(f"Preparation sessions: {data_root() / 'Sessions'}")
-            st.caption("Videos are saved inside each project's exports folder. Existing projects can stay in their current folders.")
+
+
+_TRACK_LABELS = {
+    "instrumental_stem": "Instrumental",
+    "lead_stem": "Lead vocals",
+    "backing_stem": "Backing vocals",
+    "vocals_stem": "Complete vocals",
+    "original_audio": "Original",
+}
+
+
+def _available_tracks(project, root: Path) -> list[tuple[str, object, Path]]:
+    result = []
+    for role, label in _TRACK_LABELS.items():
+        asset = project.asset_by_role(role)
+        if asset is not None:
+            path = asset.resolve(root)
+            if path.is_file():
+                result.append((label, asset, path))
+    return result
+
+
+def _track_controls(project, root: Path) -> None:
+    tracks = _available_tracks(project, root)
+    if not tracks:
+        return
+    with st.popover("Tracks", width="content"):
+        labels = [label for label, _, _ in tracks]
+        chosen = st.selectbox("Track", labels, label_visibility="collapsed",
+                              key=f"chosen_track_{project.id}")
+        label, asset, path = next(item for item in tracks if item[0] == chosen)
+        st.caption(path.name)
+        actions = st.columns(2)
+        if actions[0].button("Show in folder", key=f"reveal_track_{asset.id}"):
+            try:
+                desktop.reveal_file(path)
+            except desktop.DesktopError as exc:
+                st.error(str(exc))
+        actions[1].download_button("Download", lambda p=path: p.read_bytes(), path.name,
+            mime="audio/wav", key=f"download_track_{asset.id}", on_click="ignore")
+        _open_folder_button("Open tracks folder", root / prj.AUDIO_DIR,
+                            f"open_tracks_folder_{project.id}")
 
 
 def _lyrics_input(imported=None) -> str:
@@ -677,10 +866,20 @@ def main() -> None:
     if project and step in ("video", "export") and not approved(project):
         step = st.session_state.workflow_step = "review"
     with st.container(key="hb_workflow"):
-        title, file_menu, back, review_step, next_step, export_step = st.columns([1.2, .55, 1.1, 1.2, 1.1, .9], vertical_alignment="center")
-        title.title("HeartBeam")
+        has_tracks = bool(project and st.session_state.get("project_dir") and
+                          _available_tracks(project, Path(st.session_state.project_dir)))
+        columns = st.columns([1.2, .55] + ([.7] if has_tracks else []) +
+                             [1.1, 1.2, 1.1, .9], vertical_alignment="center")
+        title, file_menu, *controls = columns
+        with title:
+            st.title("HeartBeam")
         with file_menu:
             _project_controls()
+        if has_tracks:
+            tracks, *controls = controls
+            with tracks:
+                _track_controls(project, Path(st.session_state.project_dir))
+        back, review_step, next_step, export_step = controls
         if back.button("1 · Prepare audio", key="step_separation", disabled=step == "separation" or st.session_state.running):
             st.session_state.workflow_step = "separation"
             st.rerun()
@@ -889,21 +1088,16 @@ def _separation_result() -> None:
         if audio:
             st.audio(str(audio))
         generated = st.session_state.get("separation_project_id") == project.id
-        safe_name = safe_file_stem(project.name)
-        default = projects_dir() / f"{safe_name}-{project.id[-6:]}" if generated else root
-        destination = st.text_input("Save project folder", str(default), key=f"next_save_{project.id}")
-        if st.button("Save project and review timing" if pending else "Save project and edit video", key="save_and_edit", type="primary", disabled=st.session_state.get("project_readonly", False)):
+        if generated:
             try:
-                if not destination.strip():
-                    raise prj.ProjectError("Choose a project folder first.")
-                target = Path(destination).expanduser().resolve()
-                if target != root.resolve():
-                    project = prj.save_project_as(project, target, src_dir=root)
-                    st.session_state.project = project
-                    st.session_state.project_dir = target
-                    _activate_writer(target)
-                else:
-                    prj.save_project(project, root, bump=False)
+                relative = root.resolve().relative_to(sessions_dir().resolve())
+                st.caption(f"Saved automatically as Session {relative.parts[0]}")
+            except ValueError:
+                st.caption(f"Saved automatically in {root}")
+        if st.button("Review timing" if pending else "Edit video", key="save_and_edit",
+                     type="primary", disabled=st.session_state.get("project_readonly", False)):
+            try:
+                prj.save_project(project, root, bump=False)
                 _mark_saved(project)
                 st.session_state.workflow_step = "review" if pending else "video"
                 st.session_state.separation_project_id = None

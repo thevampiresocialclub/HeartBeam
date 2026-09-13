@@ -2,7 +2,7 @@
 from pathlib import Path
 import streamlit as st
 
-from . import export_jobs as J, project as P
+from . import desktop, export_jobs as J, project as P
 from .export_names import default_video_filename, video_filename
 
 
@@ -34,9 +34,19 @@ def _show_video(record, project, *, selection=False):
         st.caption(f"This video is from revision {revision}. Render again to include newer edits.")
     st.video(str(path))
     name = path.name
-    st.caption(f"Saved to {path}")
-    st.download_button(f"Download {name}", path.read_bytes(), name, mime="video/mp4",
-                       key=f"dl_{'selection' if selection else 'video'}_{path.parent.name}")
+    st.caption(f"Saved: {name}")
+    actions = st.columns(2)
+    actions[0].download_button(f"Download {name}", lambda p=path: p.read_bytes(), name,
+        mime="video/mp4", key=f"dl_{'selection' if selection else 'video'}_{path.parent.name}",
+        on_click="ignore")
+    if actions[1].button("Show video in folder",
+            key=f"reveal_{'selection' if selection else 'video'}_{path.parent.name}"):
+        try:
+            desktop.reveal_file(path)
+        except desktop.DesktopError as exc:
+            st.error(str(exc))
+    with st.expander("File details"):
+        st.caption(str(path))
 
 
 def _active_status(project, root):
@@ -90,7 +100,9 @@ def render_controls(project, root, karaoke):
                                  key=f"export_filename_{project.id}",
                                  help="Saved inside this project's exports folder. The .mp4 extension is added if needed.")
         st.session_state[name_key] = filename
-        st.caption(f"Save location: {Path(root) / P.EXPORTS_DIR} · each render keeps its own folder")
+        st.caption("Saved in this project's Exports folder. Each render is kept.")
+        with st.expander("Export folder details"):
+            st.caption(str(Path(root) / P.EXPORTS_DIR))
         try:
             if st.button("Render video", type="primary", disabled=readonly):
                 job = J.start(project, root, karaoke, output_name=filename)

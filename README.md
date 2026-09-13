@@ -49,7 +49,7 @@ Rock and metal models can be added later. Allow several GB for dependencies and 
 
 ### Projects and output folders
 
-The **File** menu opens, saves and copies projects. New preparation sessions are retained in `Documents/HeartBeam/Sessions`; saved projects default to `Documents/HeartBeam/Projects`. Existing projects stay in place. Exports belong to the project, default to `input_filename_karaoke.mp4`, and can be renamed beside **Render video**. See [Files and distribution](docs/FILES-AND-DISTRIBUTION.md).
+The **File** menu opens, saves and names project copies. Preparation is saved automatically in numbered folders such as `Documents/HeartBeam/Sessions/1`; **Save as** creates a readable name under `Documents/HeartBeam/Projects`. Existing projects stay in place. The File and Tracks menus open their folders directly. Exports belong to the project, default to `input_filename_karaoke.mp4`, and include **Show video in folder** after rendering. See [Files and distribution](docs/FILES-AND-DISTRIBUTION.md).
 
 ### Hardware and other installation routes
 
