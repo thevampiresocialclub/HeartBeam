@@ -2,7 +2,7 @@
 
 Give this repository to a coding agent running **locally on the computer where HeartBeam will run**. A subscription is optional setup help, not a HeartBeam runtime requirement. A cloud-only chat or coding task cannot install software on your PC.
 
-Repository: [thevampiresocialclub/HeartBeam](https://github.com/thevampiresocialclub/HeartBeam). This repository is private; accept the maintainer's GitHub invitation and sign in before cloning.
+Repository: [thevampiresocialclub/HeartBeam](https://github.com/thevampiresocialclub/HeartBeam). It is public and can be cloned without an invitation.
 
 Copy this request to your agent:
 

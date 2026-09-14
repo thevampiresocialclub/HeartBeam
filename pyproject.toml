@@ -9,7 +9,10 @@ description = "Lyrics-aware karaoke generator: strip lead vocals, keep backing v
 requires-python = ">=3.10"
 readme = "README.md"
 authors = [{ name = "thevampiresocialclub" }]
-license = { text = "MIT" }
+license = { file = "LICENSE" }
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
 dependencies = [
     "numpy>=1.24",
     "scipy>=1.11",

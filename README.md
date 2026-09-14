@@ -17,8 +17,7 @@ The recommended route is a GitHub checkout plus the repository setup script. Giv
 
 **Windows x64 / Python 3.12 is the maintained setup baseline.**
 
-The repository is private. Friends first accept a GitHub invitation, then clone
-`https://github.com/thevampiresocialclub/HeartBeam.git` into a permanent folder.
+Clone `https://github.com/thevampiresocialclub/HeartBeam.git` into a permanent folder.
 From that checkout:
 
 ```powershell
@@ -416,3 +415,7 @@ Use **Render a short passage first** for a final-quality check of up to 60 secon
 Save the project to keep edits across sessions. See [docs/EXPORTS.md](docs/EXPORTS.md)
 for the workflow and recovery files, and [docs/PRESENTATION.md](docs/PRESENTATION.md)
 for the presentation/compiler contract.
+
+## License
+
+HeartBeam is released under the [MIT License](LICENSE).
